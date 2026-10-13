@@ -17,7 +17,7 @@
 
 ---
 
-## 1. 빠른 시작
+## 1. 📌 빠른 시작
 
 ```bash
 git clone https://github.com/yuksabal-team6/logistics-msa.git
@@ -26,14 +26,13 @@ docker-compose up -d postgres
 ```
 
 1. IntelliJ로 **루트 폴더** 열기 → Gradle 탭 🔄
-2. `EurekaServerApplication` 먼저 실행 → 나머지 앱 실행
+2. `EurekaServerApplication` 먼저 실행 → 나머지 앱 실행 (hotkey: cmd+8)
 3. http://localhost:8761 에 6개 UP이면 끝
 
 필요: JDK 17+, Docker + Compose v2 이상, IntelliJ (Gradle 설치 불필요)
 
 - Docker 버전은 팀원끼리 맞출 필요 없음 (이미지 버전은 `postgres:16`, `eclipse-temurin:17-jre`로 고정)
 - 확인: `docker compose version` → `v2.x` 이상이면 OK
-- 문서의 `docker-compose` 명령은 `docker compose`(띄어쓰기)로 써도 동일함. Docker Desktop은 보통 띄어쓰기 버전
 
 ---
 
@@ -99,7 +98,7 @@ docker-compose down                                        # 종료
 docker-compose down -v                                     # 종료 + DB 초기화
 ```
 
-> ⚠️ 이미지는 **내 PC에서 빌드한 jar**를 씁니다. `./gradlew build` 없이 올리면 이전 코드로 실행되니 두 명령을 항상 같이 쓰세요.
+> ⚠️ 이미지는 **내 PC에서 빌드한 jar** 사용. `./gradlew build` 없이 올리면 이전 코드로 실행되니 두 명령을 항상 같이 사용해야 한다.
 
 - 📌 서비스 포트는 외부에 안 열림 → 게이트웨이(8080)로만 요청
 - 수평 확장: `docker-compose up -d --scale order-service=2`
@@ -281,10 +280,13 @@ throw new BusinessException(OrderErrorCode.ORDER_NOT_FOUND);
 
 ## 9. 📌 Swagger
 
-`http://localhost:{포트}/swagger-ui/index.html` (8081~8085)
+- **통합 (게이트웨이)**: http://localhost:8080/swagger-ui/index.html → 오른쪽 위 드롭다운에서 서비스 선택
+  - fetch error 500 발생 가능: 서비스가 Eureka에 등록되고 → 게이트웨이가 Eureka에서 그 목록을 받아오기까지 최대 30초 소요됨.
+  
+- 서비스별: `http://localhost:{8081~8085}/swagger-ui/index.html` (IntelliJ 실행 시만. Docker는 서비스 포트가 외부에 안 열림)
+- 우상단 Authorize에 토큰만 입력 → `Bearer ` 자동 붙여줌
 
-- IntelliJ 실행 시만 접속 가능 (Docker는 서비스 포트 비공개)
-- Authorize에 토큰만 입력 → `Bearer ` 자동
+> 💡 통합 Swagger의 Try it out 요청은 **게이트웨이를 거쳐** 서비스로 갑니다 (실제 인증 흐름 그대로). Docker로 실행해도 볼 수 있습니다. 새 서비스를 추가하면 게이트웨이 `application.yml`에 api-docs 라우팅과 `springdoc.swagger-ui.urls`를 추가하세요.
 
 ```java
 @Tag(name = "Order", description = "주문 API")
@@ -347,7 +349,8 @@ public class OrderController {
 
 ## 11. TODO
 
-- 게이트웨이 JWT 필터 → `X-User-Id`, `X-User-Role` 헤더 전달 (헤더 이름 팀 확정 필요)
+- 📌 게이트웨이 JWT 필터 → `X-User-Id`, `X-User-Role` 헤더 전달 (헤더 이름 팀 확정 필요). 
+- 📌 Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`, `/*-service/v3/api-docs`)는 인증 제외
 - 회원가입·로그인 (JWT, BCrypt)
 - FeignClient: 처음 쓰는 서비스는 Application에 `@EnableFeignClients` 추가
 - `schema.sql` + `validate` 전환 (선택)

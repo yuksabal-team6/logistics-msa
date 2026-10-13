@@ -15,6 +15,7 @@ import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -44,7 +45,10 @@ public class SwaggerConfig {
         // 에러 응답 예시에서 참조할 수 있도록 ErrorResponse 스키마를 등록
         ModelConverters.getInstance().read(ErrorResponse.class).forEach(components::addSchemas);
 
+        // 서버 주소를 상대경로로 두면, 게이트웨이 통합 Swagger에서는 게이트웨이(8080)로,
+        // 서비스 Swagger에서는 서비스 포트로 Try it out 요청이 간다
         return new OpenAPI()
+                .servers(List.of(new Server().url("/")))
                 .info(new Info().title("Company Service API").version("v1"))
                 .components(components)
                 .addSecurityItem(new SecurityRequirement().addList(JWT_SCHEME));
