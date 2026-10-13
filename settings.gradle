@@ -1,0 +1,9 @@
+rootProject.name = 'logistics-msa'
+
+include 'eureka-server'
+include 'api-gateway'
+include 'user-service'
+include 'hub-service'
+include 'company-service'
+include 'order-service'
+include 'delivery-service'

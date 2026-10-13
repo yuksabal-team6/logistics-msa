@@ -1,0 +1,126 @@
+# 실행: ./gradlew build -x test && docker-compose up -d --build
+x-service: &service
+  build:
+    context: .
+  restart: on-failure
+  environment: &service-env
+    TZ: Asia/Seoul
+    JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+    EUREKA_URL: http://eureka-server:8761/eureka/
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_NAME: logistics
+    DB_USERNAME: ${DB_USERNAME:-postgres}
+    DB_PASSWORD: ${DB_PASSWORD:-postgres}
+  depends_on: &service-deps
+    postgres:
+      condition: service_healthy
+    eureka-server:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: logistics-postgres
+    environment:
+      POSTGRES_DB: logistics
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d logistics"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  eureka-server:
+    build:
+      context: .
+      args:
+        MODULE: eureka-server
+    image: logistics/eureka-server
+    container_name: logistics-eureka
+    environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+      EUREKA_HOSTNAME: eureka-server
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8761' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api-gateway:
+    build:
+      context: .
+      args:
+        MODULE: api-gateway
+    image: logistics/api-gateway
+    restart: on-failure
+    environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+
+  # 아래 서비스들은 포트를 외부에 열지 않는다 → 모든 외부 요청은 게이트웨이(8080)를 거친다.
+  # 수평 확장 예: docker-compose up -d --scale order-service=2
+  user-service:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: user-service
+    image: logistics/user-service
+    environment:
+      <<: *service-env
+      JWT_SECRET: ${JWT_SECRET:-}
+
+  hub-service:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: hub-service
+    image: logistics/hub-service
+
+  company-service:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: company-service
+    image: logistics/company-service
+
+  order-service:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: order-service
+    image: logistics/order-service
+    environment:
+      <<: *service-env
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+
+  delivery-service:
+    <<: *service
+    build:
+      context: .
+      args:
+        MODULE: delivery-service
+    image: logistics/delivery-service
+
+volumes:
+  postgres-data:

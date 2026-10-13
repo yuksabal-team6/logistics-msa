@@ -1,0 +1,38 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: user-service
+  config:
+    import: optional:classpath:application-secret.yml
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:logistics}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${DDL_AUTO:update}
+    properties:
+      hibernate:
+        default_schema: user_service
+        hbm2ddl:
+          create_namespaces: true
+        format_sql: true
+        jdbc:
+          time_zone: Asia/Seoul
+    show-sql: false
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${spring.cloud.client.ip-address}:${server.port}
+
+jwt:
+  secret: ${JWT_SECRET:}
+  access-token-expiration: 3600000
