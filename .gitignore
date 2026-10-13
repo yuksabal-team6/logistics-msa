@@ -260,3 +260,9 @@ gradle-app.setting
 
 # 민감 정보 설정 파일 제외
 **/application-secret.yml
+
+.idea/
+*.iml
+**/build/
+**/.gradle/
+**/application-secret.yml
