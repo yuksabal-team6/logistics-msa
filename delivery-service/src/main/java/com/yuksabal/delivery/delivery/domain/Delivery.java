@@ -1,0 +1,78 @@
+package com.yuksabal.delivery.delivery.domain;
+
+import com.yuksabal.common.entity.BaseEntity;
+import jakarta.persistence.*;
+import lombok.AccessLevel;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLRestriction;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@SQLRestriction("deleted_at IS NULL")
+@Entity
+@Table(name = "p_deliveries")
+public class Delivery extends BaseEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "delivery_id")
+    private UUID id;
+
+    // 주문 → order-service p_orders.order_id. 주문 하나에 배송 하나, UNIQUE는 부분 유니크 인덱스로 관리 (결정 #15)
+    @Column(nullable = false)
+    private UUID orderId;
+
+    // 출발·목적지 허브 → hub-service p_hubs.hub_id
+    @Column(nullable = false)
+    private UUID departureHubId;
+
+    @Column(nullable = false)
+    private UUID destinationHubId;
+
+    // 도착(수령) 업체 → company-service p_companies.company_id
+    @Column(nullable = false)
+    private UUID destinationCompanyId;
+
+    // 허브 → 업체 배송 담당자 → user-service p_users.user_id
+    private UUID deliveryManagerId;
+
+    @Column(nullable = false, length = 500)
+    private String address;
+
+    @Column(nullable = false, length = 100)
+    private String recipientName;
+
+    @Column(length = 100)
+    private String recipientSlackId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private DeliveryStatus deliveryStatus;
+
+    private LocalDateTime startedAt;
+
+    private LocalDateTime completedAt;
+
+    @Builder
+    public Delivery(UUID orderId, UUID departureHubId, UUID destinationHubId, UUID destinationCompanyId,
+                    UUID deliveryManagerId, String address, String recipientName, String recipientSlackId) {
+        this.orderId = orderId;
+        this.departureHubId = departureHubId;
+        this.destinationHubId = destinationHubId;
+        this.destinationCompanyId = destinationCompanyId;
+        this.deliveryManagerId = deliveryManagerId;
+        this.address = address;
+        this.recipientName = recipientName;
+        this.recipientSlackId = recipientSlackId;
+        this.deliveryStatus = DeliveryStatus.READY;
+    }
+
+    public void delete(UUID deletedBy) {
+        markDeleted(deletedBy);
+    }
+}
