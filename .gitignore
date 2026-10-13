@@ -266,3 +266,10 @@ gradle-app.setting
 **/build/
 **/.gradle/
 **/application-secret.yml
+# Claude Code
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+
+# 환경 변수
+.env
