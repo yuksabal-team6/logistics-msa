@@ -13,7 +13,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-// 모든 테이블 공통 감사 필드. 사용자 컬럼은 p_users.user_id(UUID)를 담는다.
+// 모든 테이블 공통 Audit 필드. 사용자 컬럼은 p_users.user_id(UUID)를 담는다.
 @Getter
 @MappedSuperclass
 @EntityListeners(AuditingEntityListener.class)
