@@ -19,7 +19,7 @@
 ```
 ① 이슈 생성 (템플릿 + 라벨 + 담당자) -> 생성되면 이슈 제목 오른쪽 또는 하단에 번호가 생깁니다. 
     ex) 주문 생성 구현 #12
-② develop에서 브랜치         feat/#12-order-create
+② develop에서 브랜치         feat/12-order-create
 ③ 커밋                       [feat] 주문 생성 API 추가
 ④ develop으로 PR             Closes #12
 ⑤ 리뷰 Approve
@@ -36,16 +36,16 @@
 
 ### 📌 이름 규칙
 
-`{타입}/#{이슈번호}-{설명}` (영어 소문자, 하이픈)
+`{타입}/{이슈번호}-{설명}` (영어 소문자, 하이픈)
 
 | 타입 | 예시 |
 | --- | --- |
-| `feat` | `feat/#12-order-create` |
-| `fix` | `fix/#20-stock-error` |
-| `refactor` | `refactor/#31-order-service` |
-| `chore` | `chore/#5-gateway-routing` |
-| `docs` | `docs/#8-api-spec` |
-| `test` | `test/#40-order-test` |
+| `feat` | `feat/12-order-create` |
+| `fix` | `fix/20-stock-error` |
+| `refactor` | `refactor/31-order-service` |
+| `chore` | `chore/5-gateway-routing` |
+| `docs` | `docs/8-api-spec` |
+| `test` | `test/40-order-test` |
 
 ---
 
@@ -141,19 +141,19 @@
 ```bash
 # 시작
 git switch develop && git pull origin develop
-git switch -c feat/#12-order-create
+git switch -c feat/12-order-create
 
 # 커밋·푸시
 git add order-service/
 git commit -m "[feat] 주문 생성 API 추가"
-git push -u origin feat/#12-order-create
+git push -u origin feat/12-order-create
 
 # develop 최신화
 git fetch origin && git merge origin/develop
 
 # 머지 후 정리
 git switch develop && git pull origin develop
-git branch -d feat/#12-order-create
+git branch -d feat/12-order-create
 
 # 되돌리기
 git restore 파일명              # 변경 취소
