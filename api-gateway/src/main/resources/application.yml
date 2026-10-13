@@ -31,6 +31,53 @@ spring:
             predicates:
               - Path=/api/v1/deliveries/**
 
+          # 통합 Swagger용: /{서비스}/v3/api-docs → 각 서비스의 /v3/api-docs
+          - id: user-service-api-docs
+            uri: lb://user-service
+            predicates:
+              - Path=/user-service/v3/api-docs
+            filters:
+              - StripPrefix=1
+          - id: hub-service-api-docs
+            uri: lb://hub-service
+            predicates:
+              - Path=/hub-service/v3/api-docs
+            filters:
+              - StripPrefix=1
+          - id: company-service-api-docs
+            uri: lb://company-service
+            predicates:
+              - Path=/company-service/v3/api-docs
+            filters:
+              - StripPrefix=1
+          - id: order-service-api-docs
+            uri: lb://order-service
+            predicates:
+              - Path=/order-service/v3/api-docs
+            filters:
+              - StripPrefix=1
+          - id: delivery-service-api-docs
+            uri: lb://delivery-service
+            predicates:
+              - Path=/delivery-service/v3/api-docs
+            filters:
+              - StripPrefix=1
+
+# 통합 Swagger UI: http://localhost:8080/swagger-ui/index.html (오른쪽 위 드롭다운으로 서비스 선택)
+springdoc:
+  swagger-ui:
+    urls:
+      - name: user-service
+        url: /user-service/v3/api-docs
+      - name: hub-service
+        url: /hub-service/v3/api-docs
+      - name: company-service
+        url: /company-service/v3/api-docs
+      - name: order-service
+        url: /order-service/v3/api-docs
+      - name: delivery-service
+        url: /delivery-service/v3/api-docs
+
 eureka:
   client:
     service-url:
