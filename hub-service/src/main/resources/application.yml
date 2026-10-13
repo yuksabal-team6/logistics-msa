@@ -11,7 +11,13 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  # 초기 데이터(data.sql): 허브 17개 + 허브 간 경로 272개
+  sql:
+    init:
+      mode: always
   jpa:
+    # Hibernate가 테이블을 만든 뒤에 data.sql 실행
+    defer-datasource-initialization: true
     open-in-view: false
     hibernate:
       ddl-auto: ${DDL_AUTO:update}
