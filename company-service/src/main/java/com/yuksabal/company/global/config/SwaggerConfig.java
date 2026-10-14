@@ -1,7 +1,7 @@
 package com.yuksabal.company.global.config;
 
 import com.yuksabal.common.exception.ErrorCode;
-import com.yuksabal.common.exception.ErrorResponse;
+import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.company.global.swagger.ApiErrorCodes;
 import io.swagger.v3.core.converter.ModelConverters;
 import io.swagger.v3.oas.models.Components;
@@ -11,7 +11,6 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.Content;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
-import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.responses.ApiResponses;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
@@ -31,7 +30,7 @@ import java.util.stream.Stream;
 public class SwaggerConfig {
 
     private static final String JWT_SCHEME = "JWT";
-    private static final String ERROR_SCHEMA_REF = "#/components/schemas/ErrorResponse";
+    private static final String ERROR_SCHEMA_REF = "#/components/schemas/ApiResponse";
 
     @Bean
     public OpenAPI openAPI() {
@@ -42,8 +41,8 @@ public class SwaggerConfig {
                 .bearerFormat("JWT");
 
         Components components = new Components().addSecuritySchemes(JWT_SCHEME, bearerScheme);
-        // 에러 응답 예시에서 참조할 수 있도록 ErrorResponse 스키마를 등록
-        ModelConverters.getInstance().read(ErrorResponse.class).forEach(components::addSchemas);
+        // 에러 응답 예시에서 참조할 수 있도록 ApiResponse 스키마를 등록
+        ModelConverters.getInstance().read(ApiResponse.class).forEach(components::addSchemas);
 
         // 서버 주소를 상대경로로 두면, 게이트웨이 통합 Swagger에서는 게이트웨이(8080)로,
         // 서비스 Swagger에서는 서비스 포트로 Try it out 요청이 간다
@@ -81,17 +80,17 @@ public class SwaggerConfig {
         };
     }
 
-    private ApiResponse toApiResponse(List<ErrorCode> errorCodes) {
+    private io.swagger.v3.oas.models.responses.ApiResponse toApiResponse(List<ErrorCode> errorCodes) {
         MediaType mediaType = new MediaType().schema(new Schema<>().$ref(ERROR_SCHEMA_REF));
         errorCodes.forEach(errorCode -> mediaType.addExamples(errorCode.name(), new Example()
                 .summary(errorCode.getMessage())
-                .value(ErrorResponse.from(errorCode))));
+                .value(ApiResponse.fail(errorCode))));
 
         String description = errorCodes.stream()
                 .map(ErrorCode::getMessage)
                 .collect(Collectors.joining(" / "));
 
-        return new ApiResponse()
+        return new io.swagger.v3.oas.models.responses.ApiResponse()
                 .description(description)
                 .content(new Content().addMediaType(org.springframework.http.MediaType.APPLICATION_JSON_VALUE, mediaType));
     }

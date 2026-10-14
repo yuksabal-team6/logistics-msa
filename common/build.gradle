@@ -1,4 +1,4 @@
-// 서비스들이 공유하는 계약(BaseEntity, 공통 예외·에러 응답)만 둔다. 실행 앱이 아니라 라이브러리.
+// 서비스들이 공유하는 계약(BaseEntity, 공통 예외·공통 응답)만 둔다. 실행 앱이 아니라 라이브러리.
 apply plugin: 'java-library'
 
 bootJar {
@@ -14,4 +14,5 @@ dependencies {
 	compileOnly 'org.springframework.boot:spring-boot-starter-data-jpa'
 	compileOnly 'org.springframework:spring-web'
 	compileOnly 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.22'
+	compileOnly 'com.fasterxml.jackson.core:jackson-annotations'
 }
