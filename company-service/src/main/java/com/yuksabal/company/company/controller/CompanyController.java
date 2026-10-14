@@ -66,7 +66,8 @@ public class CompanyController {
     }
 
     // 목록 조회: 200 + ApiResponse.success(PageResponse, message). 검색 조건은 모두 선택
-    @Operation(summary = "업체 목록 조회 및 검색", description = "정렬 가능: createdAt, companyName")    @ApiErrorCodes(common = {VALIDATION_ERROR})
+    @Operation(summary = "업체 목록 조회 및 검색", description = "정렬 가능: createdAt, companyName")
+    @ApiErrorCodes(common = {VALIDATION_ERROR})
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<CompanyResponse>>> getCompanies(
             @Valid @ParameterObject CompanySearchRequest request,
