@@ -152,17 +152,32 @@ order-service/.../com/yuksabal/order/
 | `exception/ErrorCode` | 에러 코드 인터페이스 |
 | `exception/CommonErrorCode` | 공통 에러 (400·401·403·404·405·500) |
 | `exception/BusinessException` | 비즈니스 예외 |
-| `exception/ErrorResponse` | 에러 응답 `{code, message}` |
+| `response/ApiResponse` | 공통 응답 (성공·실패 같은 형식) |
 
 > ⚠️ 엔티티·비즈니스 로직·서비스 DTO는 넣지 않. common이 바뀌면 전 서비스가 영향을 받습니다. 추가할 땐 팀에 먼저 공유 필수
+
+### 응답 형식
+
+성공·실패 모두 `ApiResponse`로 감싸서 응답 (HTTP 상태코드는 그대로 사용)
+
+```json
+// 성공: ApiResponse.success(data) 또는 ApiResponse.success(data, "메시지")
+{ "success": true, "data": { "id": "8b2d..." }, "message": "요청이 성공했습니다." }
+
+// 실패: GlobalExceptionHandler가 자동으로 변환
+{ "success": false, "code": "COMPANY_NOT_FOUND", "message": "업체를 찾을 수 없습니다." }
+```
+
+- 반환할 데이터가 없으면 `ApiResponse.success(null)` → `data` 필드 빠짐
+- Feign으로 다른 서비스 호출 시에도 `ApiResponse<HubResponse>`로 받아서 `.data()` 사용
 
 ### common vs 서비스 `global/`
 
 | common (공유) | 각 서비스 `global/` (독립) |
 | --- | --- |
-| `ErrorResponse`, `BusinessException` | `GlobalExceptionHandler` |
+| `ApiResponse`, `BusinessException` | `GlobalExceptionHandler` |
 | `ErrorCode`, `CommonErrorCode` | 도메인 에러 enum |
-| `BaseEntity` | `SwaggerConfig`, `@ApiErrorCodes`, `JpaAuditingConfig` |
+| `BaseEntity` | `SwaggerConfig`, `@ApiErrorCodes`, `JpaAuditingConfig`, `feign/` (Feign 사용 서비스) |
 
 > 💡 전 서비스가 **똑같아야 하는 계약**(응답 형식, 공통 에러, Audit 필드)만 common에 두고, **서비스마다 다르거나 독립적으로 바뀌어야 하는 설정**은 각 서비스 `global/`에 둡니다. `GlobalExceptionHandler`가 서비스마다 비슷하게 중복되지만, 한 서비스 변경이 다른 서비스에 영향을 주지 않도록 중복을 감수한 구조입니다 (MSA의 "결합보다 중복" 원칙).
 
@@ -264,7 +279,7 @@ order.delete(userId);   // @Transactional 끝나면 UPDATE
 ## 8. 예외 처리
 
 ```json
-{ "code": "ORDER_NOT_FOUND", "message": "주문을 찾을 수 없습니다." }
+{ "success": false, "code": "ORDER_NOT_FOUND", "message": "주문을 찾을 수 없습니다." }
 ```
 
 | 종류 | 위치 |
@@ -280,7 +295,31 @@ ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다."),
 throw new BusinessException(OrderErrorCode.ORDER_NOT_FOUND);
 ```
 
-`GlobalExceptionHandler` 자동 처리: BusinessException, `@Valid` 실패(400), JSON·타입 오류(400), 없는 URL(404), 메서드 오류(405), 그 외(500)
+`GlobalExceptionHandler` 자동 처리: BusinessException, `@Valid` 실패(400), JSON·타입 오류(400), 없는 URL(404), 메서드 오류(405), Feign 실패(아래), 그 외(500)
+
+### Feign(내부 API) 호출 규칙
+
+- 경로 `/internal/**`, 게이트웨이에 등록 ❌ / `@FeignClient(name = "hub-service")`처럼 Eureka 서비스 이름 사용
+- `X-User-Id`, `X-User-Role`은 `global/feign/FeignHeaderInterceptor`가 자동 전달 (직접 넣지 않음)
+- 내부 API도 `ApiResponse` 형식으로 응답
+- 실패는 `global/feign/FeignErrorDecoder`가 예외로 변환
+
+| 상황 | 예외 | 의미 | 안 잡으면 |
+| --- | --- | --- | --- |
+| 상대가 4xx | `FeignClientException` (status, code, message) | 업무 실패 (재고 부족 등) | 상대의 상태·코드·메시지 그대로 응답 |
+| 상대가 5xx | `FeignServerException` | 재시도·보상 대상 | 503 `SERVICE_UNAVAILABLE` |
+| 타임아웃·연결 실패 | `feign.RetryableException` | 재시도·보상 대상 | 503 `SERVICE_UNAVAILABLE` |
+
+```java
+try {
+    hubClient.decreaseStock(request);
+} catch (FeignServerException | RetryableException e) {
+    // 보상 처리 (예: 주문 실패 처리, 이미 차감한 재고 restore)
+    throw e;
+}
+```
+
+- `stocks/decrease`, `stocks/restore`는 `orderId` 기준 멱등성 처리 (`InventoryLog`의 order_id + change_type 중복 확인)
 
 ---
 
@@ -303,7 +342,9 @@ public class OrderController {
     @Operation(summary = "주문 생성")
     @ApiErrorCodes(common = {INVALID_INPUT, UNAUTHORIZED}, value = {ORDER_NOT_FOUND})
     @PostMapping
-    public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody OrderCreateRequest request) { ... }
+    public ResponseEntity<ApiResponse<OrderResponse>> createOrder(@Valid @RequestBody OrderCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(orderService.create(request)));
+    }
 }
 ```
 
@@ -358,7 +399,6 @@ public class OrderController {
 - 📌 게이트웨이 JWT 필터 → `X-User-Id`, `X-User-Role` 헤더 전달 (헤더 이름 팀 확정 필요). 
 - 📌 Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`, `/*-service/v3/api-docs`)는 인증 제외
 - 회원가입·로그인 (JWT, BCrypt)
-- FeignClient: 처음 쓰는 서비스는 Application에 `@EnableFeignClients` 추가
 - `schema.sql` + `validate` 전환 (선택)
 
 ---
