@@ -1,6 +1,6 @@
-package com.yuksabal.company.product.domain;
+package com.yuksabal.company.product.entity;
 
-import com.yuksabal.company.company.domain.Company;
+import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
