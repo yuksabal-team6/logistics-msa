@@ -336,6 +336,7 @@ throw new BusinessException(HubErrorCode.INSUFFICIENT_STOCK);
 | JSON 형식 오류 | 400 `VALIDATION_ERROR` |
 | 파라미터 타입 오류, 필수 파라미터·헤더 누락, 없는 정렬 필드 | 400 `VALIDATION_ERROR` + 해당 필드 details |
 | 없는 URL / 메서드 오류 | 404 `RESOURCE_NOT_FOUND` / 405 `METHOD_NOT_ALLOWED` |
+| DB 유니크 위반 (동시 요청 등) | 409 `DUPLICATE_RESOURCE` (NOT NULL·FK 위반은 500) |
 | Feign 실패 | 아래 표 |
 | 그 외 | 500 `INTERNAL_SERVER_ERROR` |
 
@@ -408,10 +409,10 @@ public class OrderController {
 
 ### 테이블 생성
 
-
-
-- 지금 : `ddl-auto: update`
-- 엔티티 확정 후 - `schema.sql` + `validate` (선택)
+- 테이블: `ddl-auto: update` (엔티티로 자동 생성)
+- 부분 유니크 인덱스(`WHERE deleted_at IS NULL`): 서비스별 `schema.sql` (예: company-service)
+  - `application.yml`에 `spring.sql.init.mode: always` + `spring.jpa.defer-datasource-initialization: true`
+  - 스키마 이름 직접 쓰기 (`company_service.p_companies`), `IF NOT EXISTS` 필수
 
 > ⚠️ `update`는 컬럼 **추가만** 반영합니다 (삭제·이름 변경 X). 테이블이 꼬이면 `docker-compose down -v && docker-compose up -d postgres`로 초기화하세요.
 
@@ -447,7 +448,6 @@ public class OrderController {
 - 📌 게이트웨이 JWT 필터 → 클라이언트가 보낸 `X-User-Id`, `X-User-Role` 제거 후 토큰 값으로 다시 설정
 - 📌 Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`, `/*-service/v3/api-docs`)는 인증 제외
 - 회원가입·로그인 (JWT, BCrypt)
-- `schema.sql` + `validate` 전환 (선택)
 
 ---
 
