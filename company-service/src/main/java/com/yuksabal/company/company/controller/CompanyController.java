@@ -1,7 +1,9 @@
 package com.yuksabal.company.company.controller;
 
 import com.yuksabal.common.response.ApiResponse;
+import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
+import com.yuksabal.company.company.dto.request.CompanySearchRequest;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.service.CompanyService;
 import com.yuksabal.company.global.auth.UserRole;
@@ -10,6 +12,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,10 +49,9 @@ public class CompanyController {
             @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("X-User-Role") String role) {
 
-        CompanyResponse response = companyService.createCompany(request, userId, UserRole.from(role));
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                ApiResponse.success(response, "업체가 생성되었습니다."));
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
+                companyService.createCompany(request, userId, UserRole.from(role)),
+                "업체가 생성되었습니다."));
     }
 
     // 단건 조회: 200 + ApiResponse.success(data, message). 로그인한 모든 역할 가능이라 사용자 헤더를 받지 않는다
@@ -56,9 +59,21 @@ public class CompanyController {
     @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND})
     @GetMapping("/{companyId}")
     public ResponseEntity<ApiResponse<CompanyResponse>> getCompany(@PathVariable UUID companyId) {
-        CompanyResponse response = companyService.getCompany(companyId);
 
-        return ResponseEntity.ok(
-                ApiResponse.success(response, "업체를 조회했습니다."));
+        return ResponseEntity.ok(ApiResponse.success(
+                companyService.getCompany(companyId),
+                "업체를 조회했습니다."));
+    }
+
+    // 목록 조회: 200 + ApiResponse.success(PageResponse, message). 검색 조건은 모두 선택
+    @Operation(summary = "업체 목록 조회 및 검색", description = "정렬 가능: createdAt, companyName")    @ApiErrorCodes(common = {VALIDATION_ERROR})
+    @GetMapping
+    public ResponseEntity<ApiResponse<PageResponse<CompanyResponse>>> getCompanies(
+            @Valid @ParameterObject CompanySearchRequest request,
+            @ParameterObject Pageable pageable) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                companyService.getCompanies(request, pageable),
+                "목록을 조회했습니다."));
     }
 }
