@@ -116,10 +116,15 @@ order-service/.../com/yuksabal/order/
 │   ├── exception/        GlobalExceptionHandler, OrderErrorCode
 │   └── swagger/          @ApiErrorCodes
 └── order/
-    ├── presentation/     Controller, dto/request, dto/response
-    ├── application/      Service
-    ├── domain/           Entity, enum, Repository
-    └── infrastructure/   FeignClient, 외부 연동
+    ├── controller/       Controller
+    ├── dto/
+    │   ├── request/
+    │   └── response/
+    ├── service/          Service
+    ├── repository/       Repository
+    ├── entity/           Entity, enum
+    └── client/           {대상서비스}Client (예: HubClient)
+        └── dto/          Feign 요청·응답 DTO
 ```
 
 | 서비스 | 도메인 |
@@ -130,9 +135,10 @@ order-service/.../com/yuksabal/order/
 | order | `order/` |
 | delivery | `delivery/`, `routelog/` |
 
-- 빈 폴더는 git에 안 올라가서 지금은 `domain/`만 있음
+- 빈 폴더는 git에 안 올라가서 지금은 `entity/`, `repository/`만 있음
 - 엔티티 그대로 응답 ❌ → DTO로 변환
-- domain에서 Feign·외부 호출 ❌ → application에서
+- Feign·외부 호출은 `service`에서만 (controller·entity에서 ❌)
+- Feign DTO는 `client/dto/`에 따로 (내 API용 `dto/`와 섞지 않음, 필요한 필드만)
 
 ---
 
