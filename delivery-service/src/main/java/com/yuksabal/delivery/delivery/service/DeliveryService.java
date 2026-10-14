@@ -48,8 +48,11 @@ public class DeliveryService {
             Delivery delivery = transactionTemplate.execute(status -> save(request, route));
             return DeliveryCreateResponse.from(delivery);
         } catch (DataIntegrityViolationException e) {
-            // 동시 요청이 먼저 저장한 경우: 그 배송을 반환 (중복 = 이미 성공)
-            return getByOrderId(request.orderId());
+            // 주문 ID 중복이면 먼저 저장된 배송이 있다 → 그 배송 반환
+            // 배송이 없으면 다른 무결성 위반이므로 원래 예외를 그대로 던진다.
+            return deliveryRepository.findByOrderId(request.orderId())
+                    .map(DeliveryCreateResponse::from)
+                    .orElseThrow(()->e);
         }
     }
 
