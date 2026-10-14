@@ -33,16 +33,22 @@ public class HubController {
 
     private final HubService hubService;
 
-    // ?keyword=서울&page=0&size=20&sort=createdAt,desc (keyword 생략 시 전체 목록)
+    /**
+     * 허브 목록을 조회·검색한다.
+     * ?keyword=서울&page=0&size=20&sort=createdAt,desc (keyword 생략 시 전체 목록)
+     */
     @Operation(summary = "허브 목록 조회 및 검색")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED})
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<HubResponse>>> getHubs(
             @Valid @ParameterObject HubSearchRequest request,
             @ParameterObject Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.success(hubService.getHubs(request, pageable), "허브 전체 목록을 조회했습니다."));
+        return ResponseEntity.ok(ApiResponse.success(hubService.getHubs(request, pageable), "목록을 조회했습니다."));
     }
 
+    /**
+     * 허브 단건을 상세 조회한다.
+     */
     @Operation(summary = "허브 상세 조회")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND})
     @GetMapping("/{hubId}")

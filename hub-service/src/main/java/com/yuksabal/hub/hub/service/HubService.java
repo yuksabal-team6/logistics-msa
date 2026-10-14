@@ -24,6 +24,9 @@ public class HubService {
 
     private final HubRepository hubRepository;
 
+    /**
+     * 허브 목록을 조회한다. keyword가 있으면 검색, 없으면 전체 목록을 반환한다.
+     */
     public PageResponse<HubResponse> getHubs(HubSearchRequest request, Pageable pageable) {
         Pageable stablePageable = withIdTiebreaker(pageable);
         Page<Hub> hubs = request.hasKeyword()
@@ -32,13 +35,16 @@ public class HubService {
         return PageResponse.from(hubs, HubResponse::from);
     }
 
-    // 삭제된 허브는 @SQLRestriction으로 조회되지 않아 없는 허브와 같이 404로 응답한다
+    /**
+     * 허브 단건을 상세 조회한다.
+     * 삭제된 허브는 @SQLRestriction으로 조회되지 않아 없는 허브와 같이 404로 응답한다.
+     */
     public HubResponse getHub(UUID hubId) {
         return hubRepository.findById(hubId)
                 .map(HubResponse::from)
                 .orElseThrow(() -> new BusinessException(
                         CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 허브입니다.",
+                        "요청한 리소스를 찾을 수 없습니다.",
                         "hubId"
                 ));
     }
