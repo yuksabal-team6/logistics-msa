@@ -2,8 +2,8 @@ package com.yuksabal.hub.route.controller;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
 import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.route.domain.HubRoute;
-import com.yuksabal.hub.route.domain.HubRouteRepository;
+import com.yuksabal.hub.route.entity.HubRoute;
+import com.yuksabal.hub.route.repository.HubRouteRepository;
 import com.yuksabal.hub.route.service.HubRouteService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
