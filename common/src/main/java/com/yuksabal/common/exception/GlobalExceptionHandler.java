@@ -5,6 +5,7 @@ import com.yuksabal.common.response.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.mapping.PropertyReferenceException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.sql.SQLException;
 import java.util.List;
 
 // 모든 서비스 공통 예외 처리. CommonWebAutoConfiguration이 등록한다.
@@ -25,6 +27,8 @@ import java.util.List;
 @Order(Ordered.LOWEST_PRECEDENCE)
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final String UNIQUE_VIOLATION = "23505";
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
@@ -82,11 +86,31 @@ public class GlobalExceptionHandler {
         return toResponse(CommonErrorCode.METHOD_NOT_ALLOWED);
     }
 
+    // DB 제약 위반. 동시 요청으로 유니크 인덱스에 걸린 경우만 409, 나머지(NOT NULL·FK 등)는 500
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        if (isUniqueViolation(e)) {
+            return toResponse(CommonErrorCode.DUPLICATE_RESOURCE);
+        }
+        log.error("Data integrity violation", e);
+        return toResponse(CommonErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
     // 처리되지 않은 모든 예외
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
         log.error("Unhandled exception", e);
         return toResponse(CommonErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    // PostgreSQL unique_violation = SQLState 23505
+    private boolean isUniqueViolation(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sqlException && UNIQUE_VIOLATION.equals(sqlException.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private ResponseEntity<ApiResponse<Void>> toFieldResponse(String field, String reason) {

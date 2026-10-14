@@ -11,7 +11,13 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  # schema.sql: 엔티티로 표현할 수 없는 부분 유니크 인덱스 (결정 #15)
+  sql:
+    init:
+      mode: always
   jpa:
+    # Hibernate가 테이블을 만든 뒤에 schema.sql 실행
+    defer-datasource-initialization: true
     open-in-view: false
     hibernate:
       ddl-auto: ${DDL_AUTO:update}

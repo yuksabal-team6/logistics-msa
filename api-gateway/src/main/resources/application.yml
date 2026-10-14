@@ -8,63 +8,65 @@ spring:
     import: optional:classpath:application-secret.yml
   cloud:
     gateway:
-      mvc:
-        routes:
-          - id: user-service
-            uri: lb://user-service
-            predicates:
-              - Path=/api/v1/auth/**,/api/v1/users/**
-          - id: hub-service
-            uri: lb://hub-service
-            predicates:
-              - Path=/api/v1/hubs/**,/api/v1/hub-routes/**
-          - id: company-service
-            uri: lb://company-service
-            predicates:
-              - Path=/api/v1/companies/**,/api/v1/products/**
-          - id: order-service
-            uri: lb://order-service
-            predicates:
-              - Path=/api/v1/orders/**
-          - id: delivery-service
-            uri: lb://delivery-service
-            predicates:
-              - Path=/api/v1/deliveries/**
+      routes:
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/v1/auth/**,/api/v1/users/**
+        - id: hub-service
+          uri: lb://hub-service
+          predicates:
+            - Path=/api/v1/hubs/**,/api/v1/hub-routes/**
+        - id: company-service
+          uri: lb://company-service
+          predicates:
+            - Path=/api/v1/companies/**,/api/v1/products/**
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/v1/orders/**
+        - id: delivery-service
+          uri: lb://delivery-service
+          predicates:
+            - Path=/api/v1/deliveries/**
 
-          # 통합 Swagger용: /{서비스}/v3/api-docs → 각 서비스의 /v3/api-docs
-          - id: user-service-api-docs
-            uri: lb://user-service
-            predicates:
-              - Path=/user-service/v3/api-docs
-            filters:
-              - StripPrefix=1
-          - id: hub-service-api-docs
-            uri: lb://hub-service
-            predicates:
-              - Path=/hub-service/v3/api-docs
-            filters:
-              - StripPrefix=1
-          - id: company-service-api-docs
-            uri: lb://company-service
-            predicates:
-              - Path=/company-service/v3/api-docs
-            filters:
-              - StripPrefix=1
-          - id: order-service-api-docs
-            uri: lb://order-service
-            predicates:
-              - Path=/order-service/v3/api-docs
-            filters:
-              - StripPrefix=1
-          - id: delivery-service-api-docs
-            uri: lb://delivery-service
-            predicates:
-              - Path=/delivery-service/v3/api-docs
-            filters:
-              - StripPrefix=1
+        # 통합 Swagger용: /{서비스}/v3/api-docs → 각 서비스의 /v3/api-docs
+        - id: user-service-api-docs
+          uri: lb://user-service
+          predicates:
+            - Path=/user-service/v3/api-docs
+          filters:
+            - StripPrefix=1
+        - id: hub-service-api-docs
+          uri: lb://hub-service
+          predicates:
+            - Path=/hub-service/v3/api-docs
+          filters:
+            - StripPrefix=1
+        - id: company-service-api-docs
+          uri: lb://company-service
+          predicates:
+            - Path=/company-service/v3/api-docs
+          filters:
+            - StripPrefix=1
+        - id: order-service-api-docs
+          uri: lb://order-service
+          predicates:
+            - Path=/order-service/v3/api-docs
+          filters:
+            - StripPrefix=1
+        - id: delivery-service-api-docs
+          uri: lb://delivery-service
+          predicates:
+            - Path=/delivery-service/v3/api-docs
+          filters:
+            - StripPrefix=1
 
 # 통합 Swagger UI: http://localhost:8080/swagger-ui/index.html (오른쪽 위 드롭다운으로 서비스 선택)
 springdoc:
+  # WebFlux springdoc은 기본적으로 /webjars/swagger-ui/** 에서 UI를 제공한다. 빈 값으로 두어 PROJECT_SETUP의 주소와 맞춘다
+  webjars:
+    prefix: ""
   swagger-ui:
     urls:
       - name: user-service
@@ -87,3 +89,21 @@ eureka:
 
 jwt:
   secret: ${JWT_SECRET:}
+
+# 인증 제외 경로 (메서드 + 경로 패턴). 여기에 없는 모든 요청은 JWT 필수
+auth:
+  public-paths:
+    - method: POST
+      path: /api/v1/auth/register
+    - method: POST
+      path: /api/v1/auth/login
+    # 통합 Swagger (PROJECT_SETUP TODO)
+    - method: GET
+      path: /swagger-ui/**
+    - method: GET
+      path: /v3/api-docs/**
+    - method: GET
+      path: /*-service/v3/api-docs
+  # API별 역할 제한. 위에서부터 처음 맞는 규칙 하나만 적용, 맞는 규칙이 없으면 인증만 확인한다.
+  # 팀 권한 표 확정 후 추가 (예: - method: DELETE / path: /api/v1/hubs/** / roles: [MASTER])
+  role-rules: []

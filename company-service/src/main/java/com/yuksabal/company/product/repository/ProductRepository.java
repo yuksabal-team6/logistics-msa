@@ -1,5 +1,6 @@
-package com.yuksabal.company.product.domain;
+package com.yuksabal.company.product.repository;
 
+import com.yuksabal.company.product.entity.Product;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.UUID;
