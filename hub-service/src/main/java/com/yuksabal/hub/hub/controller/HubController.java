@@ -14,9 +14,13 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.UUID;
+
+import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.UNAUTHORIZED;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 
@@ -36,6 +40,13 @@ public class HubController {
     public ResponseEntity<ApiResponse<PageResponse<HubResponse>>> getHubs(
             @Valid @ParameterObject HubSearchRequest request,
             @ParameterObject Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.success(hubService.getHubs(request, pageable), "목록을 조회했습니다."));
+        return ResponseEntity.ok(ApiResponse.success(hubService.getHubs(request, pageable), "허브 전체 목록을 조회했습니다."));
+    }
+
+    @Operation(summary = "허브 상세 조회")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND})
+    @GetMapping("/{hubId}")
+    public ResponseEntity<ApiResponse<HubResponse>> getHub(@PathVariable UUID hubId) {
+        return ResponseEntity.ok(ApiResponse.success(hubService.getHub(hubId),"허브를 상세 조회했습니다."));
     }
 }
