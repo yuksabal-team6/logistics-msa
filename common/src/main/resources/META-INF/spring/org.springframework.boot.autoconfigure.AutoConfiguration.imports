@@ -1,0 +1,2 @@
+com.yuksabal.common.config.CommonWebAutoConfiguration
+com.yuksabal.common.config.CommonFeignAutoConfiguration

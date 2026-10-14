@@ -144,42 +144,59 @@ order-service/.../com/yuksabal/order/
 
 ## 5. common 모듈
 
-전 서비스 공통 계약만 둔 라이브러리 (실행 X)
+전 서비스가 똑같이 따라야 하는 약속(응답 형식, 예외 처리, Feign 설정)을 모은 라이브러리 (실행 X)
 
 | 파일 | 내용 |
 | --- | --- |
 | `entity/BaseEntity` | Audit 필드 6개 + `markDeleted()` |
 | `exception/ErrorCode` | 에러 코드 인터페이스 |
-| `exception/CommonErrorCode` | 공통 에러 (400·401·403·404·405·500) |
-| `exception/BusinessException` | 비즈니스 예외 |
-| `response/ApiResponse` | 공통 응답 (성공·실패 같은 형식) |
+| `exception/CommonErrorCode` | 공통 에러 코드 (API 명세 0.5) |
+| `exception/BusinessException` | 비즈니스 예외 (message·field 지정 가능) |
+| `exception/GlobalExceptionHandler` | 전역 예외 처리 → `ApiResponse` 실패 응답 |
+| `response/ApiResponse`, `ApiError`, `ApiErrorDetail` | 공통 성공·실패 응답 |
+| `response/PageResponse` | 공통 목록 응답 |
+| `feign/` | 헤더 전달, 에러 디코더, Feign 예외 처리 (Feign 있는 서비스만 적용) |
+| `config/` | 위 기능을 서비스에 자동 등록 (AutoConfiguration) |
 
-> ⚠️ 엔티티·비즈니스 로직·서비스 DTO는 넣지 않. common이 바뀌면 전 서비스가 영향을 받습니다. 추가할 땐 팀에 먼저 공유 필수
+> 💡 서비스는 자기 패키지(`com.yuksabal.{서비스}`)만 스캔하므로, common의 예외 처리·Feign 설정은 `common/src/main/resources/META-INF/spring/...AutoConfiguration.imports`로 자동 등록됩니다. 서비스에서 따로 할 일 없음
 
-### 응답 형식
+### common에 넣는 기준
 
-성공·실패 모두 `ApiResponse`로 감싸서 응답 (HTTP 상태코드는 그대로 사용)
+| common ✅ (도메인을 모르는 것) | 서비스 ❌ (도메인을 아는 것) |
+| --- | --- |
+| 응답 형식, 공통 에러 코드, 전역 예외 처리 | 엔티티, Repository, 비즈니스 로직 |
+| Feign 공통 설정 (헤더 전달, 에러 디코더) | `@FeignClient` 인터페이스, Feign DTO (`client/`) |
+| `BaseEntity` | 도메인 에러 enum (`{서비스}ErrorCode`) |
+| | `SwaggerConfig`, `@ApiErrorCodes`, `JpaAuditingConfig` (서비스 `global/`) |
+
+> ⚠️ common이 바뀌면 전 서비스가 영향을 받습니다. "여러 서비스가 쓰니까"만으로 넣지 말고, **도메인을 모르는 공통 약속**인지 확인 후 팀에 먼저 공유
+
+### 응답 형식 (API 명세 0.4)
 
 ```json
 // 성공: ApiResponse.success(data) 또는 ApiResponse.success(data, "메시지")
 { "success": true, "data": { "id": "8b2d..." }, "message": "요청이 성공했습니다." }
 
-// 실패: GlobalExceptionHandler가 자동으로 변환
-{ "success": false, "code": "COMPANY_NOT_FOUND", "message": "업체를 찾을 수 없습니다." }
+// 목록: ApiResponse.success(PageResponse.from(page), "목록을 조회했습니다.")
+{ "success": true,
+  "data": { "items": [], "page": 0, "size": 20, "totalElements": 0, "totalPages": 0 },
+  "message": "목록을 조회했습니다." }
+
+// 실패: 예외를 던지면 GlobalExceptionHandler가 자동 변환 (details는 없으면 생략)
+{ "success": false,
+  "error": { "code": "RESOURCE_NOT_FOUND", "message": "존재하지 않거나 삭제된 상품입니다.",
+             "details": [{ "field": "productId", "reason": "존재하지 않거나 삭제된 상품입니다." }] } }
 ```
 
 - 반환할 데이터가 없으면 `ApiResponse.success(null)` → `data` 필드 빠짐
 - Feign으로 다른 서비스 호출 시에도 `ApiResponse<HubResponse>`로 받아서 `.data()` 사용
 
-### common vs 서비스 `global/`
+### 목록 조회
 
-| common (공유) | 각 서비스 `global/` (독립) |
-| --- | --- |
-| `ApiResponse`, `BusinessException` | `GlobalExceptionHandler` |
-| `ErrorCode`, `CommonErrorCode` | 도메인 에러 enum |
-| `BaseEntity` | `SwaggerConfig`, `@ApiErrorCodes`, `JpaAuditingConfig`, `feign/` (Feign 사용 서비스) |
-
-> 💡 전 서비스가 **똑같아야 하는 계약**(응답 형식, 공통 에러, Audit 필드)만 common에 두고, **서비스마다 다르거나 독립적으로 바뀌어야 하는 설정**은 각 서비스 `global/`에 둡니다. `GlobalExceptionHandler`가 서비스마다 비슷하게 중복되지만, 한 서비스 변경이 다른 서비스에 영향을 주지 않도록 중복을 감수한 구조입니다 (MSA의 "결합보다 중복" 원칙).
+- 컨트롤러 파라미터에 `@ParameterObject Pageable pageable` → `?page=0&size=20&sort=createdAt,desc`
+- 기본값은 common에서 자동 적용: `page=0`, `size=20` (최대 100, 넘으면 100으로), 정렬 미지정 시 `createdAt DESC`
+- `Page`를 그대로 반환 ❌ → `PageResponse.from(page)` 또는 `PageResponse.from(entityPage, XxxResponse::from)`
+- 정렬 가능 필드는 API별로 제한 (명세 0.4). 없는 필드로 정렬 요청 시 400 `VALIDATION_ERROR`
 
 ### 사용
 
@@ -193,12 +210,13 @@ implementation project(':common')
 
 ```groovy
 // common/build.gradle
-compileOnly 'org.springframework.boot:spring-boot-starter-data-jpa'   // BaseEntity
-compileOnly 'org.springframework:spring-web'                          // HttpStatus
+compileOnly 'org.springframework.boot:spring-boot-starter-web'        // 예외 처리, 자동 설정
+compileOnly 'org.springframework.boot:spring-boot-starter-data-jpa'   // BaseEntity, PageResponse
+compileOnly 'org.springframework.cloud:spring-cloud-starter-openfeign' // feign/
 compileOnly 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.22'   // @Schema
 ```
 
-> 💡 `compileOnly`는 common을 **컴파일할 때만** 쓰고 다른 모듈로 전달하지 않습니다. 실행 시에는 서비스가 직접 가진 의존성을 씁니다. 그래서 DB 없는 gateway·eureka에 JPA가 딸려가지 않습니다.
+> 💡 `compileOnly`는 common을 **컴파일할 때만** 쓰고 다른 모듈로 전달하지 않습니다. 실행 시에는 서비스가 직접 가진 의존성을 씁니다. 그래서 Feign이 없는 user-service에는 Feign 설정이 등록되지 않습니다.
 
 | 상황 | 할 일 |
 | --- | --- |
@@ -278,37 +296,67 @@ order.delete(userId);   // @Transactional 끝나면 UPDATE
 
 ## 8. 예외 처리
 
-```json
-{ "success": false, "code": "ORDER_NOT_FOUND", "message": "주문을 찾을 수 없습니다." }
-```
+공통 에러 코드 (`CommonErrorCode`, API 명세 0.5)
 
-| 종류 | 위치 |
+| HTTP | 코드 | 의미 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR`, `INVALID_STATUS` | 필수값 누락, 형식 오류, 잘못된 상태값 |
+| 401 | `UNAUTHORIZED` | 인증 실패 |
+| 403 | `FORBIDDEN` | 권한 부족 |
+| 404 | `RESOURCE_NOT_FOUND` | 없거나 Soft Delete된 리소스 |
+| 405 | `METHOD_NOT_ALLOWED` | 지원하지 않는 메서드 |
+| 409 | `DUPLICATE_RESOURCE` | 중복 |
+| 422 | `BUSINESS_RULE_VIOLATION` | 업무 규칙 위반 |
+| 429 | `TOO_MANY_REQUESTS` | 요청 횟수 제한 |
+| 500 | `INTERNAL_SERVER_ERROR` | 서버 내부 오류 |
+| 502 | `DEPENDENCY_FAILURE` | 다른 서비스 호출 실패 (Feign 5xx·타임아웃) |
+| 503 | `SERVICE_UNAVAILABLE` | 서비스 이용 불가 |
+
+도메인 에러는 `global/exception/{서비스}ErrorCode`에 추가 (명세 0.5 예시)
+
+| 서비스 | 코드 |
 | --- | --- |
-| 공통 | `common` → `CommonErrorCode` |
-| 도메인 | `global/exception/{서비스}ErrorCode` |
+| user | `INVALID_CREDENTIALS` (401) |
+| hub | `INSUFFICIENT_STOCK`, `INVENTORY_CONFLICT` (409) |
+| company | `COMPANY_ACCESS_DENIED` (403) |
+| order·delivery | `INVALID_STATUS_TRANSITION` (409), delivery는 `DELIVERY_ACCESS_DENIED` (403) |
+| gateway | `TOKEN_EXPIRED` (401) |
 
 ```java
-// {서비스}ErrorCode에 추가
-ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "주문을 찾을 수 없습니다."),
+// 404: 리소스별 NOT_FOUND 코드를 만들지 않고 RESOURCE_NOT_FOUND + message + field
+throw new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 상품입니다.", "productId");
 
-// 던지기
-throw new BusinessException(OrderErrorCode.ORDER_NOT_FOUND);
+// 도메인 에러: {서비스}ErrorCode에 추가 후 던지기
+INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "재고가 부족합니다."),
+throw new BusinessException(HubErrorCode.INSUFFICIENT_STOCK);
 ```
 
-`GlobalExceptionHandler` 자동 처리: BusinessException, `@Valid` 실패(400), JSON·타입 오류(400), 없는 URL(404), 메서드 오류(405), Feign 실패(아래), 그 외(500)
+`GlobalExceptionHandler` 자동 처리
+
+| 예외 | 응답 |
+| --- | --- |
+| `BusinessException` | 지정한 코드·메시지·details |
+| `@Valid` 실패 | 400 `VALIDATION_ERROR` + 실패한 필드 **전부** details |
+| JSON 형식 오류 | 400 `VALIDATION_ERROR` |
+| 파라미터 타입 오류, 필수 파라미터·헤더 누락, 없는 정렬 필드 | 400 `VALIDATION_ERROR` + 해당 필드 details |
+| 없는 URL / 메서드 오류 | 404 `RESOURCE_NOT_FOUND` / 405 `METHOD_NOT_ALLOWED` |
+| Feign 실패 | 아래 표 |
+| 그 외 | 500 `INTERNAL_SERVER_ERROR` |
+
+> 💡 서비스에서 특정 예외를 다르게 처리하고 싶으면 서비스에 `@RestControllerAdvice` + `@Order(Ordered.HIGHEST_PRECEDENCE)`로 추가 (common보다 먼저 적용)
 
 ### Feign(내부 API) 호출 규칙
 
 - 경로 `/internal/**`, 게이트웨이에 등록 ❌ / `@FeignClient(name = "hub-service")`처럼 Eureka 서비스 이름 사용
-- `X-User-Id`, `X-User-Role`은 `global/feign/FeignHeaderInterceptor`가 자동 전달 (직접 넣지 않음)
+- `X-User-Id`, `X-User-Role`은 common `FeignHeaderInterceptor`가 자동 전달 (직접 넣지 않음)
 - 내부 API도 `ApiResponse` 형식으로 응답
-- 실패는 `global/feign/FeignErrorDecoder`가 예외로 변환
+- 실패는 common `FeignErrorDecoder`가 예외로 변환
 
 | 상황 | 예외 | 의미 | 안 잡으면 |
 | --- | --- | --- | --- |
-| 상대가 4xx | `FeignClientException` (status, code, message) | 업무 실패 (재고 부족 등) | 상대의 상태·코드·메시지 그대로 응답 |
-| 상대가 5xx | `FeignServerException` | 재시도·보상 대상 | 503 `SERVICE_UNAVAILABLE` |
-| 타임아웃·연결 실패 | `feign.RetryableException` | 재시도·보상 대상 | 503 `SERVICE_UNAVAILABLE` |
+| 상대가 4xx | `FeignClientException` (status, code, message, details) | 업무 실패 (재고 부족 등) | 상대의 상태·error 그대로 응답 |
+| 상대가 5xx | `FeignServerException` | 재시도·보상 대상 | 502 `DEPENDENCY_FAILURE` |
+| 타임아웃·연결 실패 | `feign.RetryableException` | 재시도·보상 대상 | 502 `DEPENDENCY_FAILURE` |
 
 ```java
 try {
@@ -320,6 +368,7 @@ try {
 ```
 
 - `stocks/decrease`, `stocks/restore`는 `orderId` 기준 멱등성 처리 (`InventoryLog`의 order_id + change_type 중복 확인)
+- 외부 API(Slack 등)는 응답 형식이 달라서 common 디코더가 맞지 않음 → `@FeignClient(configuration = XxxFeignConfig.class)`로 별도 지정
 
 ---
 
@@ -340,7 +389,7 @@ try {
 public class OrderController {
 
     @Operation(summary = "주문 생성")
-    @ApiErrorCodes(common = {INVALID_INPUT, UNAUTHORIZED}, value = {ORDER_NOT_FOUND})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED}, value = {INVALID_STATUS_TRANSITION})
     @PostMapping
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(@Valid @RequestBody OrderCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(orderService.create(request)));
@@ -350,6 +399,8 @@ public class OrderController {
 
 - `@ApiErrorCodes`: `common` = 공통 에러, `value` = 도메인 에러 → 응답 예시 자동 생성
 - DTO 필드에 `@Schema(description, example)` 필수
+
+> 💡 **참고용 샘플**: `order-service`의 `sample/` 패키지 (`/api/v1/orders/samples`). 생성·단건·목록 조회, `@Valid`, 404 처리, `@ApiErrorCodes` 작성 예시. 기능 개발 후 패키지째 삭제
 
 ---
 
@@ -396,7 +447,7 @@ public class OrderController {
 
 ## 11. TODO
 
-- 📌 게이트웨이 JWT 필터 → `X-User-Id`, `X-User-Role` 헤더 전달 (헤더 이름 팀 확정 필요). 
+- 📌 게이트웨이 JWT 필터 → 클라이언트가 보낸 `X-User-Id`, `X-User-Role` 제거 후 토큰 값으로 다시 설정 (헤더 이름은 API 명세 0.2 확정, role 값: `MASTER`, `USER`, `DELIVERY`, `COMPANY`)
 - 📌 Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`, `/*-service/v3/api-docs`)는 인증 제외
 - 회원가입·로그인 (JWT, BCrypt)
 - `schema.sql` + `validate` 전환 (선택)
