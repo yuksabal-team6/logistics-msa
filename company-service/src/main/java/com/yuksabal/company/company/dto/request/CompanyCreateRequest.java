@@ -3,6 +3,7 @@ package com.yuksabal.company.company.dto.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.util.UUID;
@@ -26,7 +27,7 @@ public record CompanyCreateRequest(
         UUID ownerId,
 
         @Schema(description = "사업자 등록번호 (선택)", example = "123-45-67890")
-        @Size(max = 50, message = "사업자 등록번호는 50자 이하로 입력해 주세요.")
+        @Pattern(regexp = "^\\d{3}-\\d{2}-\\d{5}$", message = "사업자 등록번호는 000-00-00000 형식으로 입력해 주세요.")
         String businessNumber,
 
         @Schema(description = "업체 주소", example = "부산광역시 중구 중앙대로 1")
