@@ -1,4 +1,4 @@
-package com.yuksabal.delivery.routelog.domain;
+package com.yuksabal.delivery.routelog.entity;
 
 // route_status
 public enum RouteStatus {

@@ -1,4 +1,4 @@
-package com.yuksabal.delivery.delivery.domain;
+package com.yuksabal.delivery.delivery.entity;
 
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;

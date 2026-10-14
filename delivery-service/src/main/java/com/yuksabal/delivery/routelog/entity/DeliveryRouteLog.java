@@ -1,6 +1,6 @@
-package com.yuksabal.delivery.routelog.domain;
+package com.yuksabal.delivery.routelog.entity;
 
-import com.yuksabal.delivery.delivery.domain.Delivery;
+import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
