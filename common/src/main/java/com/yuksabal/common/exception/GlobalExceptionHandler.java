@@ -1,0 +1,106 @@
+package com.yuksabal.common.exception;
+
+import com.yuksabal.common.response.ApiErrorDetail;
+import com.yuksabal.common.response.ApiResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.data.mapping.PropertyReferenceException;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+
+import java.util.List;
+
+// 모든 서비스 공통 예외 처리. CommonWebAutoConfiguration이 등록한다.
+// 서비스에서 따로 처리하고 싶은 예외는 서비스에 @RestControllerAdvice + @Order(Ordered.HIGHEST_PRECEDENCE)로 추가한다.
+@Slf4j
+@Order(Ordered.LOWEST_PRECEDENCE)
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
+        return toResponse(e.getErrorCode(), e.getMessage(), e.getDetails());
+    }
+
+    // @Valid 검증 실패: 실패한 필드를 모두 details로 내려준다
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleValidationException(MethodArgumentNotValidException e) {
+        List<ApiErrorDetail> details = e.getBindingResult().getFieldErrors().stream()
+                .map(fieldError -> new ApiErrorDetail(fieldError.getField(), fieldError.getDefaultMessage()))
+                .toList();
+        return toResponse(CommonErrorCode.VALIDATION_ERROR, CommonErrorCode.VALIDATION_ERROR.getMessage(), details);
+    }
+
+    // JSON 형식 오류
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotReadable(HttpMessageNotReadableException e) {
+        return toResponse(CommonErrorCode.VALIDATION_ERROR);
+    }
+
+    // 경로/쿼리 파라미터 타입 불일치 (예: UUID 형식 오류)
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return toFieldResponse(e.getName(), "형식이 올바르지 않습니다.");
+    }
+
+    // 필수 쿼리 파라미터 누락
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingParameter(MissingServletRequestParameterException e) {
+        return toFieldResponse(e.getParameterName(), "필수값입니다.");
+    }
+
+    // 필수 헤더 누락
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingHeader(MissingRequestHeaderException e) {
+        return toFieldResponse(e.getHeaderName(), "필수 헤더입니다.");
+    }
+
+    // 존재하지 않는 필드로 정렬 요청 (예: ?sort=unknown,desc)
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePropertyReference(PropertyReferenceException e) {
+        return toFieldResponse("sort", "정렬할 수 없는 필드입니다: " + e.getPropertyName());
+    }
+
+    // 존재하지 않는 URL
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException e) {
+        return toResponse(CommonErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    // 지원하지 않는 HTTP 메서드
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
+        return toResponse(CommonErrorCode.METHOD_NOT_ALLOWED);
+    }
+
+    // 처리되지 않은 모든 예외
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
+        log.error("Unhandled exception", e);
+        return toResponse(CommonErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    private ResponseEntity<ApiResponse<Void>> toFieldResponse(String field, String reason) {
+        return toResponse(CommonErrorCode.VALIDATION_ERROR, CommonErrorCode.VALIDATION_ERROR.getMessage(),
+                List.of(new ApiErrorDetail(field, reason)));
+    }
+
+    private ResponseEntity<ApiResponse<Void>> toResponse(ErrorCode errorCode) {
+        return toResponse(errorCode, errorCode.getMessage(), List.of());
+    }
+
+    private ResponseEntity<ApiResponse<Void>> toResponse(ErrorCode errorCode, String message, List<ApiErrorDetail> details) {
+        return ResponseEntity
+                .status(errorCode.getStatus())
+                .body(ApiResponse.fail(errorCode, message, details));
+    }
+}

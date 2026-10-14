@@ -1,9 +1,8 @@
-package com.yuksabal.hub.global.feign;
+package com.yuksabal.common.feign;
 
 import feign.RequestInterceptor;
 import feign.RequestTemplate;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -11,7 +10,6 @@ import java.util.List;
 
 // 들어온 요청의 사용자 헤더를 Feign 요청에 그대로 실어 보낸다 (호출받은 서비스의 감사 필드·권한 확인용).
 // 헤더 값은 게이트웨이가 JWT 검증 후 덮어쓴 값이다.
-@Component
 public class FeignHeaderInterceptor implements RequestInterceptor {
 
     private static final List<String> FORWARD_HEADERS = List.of("X-User-Id", "X-User-Role");
