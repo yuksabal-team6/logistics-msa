@@ -10,6 +10,9 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum OrderErrorCode implements ErrorCode {
     // 기능 개발 시 추가 (예: ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "...을 찾을 수 없습니다."))
+
+    // 참고용 sample api 전용
+    SAMPLE_NOT_FOUND(HttpStatus.NOT_FOUND, "샘플을 찾을 수 없습니다."),
     ;
 
     private final HttpStatus status;
