@@ -2,7 +2,7 @@
 
 ## 목차
 
-1. [빠른 시작](#1-빠른-시작)
+1. [빠른 시작](#1--빠른-시작)
 2. [구조](#2-구조)
 3. [실행](#3-실행)
 4. [패키지 구조](#4-패키지-구조)
@@ -10,7 +10,7 @@
 6. [엔티티 규칙](#6-엔티티-규칙)
 7. [Audit 필드와 소프트 삭제](#7-audit-필드와-소프트-삭제)
 8. [예외 처리](#8-예외-처리)
-9. [Swagger](#9-swagger)
+9. [Swagger](#9--swagger)
 10. [DB](#10-db)
 11. [TODO](#11-todo)
 12. [트러블슈팅](#12-트러블슈팅)
@@ -26,19 +26,16 @@ docker-compose up -d postgres
 ```
 
 1. IntelliJ로 **루트 폴더** 열기 → Gradle 탭 🔄
-2. `EurekaServerApplication` 먼저 실행 → 나머지 앱 실행 (hotkey: cmd+8)
+2. `EurekaServerApplication` 먼저 실행 → 나머지 앱 실행 (hotkey: cmd+8 / alt+8 )
 3. http://localhost:8761 에 6개 UP이면 끝
 
-필요: JDK 17+, Docker + Compose v2 이상, IntelliJ (Gradle 설치 불필요)
-
-- Docker 버전은 팀원끼리 맞출 필요 없음 (이미지 버전은 `postgres:16`, `eclipse-temurin:17-jre`로 고정)
-- 확인: `docker compose version` → `v2.x` 이상이면 OK
+필요: JDK 17+, Docker + Compose v2 이상, IntelliJ
 
 ---
 
 ## 2. 구조
 
-Gradle 멀티프로젝트. 루트는 설정만 있고 실행 X
+Gradle 멀티프로젝트
 
 ```
 logistics-msa/
@@ -62,7 +59,7 @@ logistics-msa/
 | --- | --- |
 | eureka / gateway | 8761 / 8080 |
 | user / hub / company / order / delivery | 8081 / 8082 / 8083 / 8084 / 8085 |
-| PostgreSQL | 5432 (`logistics`, postgres / postgres) |
+| PostgreSQL | 5432 |
 
 ### 게이트웨이 라우팅
 
@@ -81,13 +78,15 @@ logistics-msa/
 
 ## 3. 실행
 
+> 평소 개발은 **IntelliJ** (postgres만 Docker). 요구사항상 최종 동작은 **전체 Docker 실행**으로 확인. 두 방식 동시 실행 ❌ (포트 충돌)
+
 ### IntelliJ
 
 1. `docker-compose up -d postgres`
-2. `⌘8` Services 창 → Eureka 먼저 → 나머지 ▶
+2. `⌘8`/`Alt+8` Services 창 → Eureka 실행 → 나머지 실행
 3. http://localhost:8080/api/v1/orders → 404 JSON이면 정상
 
-내 서비스만 개발: Eureka + 내 서비스 + (Feign으로 부르는 서비스)
+> 💡 전부 안 켜도 됨: **Eureka + 내 서비스 + 내 서비스가 호출하는 서비스**만 실행 (예: order가 hub 재고를 차감하면 → Eureka, order, hub)
 
 ### Docker
 
@@ -98,10 +97,9 @@ docker-compose down                                        # 종료
 docker-compose down -v                                     # 종료 + DB 초기화
 ```
 
-> ⚠️ 이미지는 **내 PC에서 빌드한 jar** 사용. `./gradlew build` 없이 올리면 이전 코드로 실행되니 두 명령을 항상 같이 사용해야 한다.
-
-- 📌 서비스 포트는 외부에 안 열림 → 게이트웨이(8080)로만 요청
-- 수평 확장: `docker-compose up -d --scale order-service=2`
+- ⚠️ 코드 수정 후엔 위 `실행` 명령 그대로 (`./gradlew build` 빠지면 예전 코드로 뜸)
+- 📌 서비스 포트(8081~8085) 직접 접속 ❌ → `localhost:8080`(게이트웨이)으로 요청
+- (참고) 수평 확장: `docker-compose up -d --scale order-service=2`
 
 ---
 
@@ -135,7 +133,6 @@ order-service/.../com/yuksabal/order/
 | order | `order/` |
 | delivery | `delivery/`, `routelog/` |
 
-- 빈 폴더는 git에 안 올라가서 지금은 `entity/`, `repository/`만 있음
 - 엔티티 그대로 응답 ❌ → DTO로 변환
 - Feign·외부 호출은 `service`에서만 (controller·entity에서 ❌)
 - Feign DTO는 `client/dto/`에 따로 (내 API용 `dto/`와 섞지 않음, 필요한 필드만)
@@ -144,7 +141,7 @@ order-service/.../com/yuksabal/order/
 
 ## 5. common 모듈
 
-전 서비스가 똑같이 따라야 하는 약속(응답 형식, 예외 처리, Feign 설정)을 모은 라이브러리 (실행 X)
+전 서비스가 똑같이 따라야 하는 약속(응답 형식, 예외 처리, Feign 설정)을 모은 라이브러리 
 
 | 파일 | 내용 |
 | --- | --- |
@@ -171,7 +168,7 @@ order-service/.../com/yuksabal/order/
 
 > ⚠️ common이 바뀌면 전 서비스가 영향을 받습니다. "여러 서비스가 쓰니까"만으로 넣지 말고, **도메인을 모르는 공통 약속**인지 확인 후 팀에 먼저 공유
 
-### 응답 형식 (API 명세 0.4)
+### 응답 형식
 
 ```json
 // 성공: ApiResponse.success(data) 또는 ApiResponse.success(data, "메시지")
@@ -216,12 +213,13 @@ compileOnly 'org.springframework.cloud:spring-cloud-starter-openfeign' // feign/
 compileOnly 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.22'   // @Schema
 ```
 
-> 💡 `compileOnly`는 common을 **컴파일할 때만** 쓰고 다른 모듈로 전달하지 않습니다. 실행 시에는 서비스가 직접 가진 의존성을 씁니다. 그래서 Feign이 없는 user-service에는 Feign 설정이 등록되지 않습니다.
+> 💡 `compileOnly`: common은 빌드할 때만 라이브러리를 참고하고, 서비스에 같이 넘겨주지 않음
+> - 라이브러리는 **서비스가 직접** `build.gradle`에 추가해야 동작
+> - 예) user-service는 초기 Feign 의존성 없음 → common Feign 설정도 안 붙음. 
+>   - 필요해지면 `openfeign` 의존성 + `@EnableFeignClients`만 추가 (공통 설정 자동 적용)
 
-| 상황 | 할 일 |
-| --- | --- |
-| common에 라이브러리 추가 | common엔 `compileOnly` + 쓰는 서비스엔 `implementation` |
-| 서비스에서 `ClassNotFoundException` | 서비스 `build.gradle`에 해당 의존성 추가 |
+- common에 라이브러리 추가하는 경우 -> common엔 `compileOnly` + 서비스엔 `implementation`
+  - 서비스쪽 추가 누락 시 `ClassNotFoundException` 오류-> 서비스 `build.gradle`에 해당 의존성 추가하여 해결 가능
 
 ---
 
@@ -229,13 +227,11 @@ compileOnly 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.22'   // @Schema
 
 10개 기준
 
-| 서비스 | 엔티티 |
-| --- | --- |
-| user | `User` |
-| company | `Company`, `Product` |
-| hub | `Hub`, `HubRoute`, `Inventory`, `InventoryLog` |
-| order | `Order` |
-| delivery | `Delivery`, `DeliveryRouteLog` |
+- **User Service**: `User`
+- **Company Service**: `Company`, `Product`
+- **Hub Service**: `Hub`, `HubRoute`, `Inventory`, `InventoryLog`
+- **Order Service**: `Order`
+- **Delivery Service**: `Delivery`, `DeliveryRouteLog`
 
 > ✏️ 담당자가 필요에 따라 수정할 수 있습니다. 수정하면 **ERD 문서도 같이 갱신**하고, 다른 서비스가 참조하는 컬럼을 바꿀 땐 해당 담당자에게 먼저 공유하세요.
 
@@ -265,13 +261,13 @@ compileOnly 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.22'   // @Schema
 | `created_by`, `updated_by` | 요청 헤더 `X-User-Id`로 자동 |
 | `deleted_at`, `deleted_by` | `delete()` 호출 시 |
 
-> 💡 `X-User-Id`는 게이트웨이가 JWT 검증 후 넣어줄 헤더입니다 (아직 TODO) 헤더가 없으면 `created_by`는 null입니다. 서비스에 직접 요청해 테스트할 땐 헤더를 직접 넣어야 한다.
+> 💡 `X-User-Id`는 게이트웨이가 JWT 검증 후 넣어줄 헤더입니다 (아직 TODO) 헤더가 없으면 `created_by`는 null입니다. 서비스에 직접 요청해 테스트할 땐 헤더를 직접 넣어야 합니다.
 
-### 📌📌소프트 삭제
+### 📌📌 소프트 삭제
 
 ```java
 // BaseEntity: 삭제 표시만. protected라 서비스에서 직접 호출 불가
-protected void markDeleted(UUID deletedBy)
+protected void markDeleted(UUID deletedBy);
 
 // 엔티티: 삭제 가능한 엔티티만 delete() 보유
 public void delete(UUID deletedBy) { markDeleted(deletedBy); }
@@ -312,7 +308,7 @@ order.delete(userId);   // @Transactional 끝나면 UPDATE
 | 502 | `DEPENDENCY_FAILURE` | 다른 서비스 호출 실패 (Feign 5xx·타임아웃) |
 | 503 | `SERVICE_UNAVAILABLE` | 서비스 이용 불가 |
 
-도메인 에러는 `global/exception/{서비스}ErrorCode`에 추가 (명세 0.5 예시)
+도메인 에러는 `global/exception/{서비스}ErrorCode`에 추가 
 
 | 서비스 | 코드 |
 | --- | --- |
@@ -408,6 +404,7 @@ public class OrderController {
 
 - DB `logistics` 하나, 서비스별 스키마: `user_service`, `company_service`, `hub_service`, `order_service`, `delivery_service`
 - 다른 서비스 스키마 직접 조회 ❌ → Feign
+- DB 툴(DBeaver 등) 접속: `localhost:5432` / DB `logistics` / ID `postgres` / PW `postgres`
 
 ### 테이블 생성
 
@@ -447,7 +444,7 @@ public class OrderController {
 
 ## 11. TODO
 
-- 📌 게이트웨이 JWT 필터 → 클라이언트가 보낸 `X-User-Id`, `X-User-Role` 제거 후 토큰 값으로 다시 설정 (헤더 이름은 API 명세 0.2 확정, role 값: `MASTER`, `USER`, `DELIVERY`, `COMPANY`)
+- 📌 게이트웨이 JWT 필터 → 클라이언트가 보낸 `X-User-Id`, `X-User-Role` 제거 후 토큰 값으로 다시 설정
 - 📌 Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`, `/*-service/v3/api-docs`)는 인증 제외
 - 회원가입·로그인 (JWT, BCrypt)
 - `schema.sql` + `validate` 전환 (선택)
@@ -456,13 +453,30 @@ public class OrderController {
 
 ## 12. 트러블슈팅
 
-| 증상 | 해결 |
-| --- | --- |
-| Gradle 탭·▶ 없음 | 루트 `build.gradle` 우클릭 → Link Gradle Project. 안 되면 `.idea` 삭제 후 다시 열기 |
-| `Connection refused` (5432) | `docker-compose up -d postgres` |
-| `password authentication failed` | 다른 Postgres가 5432 사용 중 → 중지 |
-| `Port already in use` | 떠 있는 앱 종료 |
-| 게이트웨이 500/503 `Unable to find instance` | 막 뜬 직후. 30초 후 재시도 |
-| Eureka `SELF PRESERVATION ... OFF` 경고 | 의도된 설정, 무시 |
-| Docker에 변경 반영 X | `./gradlew build -x test` 먼저 |
-| Docker 앱이 죽음 | 메모리 부족 → `colima start --memory 6 --cpus 4` |
+### 🔧 자주 발생하는 오류 및 해결 방법
+
+- **Gradle 탭 또는 실행 버튼(▶)이 안 보일 때**
+  - 루트 `build.gradle` 우클릭 → `Link Gradle Project`
+  - 해결되지 않으면 IntelliJ 종료 후 `.idea` 삭제하고 다시 열기
+
+- **`Connection refused` (5432)**
+  - PostgreSQL 컨테이너 실행: `docker-compose up -d postgres`
+
+- **`password authentication failed`**
+  - 다른 PostgreSQL이 5432 포트를 사용 중인지 확인 후 중지
+
+- **`Port already in use`**
+  - 해당 포트를 사용 중인 애플리케이션 종료
+
+- **Gateway 500/503: `Unable to find instance`**
+  - 서비스 시작 직후라면 Eureka 등록을 기다린 뒤 약 30초 후 재시도
+
+- **Eureka: `SELF PRESERVATION ... OFF`**
+  - 의도된 설정이므로 경고 무시
+
+- **Docker에 코드 변경사항이 반영되지 않을 때**
+  - `./gradlew build -x test` 실행 후 이미지 재빌드 및 컨테이너 재생성
+
+- **Docker 애플리케이션이 종료될 때**
+  - 메모리 부족 여부 확인
+  - Colima 리소스 조정: `colima start --memory 6 --cpus 4`
