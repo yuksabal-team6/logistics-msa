@@ -11,8 +11,12 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
   jpa:
     open-in-view: false
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: ${DDL_AUTO:update}
     properties:
