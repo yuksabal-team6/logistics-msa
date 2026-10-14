@@ -1,6 +1,6 @@
 package com.yuksabal.hub.route.domain;
 
-import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
