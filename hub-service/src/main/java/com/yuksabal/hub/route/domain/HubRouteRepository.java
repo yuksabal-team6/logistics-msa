@@ -2,7 +2,11 @@ package com.yuksabal.hub.route.domain;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public interface HubRouteRepository extends JpaRepository<HubRoute, UUID> {
+
+    // 출발·도착 허브 ID로 경로 한 건 (삭제된 경로는 @SQLRestriction으로 제외)
+    Optional<HubRoute> findByDepartureHub_IdAndArrivalHub_Id(UUID departureHubId, UUID arrivalHubId);
 }
