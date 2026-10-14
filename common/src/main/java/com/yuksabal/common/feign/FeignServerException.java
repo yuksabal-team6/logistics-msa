@@ -1,4 +1,4 @@
-package com.yuksabal.hub.global.feign;
+package com.yuksabal.common.feign;
 
 import lombok.Getter;
 
