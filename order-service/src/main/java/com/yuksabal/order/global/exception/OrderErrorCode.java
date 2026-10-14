@@ -9,8 +9,10 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum OrderErrorCode implements ErrorCode {
-    // 기능 개발 시 추가 (예: INVALID_STATUS_TRANSITION(HttpStatus.CONFLICT, "변경할 수 없는 주문 상태입니다."))
-    // 404는 CommonErrorCode.RESOURCE_NOT_FOUND를 사용하고 리소스별 NOT_FOUND 코드는 만들지 않는다
+    // 기능 개발 시 추가 (예: ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "...을 찾을 수 없습니다."))
+
+    // 참고용 sample api 전용
+    SAMPLE_NOT_FOUND(HttpStatus.NOT_FOUND, "샘플을 찾을 수 없습니다."),
     ;
 
     private final HttpStatus status;
