@@ -1,4 +1,4 @@
-package com.yuksabal.delivery.delivery.domain;
+package com.yuksabal.delivery.delivery.entity;
 
 // delivery_status. 같은 허브 배송은 READY → DELIVERING → COMPLETED (결정 #16)
 public enum DeliveryStatus {
