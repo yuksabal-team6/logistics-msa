@@ -1,6 +1,6 @@
 package com.yuksabal.hub.route.dto.response;
 
-import com.yuksabal.hub.route.domain.HubRoute;
+import com.yuksabal.hub.route.entity.HubRoute;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 
