@@ -17,7 +17,7 @@ public interface CompanyClient {
     @GetMapping("/internal/products/{productId}")
     ApiResponse<ProductResponse> getProduct(@PathVariable("productId") UUID productId);
 
-    // #2 업체 조회 (공급 업체·요청 업체). 404 → 주문 실패
+    // #2 업체 조회 (공급 업체, 요청 업체). 404 → 주문 실패
     @GetMapping("/internal/companies/{companyId}")
     ApiResponse<CompanyResponse> getCompany(@PathVariable("companyId") UUID companyId);
 }

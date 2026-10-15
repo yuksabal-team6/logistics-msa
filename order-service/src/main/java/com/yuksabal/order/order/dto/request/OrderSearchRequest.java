@@ -8,7 +8,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 // 주문 검색 조건 (명세 v1 9장). 모두 선택, 생략 시 조건 없음
-// 기간은 yyyy-MM-dd, 시작일·종료일 모두 포함: createdFrom 00:00 이상 ~ createdTo 다음 날 00:00 미만
+// 기간은 yyyy-MM-dd, 시작일, 종료일 모두 포함: createdFrom 00:00 이상 ~ createdTo 다음 날 00:00 미만
 // 날짜 기준은 한국 시간 (팀 설정 hibernate.jdbc.time_zone, Docker TZ 모두 Asia/Seoul)
 @Schema(description = "주문 검색 요청")
 public record OrderSearchRequest(

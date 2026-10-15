@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-// 주문 상세·목록·취소 응답 공용. 생성 응답 필드 + 금액·요청사항·보상 상태·생성일시
+// 주문 상세, 목록, 취소 응답 공용. 생성 응답 필드 + 금액, 요청사항, 보상 상태, 생성일시
 @Schema(description = "주문 응답")
 public record OrderResponse(
         @Schema(description = "주문 ID", example = "60000000-0000-4000-8000-000000000001")
@@ -17,7 +17,7 @@ public record OrderResponse(
         @Schema(description = "주문 번호 (생성 규칙 미정)")
         String orderNumber,
 
-        @Schema(description = "배송 ID (배송 생성 전·실패 시 null)", example = "70000000-0000-4000-8000-000000000001")
+        @Schema(description = "배송 ID (배송 생성 전 또는 실패 시 null)", example = "70000000-0000-4000-8000-000000000001")
         UUID deliveryId,
 
         @Schema(description = "요청(수령) 업체 ID", example = "30000000-0000-4000-8000-000000000002")
