@@ -53,6 +53,19 @@ public class Product extends BaseEntity {
         this.unitPrice = unitPrice != null ? unitPrice : 0L;
     }
 
+    // 기본 정보 수정. 부분 수정(PATCH)이라 null인 값은 기존 값을 유지한다
+    public void updateInfo(String productName, String description, Long unitPrice) {
+        if (productName != null) {
+            this.productName = productName;
+        }
+        if (description != null) {
+            this.description = description;
+        }
+        if (unitPrice != null) {
+            this.unitPrice = unitPrice;
+        }
+    }
+
     public void delete(UUID deletedBy) {
         markDeleted(deletedBy);
     }
