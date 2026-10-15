@@ -1,4 +1,4 @@
-package com.yuksabal.hub.route.domain;
+package com.yuksabal.hub.route.entity;
 
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.common.entity.BaseEntity;
