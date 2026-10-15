@@ -16,3 +16,10 @@ spring:
 eureka:
   client:
     enabled: false
+
+# 개발 PC에 INITIAL_MASTER_* 환경변수가 있어도 테스트 데이터가 섞이지 않게 비운다 (필요한 테스트만 따로 설정)
+initial-master:
+  username: ""
+  password: ""
+  email: ""
+  slack-id: ""

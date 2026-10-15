@@ -42,3 +42,11 @@ eureka:
 jwt:
   secret: ${JWT_SECRET:}
   access-token-expiration: 3600000
+
+# 최초 MASTER 계정: 4개가 모두 있을 때만 생성, MASTER가 이미 있으면 건너뜀 (InitialMasterInitializer)
+# 실제 값은 환경변수(.env) 또는 application-secret.yml로만 넣는다. 비워 두면 생성하지 않고 정상 기동한다.
+initial-master:
+  username: ${INITIAL_MASTER_USERNAME:}
+  password: ${INITIAL_MASTER_PASSWORD:}
+  email: ${INITIAL_MASTER_EMAIL:}
+  slack-id: ${INITIAL_MASTER_SLACK_ID:}
