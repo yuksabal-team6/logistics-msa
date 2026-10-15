@@ -94,6 +94,13 @@ public class ProductService {
         product.delete(userId);
     }
 
+    // 업체 삭제 전용. 권한(MASTER)은 업체 삭제에서 이미 확인했으므로 여기서는 검사하지 않는다
+    @Transactional
+    public void deleteAllByCompany(UUID companyId, UUID userId) {
+        productRepository.findAllByCompanyId(companyId)
+                .forEach(product -> product.delete(userId));
+    }
+
     // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
     public ProductInternalResponse getProductForInternal(UUID productId) {
         return ProductInternalResponse.from(findProduct(productId));

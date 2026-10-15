@@ -11,6 +11,7 @@ import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
+import com.yuksabal.company.product.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,6 +38,7 @@ public class CompanyService {
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "companyName");
 
     private final CompanyRepository companyRepository;
+    private final ProductService productService;
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
@@ -104,7 +106,7 @@ public class CompanyService {
         return CompanyResponse.from(company);
     }
 
-    // 업체 삭제는 MASTER만 가능. Soft Delete라 실제로는 deleted_at·deleted_by를 기록하는 UPDATE
+    // 업체 삭제는 MASTER만 가능. 소속 상품도 같은 트랜잭션에서 함께 Soft Delete(하나라도 실패하면 모두 롤백)
     @Transactional
     public void deleteCompany(UUID companyId, UUID userId, UserRole role) {
         if (role != UserRole.MASTER) {
@@ -112,7 +114,7 @@ public class CompanyService {
         }
 
         Company company = findCompany(companyId);
-        // TODO 상품 이슈: 업체의 상품도 함께 Soft Delete
+        productService.deleteAllByCompany(companyId, userId);
         company.delete(userId);
     }
 
