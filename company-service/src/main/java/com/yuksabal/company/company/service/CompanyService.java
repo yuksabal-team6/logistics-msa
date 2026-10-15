@@ -108,6 +108,7 @@ public class CompanyService {
         }
 
         Company company = findCompany(companyId);
+        // TODO 상품 이슈: 업체의 상품도 함께 Soft Delete
         company.delete(userId);
     }
 
