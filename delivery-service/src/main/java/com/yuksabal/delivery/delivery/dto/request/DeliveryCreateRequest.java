@@ -1,4 +1,4 @@
-package com.yuksabal.delivery.delivery.dto;
+package com.yuksabal.delivery.delivery.dto.request;
 
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import io.swagger.v3.oas.annotations.media.Schema;

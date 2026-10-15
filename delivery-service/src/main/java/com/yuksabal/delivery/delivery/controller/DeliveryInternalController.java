@@ -2,9 +2,11 @@ package com.yuksabal.delivery.delivery.controller;
 
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.ApiResponse;
-import com.yuksabal.delivery.delivery.dto.DeliveryCreateRequest;
-import com.yuksabal.delivery.delivery.dto.DeliveryCreateResponse;
+import com.yuksabal.delivery.delivery.dto.request.DeliveryCancelRequest;
+import com.yuksabal.delivery.delivery.dto.request.DeliveryCreateRequest;
+import com.yuksabal.delivery.delivery.dto.response.DeliveryCreateResponse;
 import com.yuksabal.delivery.delivery.service.DeliveryService;
+import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.global.swagger.ApiErrorCodes;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +35,16 @@ public class DeliveryInternalController {
             @Valid @RequestBody DeliveryCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(deliveryService.createDelivery(request), "배송이 생성되었습니다."));
+    }
+
+
+    @Operation(summary = "배송·경로 기록 취소",
+            description = "허브 출발 전(READY)에만 취소한다. 배송이 없거나 이미 취소됐으면 아무것도 하지 않고 성공(200)으로 반환한다.")
+    @ApiErrorCodes(common = {CommonErrorCode.VALIDATION_ERROR}, value = {DeliveryErrorCode.INVALID_STATUS_TRANSITION})
+    @PostMapping("/cancel")
+    public ResponseEntity<ApiResponse<Void>> cancelDelivery(@Valid @RequestBody DeliveryCancelRequest request) {
+        deliveryService.cancelDelivery(request.orderId());
+        return ResponseEntity.ok(ApiResponse.success(null, "배송이 취소되었습니다."));
     }
 
 }

@@ -1,8 +1,6 @@
-package com.yuksabal.delivery.delivery.dto;
+package com.yuksabal.delivery.delivery.dto.response;
 
 import com.yuksabal.delivery.delivery.entity.Delivery;
-import com.yuksabal.delivery.delivery.entity.DeliveryStatus;
-import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.UUID;
