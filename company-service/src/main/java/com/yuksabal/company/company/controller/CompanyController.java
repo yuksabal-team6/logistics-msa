@@ -17,6 +17,7 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -93,5 +94,18 @@ public class CompanyController {
         return ResponseEntity.ok(ApiResponse.success(
                 companyService.updateCompany(companyId, request, userId, UserRole.from(role)),
                 "업체가 수정되었습니다."));
+    }
+
+    // 삭제: 200 + ApiResponse.success(null, message). MASTER만 가능, 응답 data 없음
+    @Operation(summary = "업체 삭제")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND})
+    @DeleteMapping("/{companyId}")
+    public ResponseEntity<ApiResponse<Void>> deleteCompany(
+            @PathVariable UUID companyId,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        companyService.deleteCompany(companyId, userId, UserRole.from(role));
+        return ResponseEntity.ok(ApiResponse.success(null, "업체가 삭제되었습니다."));
     }
 }

@@ -100,6 +100,17 @@ public class CompanyService {
         return CompanyResponse.from(company);
     }
 
+    // 업체 삭제는 MASTER만 가능. Soft Delete라 실제로는 deleted_at·deleted_by를 기록하는 UPDATE
+    @Transactional
+    public void deleteCompany(UUID companyId, UUID userId, UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(FORBIDDEN);
+        }
+
+        Company company = findCompany(companyId);
+        company.delete(userId);
+    }
+
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404. 조회·수정·삭제 공용
     private Company findCompany(UUID companyId) {
         return companyRepository.findById(companyId)
