@@ -8,6 +8,7 @@ import com.yuksabal.company.company.service.CompanyService;
 import com.yuksabal.company.global.auth.OwnerPermission;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
+import com.yuksabal.company.product.dto.request.ProductUpdateRequest;
 import com.yuksabal.company.product.dto.response.ProductInternalResponse;
 import com.yuksabal.company.product.dto.response.ProductResponse;
 import com.yuksabal.company.product.entity.Product;
@@ -69,6 +70,28 @@ public class ProductService {
         Page<Product> products = productRepository.findAll(spec, toStablePageable(pageable, SORTABLE_FIELDS));
 
         return PageResponse.from(products, ProductResponse::from);
+    }
+
+    // 권한은 상품의 소속 업체 관리자 기준이라 상품 조회 → 권한 순서
+    @Transactional
+    public ProductResponse updateProduct(UUID productId, ProductUpdateRequest request, UUID userId, UserRole role) {
+        Product product = findProduct(productId);
+        OwnerPermission.validate(product.getCompany().getOwnerId(), userId, role);
+
+        product.updateInfo(request.productName(), request.description(), request.unitPrice());
+
+        // 변경 감지는 커밋 때 UPDATE하므로, 응답의 updatedAt을 채우려고 먼저 반영한다
+        productRepository.flush();
+        return ProductResponse.from(product);
+    }
+
+    // Soft Delete라 실제로는 deleted_at·deleted_by를 기록하는 UPDATE
+    @Transactional
+    public void deleteProduct(UUID productId, UUID userId, UserRole role) {
+        Product product = findProduct(productId);
+        OwnerPermission.validate(product.getCompany().getOwnerId(), userId, role);
+
+        product.delete(userId);
     }
 
     // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
