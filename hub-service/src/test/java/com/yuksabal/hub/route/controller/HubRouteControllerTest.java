@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -196,6 +197,42 @@ class HubRouteControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.totalElements").value(0));
+    }
+
+
+    @Test
+    void 경로_ID로_상세_조회하면_200과_경로를_반환한다() throws Exception {
+        given(hubRouteRepository.findById(ROUTE_ID)).willReturn(Optional.of(seoulToBusan()));
+
+        mockMvc.perform(get("/api/v1/hub-routes/{routeId}", ROUTE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("허브 경로를 상세 조회했습니다."))
+                .andExpect(jsonPath("$.data.hubRouteId").value(ROUTE_ID.toString()))
+                .andExpect(jsonPath("$.data.departureHubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.arrivalHubId").value(BUSAN_ID.toString()))
+                .andExpect(jsonPath("$.data.distanceKm").value(407.98))
+                .andExpect(jsonPath("$.data.durationMinutes").value(408));
+    }
+
+    @Test
+    void 없는_경로_ID면_404를_반환한다() throws Exception {
+        given(hubRouteRepository.findById(any(UUID.class))).willReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/v1/hub-routes/{routeId}", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("존재하지 않는 허브 경로입니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("routeId"));
+    }
+
+    @Test
+    void 경로_ID가_UUID_형식이_아니면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/v1/hub-routes/{routeId}", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("routeId"));
     }
 
 }
