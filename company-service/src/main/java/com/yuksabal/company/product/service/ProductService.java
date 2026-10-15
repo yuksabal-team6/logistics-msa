@@ -2,26 +2,39 @@ package com.yuksabal.company.product.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.service.CompanyService;
 import com.yuksabal.company.global.auth.OwnerPermission;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
+import com.yuksabal.company.product.dto.request.ProductSearchRequest;
 import com.yuksabal.company.product.dto.response.ProductInternalResponse;
 import com.yuksabal.company.product.dto.response.ProductResponse;
 import com.yuksabal.company.product.entity.Product;
 import com.yuksabal.company.product.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Set;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
+import static com.yuksabal.common.util.PageableUtils.toStablePageable;
+import static com.yuksabal.company.product.repository.ProductSpecification.companyIdEquals;
+import static com.yuksabal.company.product.repository.ProductSpecification.hubIdEquals;
+import static com.yuksabal.company.product.repository.ProductSpecification.productNameContains;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ProductService {
+
+    // 목록 정렬 허용 필드 (API 명세 0.4: 정렬 필드는 API별로 제한)
+    private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "productName", "unitPrice");
 
     private final ProductRepository productRepository;
     private final CompanyService companyService;
@@ -44,6 +57,18 @@ public class ProductService {
 
     public ProductResponse getProduct(UUID productId) {
         return ProductResponse.from(findProduct(productId));
+    }
+
+    // 응답에는 업체 ID만 담아 상품 수만큼 업체를 조회하는 N+1이 생기지 않는다
+    public PageResponse<ProductResponse> getProducts(ProductSearchRequest request, Pageable pageable) {
+        Specification<Product> spec = Specification
+                .where(productNameContains(request.productName()))
+                .and(companyIdEquals(request.companyId()))
+                .and(hubIdEquals(request.hubId()));
+
+        Page<Product> products = productRepository.findAll(spec, toStablePageable(pageable, SORTABLE_FIELDS));
+
+        return PageResponse.from(products, ProductResponse::from);
     }
 
     // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
