@@ -1,8 +1,8 @@
 package com.yuksabal.company.product.controller;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
-import com.yuksabal.company.global.auth.UserRole;
 import com.yuksabal.company.global.swagger.ApiErrorCodes;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;

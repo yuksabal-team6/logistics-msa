@@ -1,5 +1,6 @@
 package com.yuksabal.company.global.auth;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;

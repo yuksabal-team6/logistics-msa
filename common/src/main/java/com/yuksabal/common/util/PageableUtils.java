@@ -1,4 +1,4 @@
-package com.yuksabal.hub.global.util;
+package com.yuksabal.common.util;
 
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;

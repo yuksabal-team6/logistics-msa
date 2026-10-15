@@ -1,7 +1,7 @@
 package com.yuksabal.user.global.jwt;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.global.config.JwtProperties;
-import com.yuksabal.user.user.entity.UserRole;
 import io.jsonwebtoken.Jwts;
 import org.springframework.stereotype.Component;
 

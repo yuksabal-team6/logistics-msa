@@ -1,11 +1,11 @@
 package com.yuksabal.company.product.service;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.service.CompanyService;
 import com.yuksabal.company.global.auth.OwnerPermission;
-import com.yuksabal.company.global.auth.UserRole;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
 import com.yuksabal.company.product.dto.response.ProductInternalResponse;
@@ -23,7 +23,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
-import static com.yuksabal.company.global.util.PageableUtils.toStablePageable;
+import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.company.product.repository.ProductSpecification.companyIdEquals;
 import static com.yuksabal.company.product.repository.ProductSpecification.hubIdEquals;
 import static com.yuksabal.company.product.repository.ProductSpecification.productNameContains;

@@ -1,5 +1,6 @@
 package com.yuksabal.user.user.entity;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
