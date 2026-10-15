@@ -5,6 +5,7 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
 import com.yuksabal.company.company.dto.request.CompanySearchRequest;
 import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
+import com.yuksabal.company.company.dto.response.CompanyInternalResponse;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
@@ -58,6 +59,11 @@ public class CompanyService {
 
     public CompanyResponse getCompany(UUID companyId) {
         return CompanyResponse.from(findCompany(companyId));
+    }
+
+    // 내부 API #2 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(CompanyInternalResponse)
+    public CompanyInternalResponse getCompanyForInternal(UUID companyId) {
+        return CompanyInternalResponse.from(findCompany(companyId));
     }
 
     public PageResponse<CompanyResponse> getCompanies(CompanySearchRequest request, Pageable pageable) {
