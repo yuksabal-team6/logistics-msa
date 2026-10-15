@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
+import java.util.UUID;
 
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.hub.inventory.repository.InventorySpecification.search;
@@ -39,5 +40,21 @@ public class InventoryService {
                 search(request.hubId(), request.productId()),
                 toStablePageable(pageable, SORTABLE_FIELDS));
         return PageResponse.from(inventories, InventoryResponse::from);
+    }
+
+    // 재고 상세는 "MASTER 또는 허용된 사용자"가 조회할 수 있다.
+    // TODO 허용된 사용자 기준이 정해지면 재고의 허브·상품으로 권한을 확인한다 (지금은 MASTER만)
+    // 삭제된 재고는 @SQLRestriction으로 조회되지 않아 없는 재고와 같이 404로 응답한다.
+    public InventoryResponse getInventory(UUID inventoryId, UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+
+        Inventory inventory = inventoryRepository.findById(inventoryId)
+                .orElseThrow(() -> new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않는 재고입니다.",
+                        "inventoryId"));
+        return InventoryResponse.from(inventory);
     }
 }
