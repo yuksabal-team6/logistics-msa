@@ -31,6 +31,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.UNAUTHORIZED;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
+import static com.yuksabal.user.global.exception.UserErrorCode.ACCOUNT_DISABLED;
 import static com.yuksabal.user.global.exception.UserErrorCode.INVALID_CREDENTIALS;
 import static com.yuksabal.user.global.exception.UserErrorCode.INVALID_PASSWORD;
 
@@ -56,7 +57,7 @@ public class AuthController {
     // 공개 API (게이트웨이 auth.public-paths)
     @Operation(summary = "로그인", description = "아이디·비밀번호가 맞으면 Access Token(1시간)을 발급한다.")
     @SecurityRequirements
-    @ApiErrorCodes(common = VALIDATION_ERROR, value = INVALID_CREDENTIALS)
+    @ApiErrorCodes(common = VALIDATION_ERROR, value = {INVALID_CREDENTIALS, ACCOUNT_DISABLED})
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(ApiResponse.success(userService.login(request), "로그인에 성공했습니다."));
@@ -64,7 +65,7 @@ public class AuthController {
 
     // 이하 인증 필요: 토큰 오류 401은 게이트웨이가 응답하고, X-User-Id는 게이트웨이가 검증된 JWT 값으로 넣는다
     @Operation(summary = "내 정보 조회", description = "비밀번호 등 민감한 정보는 포함하지 않는다.")
-    @ApiErrorCodes(common = {UNAUTHORIZED, RESOURCE_NOT_FOUND})
+    @ApiErrorCodes(common = {UNAUTHORIZED, RESOURCE_NOT_FOUND}, value = ACCOUNT_DISABLED)
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<MeResponse>> getMe(@RequestHeader("X-User-Id") UUID userId) {
         return ResponseEntity.ok(ApiResponse.success(userService.getMe(userId), "내 정보를 조회했습니다."));
@@ -72,7 +73,7 @@ public class AuthController {
 
     @Operation(summary = "본인 프로필 수정",
             description = "보낸 필드만 수정한다. 수정 가능: username, email, slackId, isPublic")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE}, value = ACCOUNT_DISABLED)
     @PatchMapping("/me")
     public ResponseEntity<ApiResponse<MeResponse>> updateMe(
             @RequestHeader("X-User-Id") UUID userId,
@@ -81,7 +82,7 @@ public class AuthController {
     }
 
     @Operation(summary = "비밀번호 변경", description = "현재 비밀번호 확인 후 변경한다. 이미 발급된 토큰은 만료 전까지 유효하다.")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND}, value = INVALID_PASSWORD)
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND}, value = {INVALID_PASSWORD, ACCOUNT_DISABLED})
     @PatchMapping("/me/password")
     public ResponseEntity<ApiResponse<Void>> changePassword(
             @RequestHeader("X-User-Id") UUID userId,

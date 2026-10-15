@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum CompanyErrorCode implements ErrorCode {
-    // COMPANY 역할이 본인 소유가 아닌 업체를 생성·수정·삭제하려 할 때
+    // COMPANY 역할이 본인이 관리하지 않는 업체를 생성·수정하거나, 그 업체의 상품을 생성·수정·삭제하려 할 때
     COMPANY_ACCESS_DENIED(HttpStatus.FORBIDDEN, "본인 업체만 관리할 수 있습니다.");
 
     private final HttpStatus status;

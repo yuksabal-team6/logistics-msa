@@ -1,19 +1,17 @@
 package com.yuksabal.user.user.service;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.user.user.dto.request.UserSearchRequest;
 import com.yuksabal.user.user.dto.response.UserResponse;
 import com.yuksabal.user.user.entity.User;
-import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +24,7 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
+import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.user.user.repository.UserSpecification.hubIdEquals;
 import static com.yuksabal.user.user.repository.UserSpecification.roleEquals;
 import static com.yuksabal.user.user.repository.UserSpecification.usernameContains;
@@ -39,16 +38,13 @@ public class UserQueryService {
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "username");
 
     private final UserRepository userRepository;
+    private final RequesterValidator requesterValidator;
     private final Validator validator;
 
     // 권한(403)을 입력값 검사(400)보다 먼저 본다: MASTER가 아니면 검색 조건과 무관하게 403
     public PageResponse<UserResponse> getUsers(UUID requesterId, UserRole headerRole, UserSearchRequest request,
                                                Pageable pageable) {
-        User requester = userRepository.findById(requesterId).orElseThrow(() -> new BusinessException(FORBIDDEN));
-        validateRoleMatches(requester, headerRole);
-        if (requester.getRole() != UserRole.MASTER) {
-            throw new BusinessException(FORBIDDEN);
-        }
+        requesterValidator.verifyMaster(requesterId, headerRole);
         validate(request);
 
         Specification<User> spec = Specification
@@ -56,7 +52,8 @@ public class UserQueryService {
                 .and(roleEquals(request.role() == null ? null : UserRole.valueOf(request.role())))
                 .and(hubIdEquals(request.hubId() == null ? null : UUID.fromString(request.hubId())));
 
-        Page<User> users = userRepository.findAll(spec, toStablePageable(pageable));
+        // 허용하지 않은 정렬 필드는 400, id 보조 정렬 자동 추가 (common PageableUtils)
+        Page<User> users = userRepository.findAll(spec, toStablePageable(pageable, SORTABLE_FIELDS));
         return PageResponse.from(users, UserResponse::from);
     }
 
@@ -73,7 +70,8 @@ public class UserQueryService {
             }
             throw new BusinessException(FORBIDDEN);
         }
-        validateRoleMatches(requester, headerRole);
+        // 비활성 계정 403, 헤더 역할이 DB 역할과 다르면 403 (본인 조회라도 역할 위조·예전 토큰은 거부)
+        requesterValidator.check(requester, headerRole);
         if (self) {
             return UserResponse.from(requester);
         }
@@ -81,14 +79,6 @@ public class UserQueryService {
             throw new BusinessException(FORBIDDEN);
         }
         return userRepository.findById(userId).map(UserResponse::from).orElseThrow(this::notFound);
-    }
-
-    // 헤더 역할(게이트웨이가 토큰에서 넣은 값)이 DB에 저장된 요청자의 역할과 다르면 403.
-    // 본인 조회라도 역할을 위조한 요청(예: USER가 MASTER로 보냄)이나 토큰 발급 뒤 역할이 바뀐 요청은 거부한다
-    private void validateRoleMatches(User requester, UserRole headerRole) {
-        if (requester.getRole() != headerRole) {
-            throw new BusinessException(FORBIDDEN);
-        }
     }
 
     private BusinessException notFound() {
@@ -103,16 +93,5 @@ public class UserQueryService {
         if (!details.isEmpty()) {
             throw new BusinessException(VALIDATION_ERROR, VALIDATION_ERROR.getMessage(), details);
         }
-    }
-
-    // 허용하지 않은 정렬 필드는 400. 정렬 값이 같은 행의 순서가 페이지마다 바뀌지 않게 id를 마지막 기준으로 붙인다
-    // (company-service·hub-service toStablePageable과 같은 규칙)
-    private Pageable toStablePageable(Pageable pageable) {
-        for (Sort.Order order : pageable.getSort()) {
-            if (!SORTABLE_FIELDS.contains(order.getProperty())) {
-                throw new BusinessException(VALIDATION_ERROR, "정렬할 수 없는 필드입니다: " + order.getProperty(), "sort");
-            }
-        }
-        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), pageable.getSort().and(Sort.by("id")));
     }
 }
