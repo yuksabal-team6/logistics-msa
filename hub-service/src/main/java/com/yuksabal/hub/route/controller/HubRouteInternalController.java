@@ -29,7 +29,8 @@ public class HubRouteInternalController {
     private final HubRouteService hubRouteService;
 
     // ?from={출발 허브 ID}&to={도착 허브 ID}
-    @Operation(summary = "허브 간 경로 조회", description = "두 허브 사이 경로 한 건을 조회한다. 경로가 없으면 404.")
+    @Operation(summary = "허브 간 경로 조회",
+            description = "두 허브 사이 경로를 한 건을 조회한다. 경로가 없으면 404.")
     @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND})
     @GetMapping
     public ResponseEntity<ApiResponse<HubRouteResponse>> getHubRoute(
