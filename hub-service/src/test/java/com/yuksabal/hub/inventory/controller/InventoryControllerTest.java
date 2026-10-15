@@ -2,6 +2,7 @@ package com.yuksabal.hub.inventory.controller;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
 import com.yuksabal.hub.hub.entity.Hub;
+import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.entity.Inventory;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import com.yuksabal.hub.inventory.service.InventoryService;
@@ -50,6 +51,9 @@ class InventoryControllerTest {
 
     @MockBean
     private InventoryRepository inventoryRepository;
+
+    @MockBean
+    private HubRepository hubRepository;
 
     // JpaAuditingConfig가 요구하는 JPA 메타모델 (WebMvcTest에는 JPA가 없다)
     @MockBean
@@ -196,6 +200,96 @@ class InventoryControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.error.details[0].field").value("inventoryId"));
+    }
+
+    @Test
+    void 허브별_재고를_PageResponse로_반환한다() throws Exception {
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(inventoryRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation -> new PageImpl<>(List.of(seoulInventory()), invocation.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/inventories/hubs/{hubId}", SEOUL_ID).header(ROLE_HEADER, "MASTER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("허브별 재고를 조회했습니다."))
+                .andExpect(jsonPath("$.data.items[0].inventoryId").value(INVENTORY_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].hubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].productId").value(PRODUCT_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].quantity").value(100))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    void 허브는_있지만_재고가_없으면_빈_목록을_반환한다() throws Exception {
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(inventoryRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation -> Page.empty(invocation.getArgument(1)));
+
+        mockMvc.perform(get("/api/v1/inventories/hubs/{hubId}", SEOUL_ID).header(ROLE_HEADER, "MASTER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.totalElements").value(0));
+    }
+
+    @Test
+    void 없는_허브면_404를_반환한다() throws Exception {
+        given(hubRepository.existsById(any(UUID.class))).willReturn(false);
+
+        mockMvc.perform(get("/api/v1/inventories/hubs/{hubId}", UUID.randomUUID()).header(ROLE_HEADER, "MASTER"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("존재하지 않는 허브입니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("hubId"));
+
+        then(inventoryRepository).should(never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    // 권한이 없으면 허브가 있는지도 알 수 없도록 조회 전에 403
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "COMPANY", "DELIVERY"})
+    void 허브별_재고_조회_권한이_없으면_403을_반환한다(String role) throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/hubs/{hubId}", SEOUL_ID).header(ROLE_HEADER, role))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        then(hubRepository).should(never()).existsById(any(UUID.class));
+        then(inventoryRepository).should(never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void 허브별_재고_정렬_기준_끝에_id를_붙인다() throws Exception {
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(inventoryRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation -> Page.empty(invocation.getArgument(1)));
+
+        mockMvc.perform(get("/api/v1/inventories/hubs/{hubId}", SEOUL_ID).header(ROLE_HEADER, "MASTER")
+                        .param("sort", "quantity,desc"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        then(inventoryRepository).should().findAll(any(Specification.class), pageable.capture());
+        assertThat(pageable.getValue().getSort())
+                .isEqualTo(Sort.by(Sort.Order.desc("quantity"), Sort.Order.asc("id")));
+    }
+
+    @Test
+    void 허브별_재고_허용하지_않은_정렬_필드는_400을_반환한다() throws Exception {
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+
+        mockMvc.perform(get("/api/v1/inventories/hubs/{hubId}", SEOUL_ID).header(ROLE_HEADER, "MASTER")
+                        .param("sort", "deletedAt,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("sort"));
+    }
+
+    @Test
+    void 허브_ID가_UUID_형식이_아니면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/hubs/{hubId}", "abc").header(ROLE_HEADER, "MASTER"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("hubId"));
     }
 
     private Inventory seoulInventory() {
