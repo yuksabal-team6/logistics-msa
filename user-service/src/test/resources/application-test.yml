@@ -5,6 +5,10 @@ spring:
     username: sa
     password:
     driver-class-name: org.h2.Driver
+  # schema.sql의 부분 유니크 인덱스(WHERE 조건)는 H2가 지원하지 않아 실행하지 않는다
+  sql:
+    init:
+      mode: never
   jpa:
     hibernate:
       ddl-auto: create-drop
