@@ -1,9 +1,9 @@
 package com.yuksabal.user.user.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.support.TestJwt;
 import com.yuksabal.user.user.entity.User;
-import com.yuksabal.user.user.entity.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;

@@ -1,5 +1,6 @@
 package com.yuksabal.user.user.service;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.ApiErrorDetail;
@@ -13,7 +14,6 @@ import com.yuksabal.user.user.dto.request.UpdateMeRequest;
 import com.yuksabal.user.user.dto.response.LoginResponse;
 import com.yuksabal.user.user.dto.response.RegisterResponse;
 import com.yuksabal.user.user.entity.User;
-import com.yuksabal.user.user.entity.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;

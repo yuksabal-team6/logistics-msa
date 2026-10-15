@@ -1,7 +1,7 @@
 package com.yuksabal.user.global.jwt;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.support.TestJwt;
-import com.yuksabal.user.user.entity.UserRole;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.security.SignatureException;

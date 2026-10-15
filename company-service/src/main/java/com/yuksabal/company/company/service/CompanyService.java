@@ -1,5 +1,6 @@
 package com.yuksabal.company.company.service;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
@@ -10,12 +11,9 @@ import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
-import com.yuksabal.company.global.auth.UserRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +24,7 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
-import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
+import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
 
@@ -71,7 +69,7 @@ public class CompanyService {
                 .where(companyNameContains(request.companyName()))
                 .and(hubIdEquals(request.hubId()));
 
-        Page<Company> companies = companyRepository.findAll(spec, toStablePageable(pageable));
+        Page<Company> companies = companyRepository.findAll(spec, toStablePageable(pageable, SORTABLE_FIELDS));
 
         return PageResponse.from(companies, CompanyResponse::from);
     }
@@ -126,22 +124,6 @@ public class CompanyService {
                         RESOURCE_NOT_FOUND,
                         "존재하지 않거나 삭제된 업체입니다.",
                         "companyId"));
-    }
-
-    // 허용하지 않은 정렬 필드는 400. 정렬 값이 같은 행의 순서가 페이지마다 바뀌지 않게 id를 마지막 기준으로 붙인다
-    private Pageable toStablePageable(Pageable pageable) {
-        for (Sort.Order order : pageable.getSort()) {
-            if (!SORTABLE_FIELDS.contains(order.getProperty())) {
-                throw new BusinessException(
-                        VALIDATION_ERROR,
-                        "정렬할 수 없는 필드입니다: " + order.getProperty(),
-                        "sort");
-            }
-        }
-        return PageRequest.of(
-                pageable.getPageNumber(),
-                pageable.getPageSize(),
-                pageable.getSort().and(Sort.by("id")));
     }
 
     // 값을 보냈고(null 아님) 기존 값과 다를 때만 "바뀜"으로 본다
