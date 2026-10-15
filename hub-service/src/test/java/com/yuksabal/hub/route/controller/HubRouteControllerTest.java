@@ -133,4 +133,69 @@ class HubRouteControllerTest {
         ReflectionTestUtils.setField(hub, "id", id);
         return hub;
     }
+
+
+    @Test
+    void 조건_없이_경로_목록을_조회한다() throws Exception {
+        given(hubRouteRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation ->
+                        new PageImpl<>(List.of(seoulToBusan()), invocation.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/hub-routes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].departureHubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].arrivalHubId").value(BUSAN_ID.toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    void 출발_허브_ID만으로_경로_목록을_조회한다() throws Exception {
+        given(hubRouteRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation ->
+                        new PageImpl<>(List.of(seoulToBusan()), invocation.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/hub-routes")
+                        .param("departureHubId", SEOUL_ID.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].departureHubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    void 도착_허브_ID만으로_경로_목록을_조회한다() throws Exception {
+        given(hubRouteRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation ->
+                        new PageImpl<>(List.of(seoulToBusan()), invocation.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/hub-routes")
+                        .param("arrivalHubId", BUSAN_ID.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].arrivalHubId").value(BUSAN_ID.toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    void 존재하지_않는_허브_ID로_조회하면_빈_목록을_반환한다() throws Exception {
+        UUID nonExistentHubId =
+                UUID.fromString("00000000-0000-0000-0000-000000000099");
+
+        given(hubRouteRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation ->
+                        Page.empty(invocation.getArgument(1)));
+
+        mockMvc.perform(get("/api/v1/hub-routes")
+                        .param("departureHubId", nonExistentHubId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.totalElements").value(0));
+    }
+
 }
