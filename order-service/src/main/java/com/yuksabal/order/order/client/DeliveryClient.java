@@ -15,5 +15,5 @@ public interface DeliveryClient {
     @PostMapping("/internal/deliveries")
     ApiResponse<DeliveryCreateResponse> createDelivery(@RequestBody DeliveryCreateRequest request);
 
-    // TODO 확인: #9 배송·경로 기록 취소 (결정 #19). 경로·요청·응답 명세가 정해지면 추가
+    // TODO 확인: #9 배송, 경로 기록 취소 (결정 #19). 경로, 요청, 응답 명세가 정해지면 추가
 }

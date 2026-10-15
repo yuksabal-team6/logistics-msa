@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 @FeignClient(name = "hub-service")
 public interface HubClient {
 
-    // #3 재고 차감. 409 INSUFFICIENT_STOCK → 주문 FAILED · NOT_REQUIRED
+    // #3 재고 차감. 409 INSUFFICIENT_STOCK → 주문 FAILED + NOT_REQUIRED
     @PostMapping("/internal/stocks/decrease")
     ApiResponse<StockDecreaseResponse> decreaseStock(@RequestBody StockRequest request);
 

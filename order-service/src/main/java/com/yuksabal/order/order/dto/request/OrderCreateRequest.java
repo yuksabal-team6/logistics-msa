@@ -7,7 +7,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.util.UUID;
 
-// 명세 4.6 주문 생성 요청. 단가·금액은 서버가 상품 조회(#1)로 계산
+// 명세 4.6 주문 생성 요청. 단가, 금액은 서버가 상품 조회(#1)로 계산
 @Schema(description = "주문 생성 요청")
 public record OrderCreateRequest(
         @Schema(description = "요청(수령) 업체 ID", example = "30000000-0000-4000-8000-000000000002")

@@ -1,0 +1,14 @@
+# 통합 테스트 전용: 인메모리 H2(PostgreSQL 모드), Eureka 미사용
+spring:
+  datasource:
+    url: jdbc:h2:mem:order_service_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+eureka:
+  client:
+    enabled: false

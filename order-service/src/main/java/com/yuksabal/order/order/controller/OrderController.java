@@ -1,5 +1,6 @@
 package com.yuksabal.order.order.controller;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.order.global.swagger.ApiErrorCodes;
@@ -23,6 +24,7 @@ import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.*;
 import static com.yuksabal.order.global.exception.OrderErrorCode.NOT_IMPLEMENTED;
+import static com.yuksabal.order.global.exception.OrderErrorCode.ORDER_NOT_DELETABLE;
 
 // 주문 API. 상태는 생성,취소,배송 완료 흐름으로만 변경, 상태 변경 API 없음
 @Tag(name = "Order", description = "주문 API")
@@ -38,14 +40,14 @@ public class OrderController {
     private static final String USER_ROLE_DESCRIPTION = "로그인한 사용자 역할입니다. (MASTER, USER, COMPANY, DELIVERY) 게이트웨이를 거치면 자동으로 들어갑니다.";
 
     // 생성: 201 + ApiResponse.success(data, message). 로그인 사용자 모두 가능
-    // Idempotency-Key(UUID) 필수: 누락·형식 오류는 400 VALIDATION_ERROR (결정 #18)
+    // Idempotency-Key(UUID) 필수: 누락, 형식 오류는 400 VALIDATION_ERROR (결정 #18)
     @Operation(summary = "주문 생성",
             description = """
                     **로그인한 사용자 모두** 주문할 수 있습니다.
                     
                     같은 Idempotency-Key로 다시 요청하면 새로 만들지 않고 **기존 주문 결과를 응답**합니다.
                     """)
-    @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {NOT_IMPLEMENTED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {NOT_IMPLEMENTED})
     @PostMapping
     public ResponseEntity<ApiResponse<OrderCreateResponse>> createOrder(
             @Valid @RequestBody OrderCreateRequest request,
@@ -57,7 +59,7 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role) {
 
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
-                orderService.createOrder(request, idempotencyKey, userId, role),
+                orderService.createOrder(request, idempotencyKey, userId, UserRole.from(role)),
                 "주문이 생성되었습니다."));
     }
 
@@ -70,7 +72,7 @@ public class OrderController {
                     
                     기간은 yyyy-MM-dd 형식이며, 시작일과 종료일을 **모두 포함**합니다. (한국 시간)
                     """)
-    @ApiErrorCodes(common = {VALIDATION_ERROR}, value = {NOT_IMPLEMENTED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN})
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<OrderResponse>>> getOrders(
             @Valid @ParameterObject OrderSearchRequest request,
@@ -81,13 +83,13 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role) {
 
         return ResponseEntity.ok(ApiResponse.success(
-                orderService.getOrders(request, pageable, userId, role),
+                orderService.getOrders(request, pageable, userId, UserRole.from(role)),
                 "목록을 조회했습니다."));
     }
 
     // 상세 조회: MASTER 또는 주문자 본인
     @Operation(summary = "주문 상세 조회", description = "**MASTER** 또는 **주문자 본인**만 조회할 수 있습니다.")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {NOT_IMPLEMENTED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND})
     @GetMapping("/{orderId}")
     public ResponseEntity<ApiResponse<OrderResponse>> getOrder(
             @PathVariable UUID orderId,
@@ -97,7 +99,7 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role) {
 
         return ResponseEntity.ok(ApiResponse.success(
-                orderService.getOrder(orderId, userId, role),
+                orderService.getOrder(orderId, userId, UserRole.from(role)),
                 "주문을 조회했습니다."));
     }
 
@@ -118,18 +120,18 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role) {
 
         return ResponseEntity.ok(ApiResponse.success(
-                orderService.cancelOrder(orderId, userId, role),
+                orderService.cancelOrder(orderId, userId, UserRole.from(role)),
                 "주문이 취소되었습니다."));
     }
 
-    // 삭제: 200 + data 없음. MASTER만, 완료 주문 또는 보상이 끝난(필요 없는) 실패·취소 주문만 가능
+    // 삭제: 200 + data 없음. MASTER만, 완료 주문 또는 보상이 끝난(필요 없는) 실패/취소 주문만 가능
     @Operation(summary = "주문 삭제",
             description = """
                     **MASTER**만 삭제할 수 있습니다.
                     
-                    **COMPLETED** 주문, 또는 compensationStatus가 NOT_REQUIRED·COMPLETED인 **FAILED·CANCELLED** 주문만 삭제할 수 있습니다.
+                    **COMPLETED** 주문, 또는 compensationStatus가 NOT_REQUIRED/COMPLETED인 **FAILED/CANCELLED** 주문만 삭제할 수 있습니다.
                     """)
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {NOT_IMPLEMENTED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {ORDER_NOT_DELETABLE})
     @DeleteMapping("/{orderId}")
     public ResponseEntity<ApiResponse<Void>> deleteOrder(
             @PathVariable UUID orderId,
@@ -138,7 +140,7 @@ public class OrderController {
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
 
-        orderService.deleteOrder(orderId, userId, role);
+        orderService.deleteOrder(orderId, userId, UserRole.from(role));
         return ResponseEntity.ok(ApiResponse.success(null, "주문이 삭제되었습니다."));
     }
 }

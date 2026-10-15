@@ -34,7 +34,7 @@ public class Order extends BaseEntity {
     @Column(nullable = false)
     private UUID productId;
 
-    // 출발·도착 허브 → hub-service p_hubs.hub_id. 같을 수 있음 (결정 #16)
+    // 출발/도착 허브 → hub-service p_hubs.hub_id. 같을 수 있음 (결정 #16)
     @Column(nullable = false)
     private UUID departureHubId;
 
@@ -59,7 +59,7 @@ public class Order extends BaseEntity {
     @Column(nullable = false)
     private Long unitPrice;
 
-    // ERD상 DB 자동 계산 컬럼. ddl-auto: update 단계에서는 엔티티가 계산해 저장한다
+    // ERD상 DB 자동 계산 컬럼. ddl-auto: update 단계에서는 엔티티가 계산해 저장
     private Long totalAmount;
 
     @Column(columnDefinition = "TEXT")
@@ -114,7 +114,27 @@ public class Order extends BaseEntity {
         this.compensationStatus = compensationStatus;
     }
 
-    // TODO 확인: 취소(CANCELLED)·완료(COMPLETED) 전이 규칙은 주문 취소·#10 구현 때 추가 (결정 #19)
+    // TODO 확인: 취소(CANCELLED), 완료(COMPLETED) 전이 규칙은 주문 취소 구현 때 추가 (결정 #19)
+
+    /**
+     * 주문의 삭제 가능 여부를 판단한다.
+     * 완료된 주문 또는 보상 처리가 끝난 실패/취소 주문만 삭제할 수 있다.
+     * COMPLETED, 또는 보상이 끝났거나 필요 없는 FAILED/CANCELLED
+     *
+     * @return 삭제 가능하면 true, 그렇지 않으면 false
+     */
+    public boolean isDeletable() {
+        if (status == OrderStatus.COMPLETED) {
+            return true;
+        }
+        boolean compensationDone = compensationStatus == CompensationStatus.NOT_REQUIRED
+                || compensationStatus == CompensationStatus.COMPLETED;
+        return (status == OrderStatus.FAILED || status == OrderStatus.CANCELLED) && compensationDone;
+    }
+
+    public boolean isOrderedBy(UUID userId) {
+        return ordererId.equals(userId);
+    }
 
     public void delete(UUID deletedBy) {
         markDeleted(deletedBy);
