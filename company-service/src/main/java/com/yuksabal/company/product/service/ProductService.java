@@ -4,7 +4,7 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.entity.Company;
-import com.yuksabal.company.company.service.CompanyService;
+import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
@@ -38,12 +38,12 @@ public class ProductService {
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "productName", "unitPrice");
 
     private final ProductRepository productRepository;
-    private final CompanyService companyService;
+    private final CompanyRepository companyRepository;
 
     // 소속 업체를 먼저 찾아야 관리자를 알 수 있어 업체 조회 → 권한 순서
     @Transactional
     public ProductResponse createProduct(UUID companyId, ProductCreateRequest request, UUID userId, UserRole role) {
-        Company company = companyService.findCompany(companyId);
+        Company company = findCompany(companyId);
         OwnerPermission.validate(company.getOwnerId(), userId, role);
 
         Product product = Product.builder()
@@ -106,5 +106,15 @@ public class ProductService {
                         RESOURCE_NOT_FOUND,
                         "존재하지 않거나 삭제된 상품입니다.",
                         "productId"));
+    }
+
+    // 상품 생성 시 소속 업체 조회. CompanyService가 업체 삭제 때 ProductService를 쓰므로, 순환 의존을 피하려고 Repository로 읽기만 한다
+    // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404
+    private Company findCompany(UUID companyId) {
+        return companyRepository.findById(companyId)
+                .orElseThrow(() -> new BusinessException(
+                        RESOURCE_NOT_FOUND,
+                        "존재하지 않거나 삭제된 업체입니다.",
+                        "companyId"));
     }
 }

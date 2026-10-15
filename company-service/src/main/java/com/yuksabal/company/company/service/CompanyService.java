@@ -117,8 +117,7 @@ public class CompanyService {
     }
 
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404. 조회·수정·삭제 공용
-    // 같은 서비스 안(상품 등)에서 업체 엔티티가 필요할 때도 사용. Controller 응답용이 아님
-    public Company findCompany(UUID companyId) {
+    private Company findCompany(UUID companyId) {
         return companyRepository.findById(companyId)
                 .orElseThrow(() -> new BusinessException(
                         RESOURCE_NOT_FOUND,
