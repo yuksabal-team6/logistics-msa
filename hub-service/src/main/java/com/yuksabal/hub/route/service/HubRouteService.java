@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Set;
 import java.util.UUID;
 
-import static com.yuksabal.hub.global.util.PageableUtils.toStablePageable;
+import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.hub.route.repository.HubRouteSpecification.search;
 
 @Service

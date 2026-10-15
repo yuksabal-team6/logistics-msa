@@ -1,5 +1,6 @@
 package com.yuksabal.company.company.controller;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
@@ -7,7 +8,6 @@ import com.yuksabal.company.company.dto.request.CompanySearchRequest;
 import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.service.CompanyService;
-import com.yuksabal.company.global.auth.UserRole;
 import com.yuksabal.company.global.swagger.ApiErrorCodes;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
