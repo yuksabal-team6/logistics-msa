@@ -316,7 +316,7 @@ order.delete(userId);   // @Transactional 끝나면 UPDATE
 | user | `INVALID_CREDENTIALS` (401) |
 | hub | `INSUFFICIENT_STOCK`, `INVENTORY_CONFLICT` (409) |
 | company | `COMPANY_ACCESS_DENIED` (403) |
-| order·delivery | `INVALID_STATUS_TRANSITION` (409), delivery는 `DELIVERY_ACCESS_DENIED` (403) |
+| order·delivery | `INVALID_STATUS_TRANSITION` (409), delivery는 `DELIVERY_ACCESS_DENIED` (403), `DELIVERY_CONFLICT` (409, 동시 수정) |
 | gateway | `TOKEN_EXPIRED` (401) |
 
 ```java
