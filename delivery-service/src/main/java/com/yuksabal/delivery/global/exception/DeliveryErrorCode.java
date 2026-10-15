@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum DeliveryErrorCode implements ErrorCode {
     // 기능 개발 시 추가 (예: DELIVERY_NOT_FOUND(HttpStatus.NOT_FOUND, "...을 찾을 수 없습니다."))
-    ;
+    INVALID_STATUS_TRANSITION(HttpStatus.CONFLICT, "현재 상태에서는 변경할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

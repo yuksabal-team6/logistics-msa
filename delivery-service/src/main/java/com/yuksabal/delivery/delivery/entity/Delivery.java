@@ -1,6 +1,8 @@
 package com.yuksabal.delivery.delivery.entity;
 
 import com.yuksabal.common.entity.BaseEntity;
+import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -70,6 +72,20 @@ public class Delivery extends BaseEntity {
         this.recipientName = recipientName;
         this.recipientSlackId = recipientSlackId;
         this.deliveryStatus = DeliveryStatus.READY;
+
+    }
+
+    public boolean isCancelled() {
+        return deliveryStatus == DeliveryStatus.CANCELLED;
+    }
+
+    // 허브 출발 전(READY)에만 취소할 수 있다 (결정 #19)
+    public void cancel() {
+        if (deliveryStatus != DeliveryStatus.READY) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "허브 출발 후에는 배송을 취소할 수 없습니다.");
+        }
+        this.deliveryStatus = DeliveryStatus.CANCELLED;
     }
 
     public void delete(UUID deletedBy) {

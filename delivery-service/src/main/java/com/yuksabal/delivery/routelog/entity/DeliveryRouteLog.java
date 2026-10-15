@@ -1,7 +1,9 @@
 package com.yuksabal.delivery.routelog.entity;
 
+import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.common.entity.BaseEntity;
+import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -68,6 +70,15 @@ public class DeliveryRouteLog extends BaseEntity {
         this.expectedDistanceKm = expectedDistanceKm;
         this.expectedDurationMinutes = expectedDurationMinutes;
         this.routeStatus = RouteStatus.READY;
+    }
+
+    // 허브 출발 전(READY)에만 취소할 수 있다 (결정 #19)
+    public void cancel() {
+        if (routeStatus != RouteStatus.READY) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "허브 출발 후에는 배송 경로 기록을 취소할 수 없습니다.");
+        }
+        this.routeStatus = RouteStatus.CANCELLED;
     }
 
     public void delete(UUID deletedBy) {
