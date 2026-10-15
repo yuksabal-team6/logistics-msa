@@ -9,7 +9,6 @@ import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.entity.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,12 +40,9 @@ public class UserService {
                 .role(UserRole.USER)
                 .build();
 
-        try {
-            return RegisterResponse.from(userRepository.saveAndFlush(user));
-        } catch (DataIntegrityViolationException e) {
-            // 동시 가입으로 중복 확인을 함께 통과한 경우, DB 부분 유니크 인덱스(#15)에서 걸린다
-            throw new BusinessException(CommonErrorCode.DUPLICATE_RESOURCE, DUPLICATE_MESSAGE);
-        }
+        // 동시 가입으로 중복 확인을 함께 통과하면 DB 부분 유니크 인덱스(#15)가 막고
+        // common 핸들러가 유니크 위반(23505)만 409, 그 외 제약 위반은 500으로 응답한다
+        return RegisterResponse.from(userRepository.saveAndFlush(user));
     }
 
     // 삭제되지 않은 회원과 아이디·이메일이 겹치면 409. 둘 다 겹치면 둘 다 details로 알려준다

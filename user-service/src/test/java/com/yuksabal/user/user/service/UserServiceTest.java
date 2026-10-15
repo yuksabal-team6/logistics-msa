@@ -94,12 +94,12 @@ class UserServiceTest {
     }
 
     @Test
-    void 동시_가입으로_DB_유니크_제약에_걸려도_409() {
-        given(userRepository.saveAndFlush(any(User.class))).willThrow(new DataIntegrityViolationException("dup"));
+    void DB_제약_위반은_변환하지_않고_공통_핸들러로_넘긴다() {
+        // 23505만 409로 바꾸는 판단은 common GlobalExceptionHandler가 한다
+        DataIntegrityViolationException violation = new DataIntegrityViolationException("dup");
+        given(userRepository.saveAndFlush(any(User.class))).willThrow(violation);
 
-        assertThatThrownBy(() -> userService.register(request))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode").isEqualTo(CommonErrorCode.DUPLICATE_RESOURCE);
+        assertThatThrownBy(() -> userService.register(request)).isSameAs(violation);
     }
 
     private void assertDuplicated(String... fields) {
