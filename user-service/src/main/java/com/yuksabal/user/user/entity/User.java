@@ -1,5 +1,6 @@
 package com.yuksabal.user.user.entity;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -60,6 +61,27 @@ public class User extends BaseEntity {
         this.password = password;
         this.role = role != null ? role : UserRole.USER;
         this.isPublic = isPublic != null ? isPublic : true;
+    }
+
+    // 본인 프로필 수정. null인 값은 바꾸지 않는다 (중복·형식 검증은 서비스·DTO에서 끝낸 뒤 호출)
+    public void updateProfile(String username, String email, String slackId, Boolean isPublic) {
+        if (username != null) {
+            this.username = username;
+        }
+        if (email != null) {
+            this.email = email;
+        }
+        if (slackId != null) {
+            this.slackId = slackId;
+        }
+        if (isPublic != null) {
+            this.isPublic = isPublic;
+        }
+    }
+
+    // BCrypt 해시를 받는다 (원문 비밀번호를 넘기지 않는다)
+    public void changePassword(String encodedPassword) {
+        this.password = encodedPassword;
     }
 
     public void delete(UUID deletedBy) {

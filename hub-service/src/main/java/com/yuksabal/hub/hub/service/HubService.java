@@ -6,6 +6,7 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.hub.dto.request.HubSearchRequest;
+import com.yuksabal.hub.hub.dto.response.HubInternalResponse;
 import com.yuksabal.hub.hub.dto.response.HubResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -45,6 +46,20 @@ public class HubService {
                 .orElseThrow(() -> new BusinessException(
                         CommonErrorCode.RESOURCE_NOT_FOUND,
                         "요청한 리소스를 찾을 수 없습니다.",
+                        "hubId"
+                ));
+    }
+
+    /**
+     * 내부 API용 허브 존재 확인. company·user-service가 업체 생성·회원가입 시 호출한다.
+     * 삭제된 허브는 @SQLRestriction으로 조회되지 않아 없는 허브와 같이 404로 응답한다.
+     */
+    public HubInternalResponse getInternalHub(UUID hubId) {
+        return hubRepository.findById(hubId)
+                .map(HubInternalResponse::from)
+                .orElseThrow(() -> new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않는 허브입니다.",
                         "hubId"
                 ));
     }
