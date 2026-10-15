@@ -2,9 +2,9 @@ package com.yuksabal.delivery.delivery.controller;
 
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.ApiResponse;
-import com.yuksabal.delivery.delivery.dto.DeliveryCancelRequest;
-import com.yuksabal.delivery.delivery.dto.DeliveryCreateRequest;
-import com.yuksabal.delivery.delivery.dto.DeliveryCreateResponse;
+import com.yuksabal.delivery.delivery.dto.request.DeliveryCancelRequest;
+import com.yuksabal.delivery.delivery.dto.request.DeliveryCreateRequest;
+import com.yuksabal.delivery.delivery.dto.response.DeliveryCreateResponse;
 import com.yuksabal.delivery.delivery.service.DeliveryService;
 import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.global.swagger.ApiErrorCodes;
