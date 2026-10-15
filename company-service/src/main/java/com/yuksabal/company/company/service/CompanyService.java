@@ -93,11 +93,11 @@ public class CompanyService {
         company.updateInfo(request.companyName(), request.address(),
                 request.contactPhone(), request.businessNumber());
         if (isChanged(request.hubId(), company.getHubId())) {
-            // TODO #7: 허브 존재 확인 (hub 내부 API 준비 후)
+            // TODO #58: 허브 존재 확인 (내부 API #7, hub 준비 후)
             company.changeHub(request.hubId());
         }
         if (isChanged(request.ownerId(), company.getOwnerId())) {
-            // TODO #8: 새 관리자 소속 확인 (user 내부 API 준비 후)
+            // TODO #58: 새 관리자 소속 확인 (내부 API #8, user 준비 후)
             company.changeOwner(request.ownerId());
         }
 

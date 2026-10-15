@@ -16,7 +16,7 @@ public record CompanyCreateRequest(
         @Size(max = 200, message = "업체명은 200자 이하로 입력해 주세요.")
         String companyName,
 
-        // 존재 여부는 hub-service에 확인 (Feign, 별도 이슈)
+        // 존재 여부는 hub-service에 확인 (Feign, #58)
         @Schema(description = "관리 허브 ID", example = "00000000-0000-0000-0000-000000000004")
         @NotNull(message = "관리 허브 ID는 필수입니다.")
         UUID hubId,
