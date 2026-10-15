@@ -59,6 +59,32 @@ public class Company extends BaseEntity {
         this.contactPhone = contactPhone;
     }
 
+    // 기본 정보 수정. 부분 수정(PATCH)이라 null인 값은 기존 값을 유지한다
+    public void updateInfo(String companyName, String address, String contactPhone, String businessNumber) {
+        if (companyName != null) {
+            this.companyName = companyName;
+        }
+        if (address != null) {
+            this.address = address;
+        }
+        if (contactPhone != null) {
+            this.contactPhone = contactPhone;
+        }
+        if (businessNumber != null) {
+            this.businessNumber = businessNumber;
+        }
+    }
+
+    // 관리 허브 이전. 권한(MASTER만)과 허브 존재 확인은 서비스에서 한다
+    public void changeHub(UUID hubId) {
+        this.hubId = hubId;
+    }
+
+    // 업체 관리자 교체. 권한(MASTER만)과 새 관리자 소속 확인은 서비스에서 한다
+    public void changeOwner(UUID ownerId) {
+        this.ownerId = ownerId;
+    }
+
     public void delete(UUID deletedBy) {
         markDeleted(deletedBy);
     }

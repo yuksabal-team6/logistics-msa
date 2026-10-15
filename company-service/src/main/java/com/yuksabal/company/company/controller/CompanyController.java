@@ -4,6 +4,7 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
 import com.yuksabal.company.company.dto.request.CompanySearchRequest;
+import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.service.CompanyService;
 import com.yuksabal.company.global.auth.UserRole;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -76,5 +78,20 @@ public class CompanyController {
         return ResponseEntity.ok(ApiResponse.success(
                 companyService.getCompanies(request, pageable),
                 "목록을 조회했습니다."));
+    }
+
+    // 수정: 200 + ApiResponse.success(data, message). 보낸 필드만 수정, 허브·관리자 변경은 MASTER만
+    @Operation(summary = "업체 수정")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE}, value = {COMPANY_ACCESS_DENIED})
+    @PatchMapping("/{companyId}")
+    public ResponseEntity<ApiResponse<CompanyResponse>> updateCompany(
+            @PathVariable UUID companyId,
+            @Valid @RequestBody CompanyUpdateRequest request,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                companyService.updateCompany(companyId, request, userId, UserRole.from(role)),
+                "업체가 수정되었습니다."));
     }
 }
