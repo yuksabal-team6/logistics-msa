@@ -60,6 +60,10 @@ public class Delivery extends BaseEntity {
 
     private LocalDateTime completedAt;
 
+    // 낙관적 락. 기존 행은 null이라 schema.sql에서 0으로 채운다
+    @Version
+    private Long version;
+
     @Builder
     public Delivery(UUID orderId, UUID departureHubId, UUID destinationHubId, UUID destinationCompanyId,
                     UUID deliveryManagerId, String address, String recipientName, String recipientSlackId) {
@@ -86,6 +90,41 @@ public class Delivery extends BaseEntity {
                     "허브 출발 후에는 배송을 취소할 수 없습니다.");
         }
         this.deliveryStatus = DeliveryStatus.CANCELLED;
+    }
+
+    // 배송(허브→업체) 구간 상태 변경. IN_TRANSIT·ARRIVED_AT_HUB는 경로 기록 연동, CANCELLED는 cancel()에서만 바꾼다
+    public void changeStatus(DeliveryStatus target) {
+        switch (target) {
+            case DELIVERING -> startDelivery();
+            case COMPLETED -> complete();
+            default -> throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "이 API로 변경할 수 없는 상태입니다.");
+        }
+    }
+
+    // 같은 허브: READY → DELIVERING, 다른 허브: ARRIVED_AT_HUB → DELIVERING (결정 #16)
+    private void startDelivery() {
+        DeliveryStatus required = isSameHub() ? DeliveryStatus.READY : DeliveryStatus.ARRIVED_AT_HUB;
+        if (deliveryStatus != required) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    required + " 상태에서만 배송을 시작할 수 있습니다.");
+        }
+        this.deliveryStatus = DeliveryStatus.DELIVERING;
+        this.startedAt = LocalDateTime.now();
+    }
+
+    // DELIVERING → COMPLETED
+    private void complete() {
+        if (deliveryStatus != DeliveryStatus.DELIVERING) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "배송 중(DELIVERING)인 배송만 완료할 수 있습니다.");
+        }
+        this.deliveryStatus = DeliveryStatus.COMPLETED;
+        this.completedAt = LocalDateTime.now();
+    }
+
+    private boolean isSameHub() {
+        return departureHubId.equals(destinationHubId);
     }
 
     public void delete(UUID deletedBy) {
