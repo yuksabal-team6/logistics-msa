@@ -20,7 +20,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.UNAUTHORIZED;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 
 // 인증은 게이트웨이가 JWT로 처리한다. 로그인한 모든 역할이 조회할 수 있어 서비스에서 권한을 다시 확인하지 않는다.
-@Tag(name = "Hub Route", description = "허브 경로 API")
+@Tag(name = "Hub Route", description = "허브 경로 조회 외부 API")
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/hub-routes")
@@ -29,8 +29,8 @@ public class HubRouteController {
     private final HubRouteService hubRouteService;
 
     // ?departureHubId=&arrivalHubId=&page=0&size=20&sort=distanceKm,asc (조건은 모두 선택)
-    @Operation(summary = "허브 경로 목록 조회 및 검색",
-            description = "출발·도착 허브 ID로 검색. 같은 허브나 없는 허브 ID면 빈 목록. 정렬 가능: createdAt, distanceKm, durationMinutes")
+    @Operation(summary = "허브 경로 조건부 목록 조회",
+            description = "출발·도착 허브 ID로 조회한다. 같은 허브나 없는 허브 ID면 빈 목록. 정렬 가능: createdAt, distanceKm, durationMinutes")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED})
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<HubRouteResponse>>> getHubRoutes(

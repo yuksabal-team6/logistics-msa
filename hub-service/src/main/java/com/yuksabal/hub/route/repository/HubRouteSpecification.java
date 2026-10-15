@@ -12,6 +12,13 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class HubRouteSpecification {
 
+    // 조건 없으면 전체 / 출발만 / 도착만 / 둘 다(최대 1건)
+    public static Specification<HubRoute> search(UUID departureHubId, UUID arrivalHubId) {
+        return Specification
+                .where(departureHubIdEquals(departureHubId))
+                .and(arrivalHubIdEquals(arrivalHubId));
+    }
+
     public static Specification<HubRoute> departureHubIdEquals(UUID departureHubId) {
         return (root, query, cb) ->
                 departureHubId == null
