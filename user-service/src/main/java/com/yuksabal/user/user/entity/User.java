@@ -7,6 +7,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.util.UUID;
@@ -50,6 +51,12 @@ public class User extends BaseEntity {
     @Column(nullable = false)
     private boolean isPublic;
 
+    // 계정 활성 여부 (#67). 비활성이면 로그인·회원 API 사용 불가. 소프트 삭제(deleted_at)와 별개로, 다시 활성화할 수 있다
+    // ddl-auto update로 컬럼이 추가될 때 기존 회원이 활성으로 채워지도록 DB 기본값을 둔다
+    @ColumnDefault("true")
+    @Column(nullable = false)
+    private boolean isActive = true;
+
     @Builder
     public User(UUID hubId, UUID companyId, String username, String slackId, String email, String password,
                 UserRole role, Boolean isPublic) {
@@ -79,9 +86,28 @@ public class User extends BaseEntity {
         }
     }
 
+    // MASTER의 소속 변경. null인 값은 바꾸지 않는다 (존재 확인은 hub·company 내부 API 연동 후 추가)
+    public void changeAffiliation(UUID hubId, UUID companyId) {
+        if (hubId != null) {
+            this.hubId = hubId;
+        }
+        if (companyId != null) {
+            this.companyId = companyId;
+        }
+    }
+
     // BCrypt 해시를 받는다 (원문 비밀번호를 넘기지 않는다)
     public void changePassword(String encodedPassword) {
         this.password = encodedPassword;
+    }
+
+    // MASTER만 호출 (권한·경계 조건은 서비스에서 확인)
+    public void changeRole(UserRole role) {
+        this.role = role;
+    }
+
+    public void changeActive(boolean active) {
+        this.isActive = active;
     }
 
     public void delete(UUID deletedBy) {
