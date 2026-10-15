@@ -11,6 +11,7 @@ import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
+import com.yuksabal.company.product.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,6 +38,7 @@ public class CompanyService {
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "companyName");
 
     private final CompanyRepository companyRepository;
+    private final ProductService productService;
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
@@ -91,11 +93,11 @@ public class CompanyService {
         company.updateInfo(request.companyName(), request.address(),
                 request.contactPhone(), request.businessNumber());
         if (isChanged(request.hubId(), company.getHubId())) {
-            // TODO #7: 허브 존재 확인 (hub 내부 API 준비 후)
+            // TODO #58: 허브 존재 확인 (내부 API #7, hub 준비 후)
             company.changeHub(request.hubId());
         }
         if (isChanged(request.ownerId(), company.getOwnerId())) {
-            // TODO #8: 새 관리자 소속 확인 (user 내부 API 준비 후)
+            // TODO #58: 새 관리자 소속 확인 (내부 API #8, user 준비 후)
             company.changeOwner(request.ownerId());
         }
 
@@ -104,7 +106,7 @@ public class CompanyService {
         return CompanyResponse.from(company);
     }
 
-    // 업체 삭제는 MASTER만 가능. Soft Delete라 실제로는 deleted_at·deleted_by를 기록하는 UPDATE
+    // 업체 삭제는 MASTER만 가능. 소속 상품도 같은 트랜잭션에서 함께 Soft Delete(하나라도 실패하면 모두 롤백)
     @Transactional
     public void deleteCompany(UUID companyId, UUID userId, UserRole role) {
         if (role != UserRole.MASTER) {
@@ -112,13 +114,12 @@ public class CompanyService {
         }
 
         Company company = findCompany(companyId);
-        // TODO 상품 이슈: 업체의 상품도 함께 Soft Delete
+        productService.deleteAllByCompany(companyId, userId);
         company.delete(userId);
     }
 
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404. 조회·수정·삭제 공용
-    // 같은 서비스 안(상품 등)에서 업체 엔티티가 필요할 때도 사용. Controller 응답용이 아님
-    public Company findCompany(UUID companyId) {
+    private Company findCompany(UUID companyId) {
         return companyRepository.findById(companyId)
                 .orElseThrow(() -> new BusinessException(
                         RESOURCE_NOT_FOUND,

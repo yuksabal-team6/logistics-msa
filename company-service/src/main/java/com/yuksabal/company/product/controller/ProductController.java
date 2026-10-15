@@ -6,6 +6,7 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.global.swagger.ApiErrorCodes;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
+import com.yuksabal.company.product.dto.request.ProductUpdateRequest;
 import com.yuksabal.company.product.dto.response.ProductResponse;
 import com.yuksabal.company.product.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,7 +17,9 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -77,5 +80,33 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(
                 productService.getProducts(request, pageable),
                 "목록을 조회했습니다."));
+    }
+
+    // 수정: 200 + ApiResponse.success(data, message). 보낸 필드만 수정, MASTER 또는 소속 업체 관리자
+    @Operation(summary = "상품 수정")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {COMPANY_ACCESS_DENIED})
+    @PatchMapping("/products/{productId}")
+    public ResponseEntity<ApiResponse<ProductResponse>> updateProduct(
+            @PathVariable UUID productId,
+            @Valid @RequestBody ProductUpdateRequest request,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                productService.updateProduct(productId, request, userId, UserRole.from(role)),
+                "상품이 수정되었습니다."));
+    }
+
+    // 삭제: 200 + ApiResponse.success(null, message). MASTER 또는 소속 업체 관리자, 응답 data 없음
+    @Operation(summary = "상품 삭제")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {COMPANY_ACCESS_DENIED})
+    @DeleteMapping("/products/{productId}")
+    public ResponseEntity<ApiResponse<Void>> deleteProduct(
+            @PathVariable UUID productId,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        productService.deleteProduct(productId, userId, UserRole.from(role));
+        return ResponseEntity.ok(ApiResponse.success(null, "상품이 삭제되었습니다."));
     }
 }
