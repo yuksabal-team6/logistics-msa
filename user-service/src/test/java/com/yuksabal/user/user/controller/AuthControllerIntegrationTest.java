@@ -1,9 +1,11 @@
 package com.yuksabal.user.user.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yuksabal.user.support.TestJwt;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.entity.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +14,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -33,7 +37,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthControllerIntegrationTest {
 
     private static final String URL = "/api/v1/auth/register";
+    private static final String LOGIN_URL = "/api/v1/auth/login";
     private static final String PASSWORD = "Strong123!";
+    private static final String JWT_SECRET = TestJwt.randomBase64Secret(32);
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("jwt.secret", () -> JWT_SECRET);
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -158,6 +169,70 @@ class AuthControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details[*].field").value(hasItem("username")))
                 .andExpect(result -> assertThat(result.getResponse().getContentAsString()).doesNotContain("SecretPw1!"));
+    }
+
+    @Test
+    void 정상_로그인은_200과_게이트웨이가_검증할_수_있는_토큰() throws Exception {
+        String registered = register(validBody("user01", "user01@example.com"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String userId = objectMapper.readTree(registered).path("data").path("userId").asText();
+
+        String body = login(Map.of("username", "user01", "password", PASSWORD))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("로그인에 성공했습니다."))
+                .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.data.expiresIn").value(3600))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain(PASSWORD);
+        String accessToken = objectMapper.readTree(body).path("data").path("accessToken").asText();
+        Claims claims = TestJwt.parse(JWT_SECRET, accessToken).getPayload();
+        assertThat(claims.getSubject()).isEqualTo(userId);
+        assertThat(claims.get("role")).isEqualTo("USER");
+    }
+
+    @Test
+    void 비밀번호가_틀리거나_아이디가_없으면_같은_401() throws Exception {
+        register(validBody("user01", "user01@example.com")).andExpect(status().isCreated());
+
+        String wrongPassword = login(Map.of("username", "user01", "password", "Wrong123!"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"))
+                .andReturn().getResponse().getContentAsString();
+        String unknownUser = login(Map.of("username", "nobody", "password", PASSWORD))
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(unknownUser).isEqualTo(wrongPassword);
+    }
+
+    @Test
+    void 삭제된_회원은_로그인할_수_없다() throws Exception {
+        register(validBody("user01", "user01@example.com")).andExpect(status().isCreated());
+        User user = userRepository.findAll().get(0);
+        user.delete(UUID.randomUUID());
+        userRepository.saveAndFlush(user);
+
+        login(Map.of("username", "user01", "password", PASSWORD))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void 로그인_필수값이_없으면_400() throws Exception {
+        login(Map.of())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("username", "password")));
+    }
+
+    private ResultActions login(Map<String, ?> body) throws Exception {
+        return mockMvc.perform(post(LOGIN_URL)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body)));
     }
 
     private Map<String, Object> validBody(String username, String email) {
