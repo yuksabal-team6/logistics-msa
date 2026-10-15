@@ -9,6 +9,7 @@ import com.yuksabal.company.company.dto.response.CompanyInternalResponse;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
+import com.yuksabal.company.global.auth.OwnerPermission;
 import com.yuksabal.company.global.auth.UserRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -28,7 +29,6 @@ import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
-import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
 
 @Service
 @RequiredArgsConstructor
@@ -42,7 +42,7 @@ public class CompanyService {
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
-        validateOwnerPermission(request.ownerId(), userId, role);
+        OwnerPermission.validate(request.ownerId(), userId, role);
         validateDuplicateBusinessNumber(request.businessNumber());
 
         Company company = Company.builder()
@@ -79,7 +79,7 @@ public class CompanyService {
     @Transactional
     public CompanyResponse updateCompany(UUID companyId, CompanyUpdateRequest request, UUID userId, UserRole role) {
         Company company = findCompany(companyId);
-        validateOwnerPermission(company.getOwnerId(), userId, role);
+        OwnerPermission.validate(company.getOwnerId(), userId, role);
 
         if (role != UserRole.MASTER &&
                 (isChanged(request.hubId(), company.getHubId()) ||
@@ -119,7 +119,8 @@ public class CompanyService {
     }
 
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404. 조회·수정·삭제 공용
-    private Company findCompany(UUID companyId) {
+    // 같은 서비스 안(상품 등)에서 업체 엔티티가 필요할 때도 사용. Controller 응답용이 아님
+    public Company findCompany(UUID companyId) {
         return companyRepository.findById(companyId)
                 .orElseThrow(() -> new BusinessException(
                         RESOURCE_NOT_FOUND,
@@ -146,21 +147,6 @@ public class CompanyService {
     // 값을 보냈고(null 아님) 기존 값과 다를 때만 "바뀜"으로 본다
     private <T> boolean isChanged(T newValue, T currentValue) {
         return newValue != null && !newValue.equals(currentValue);
-    }
-
-    // MASTER 또는 업체 관리자 본인만 허용. 게이트웨이 역할 검사와 별개로 서비스에서도 확인한다
-    private void validateOwnerPermission(UUID ownerId, UUID userId, UserRole role) {
-        switch (role) {
-            case MASTER -> {
-                // 모든 업체를 관리할 수 있다
-            }
-            case COMPANY -> {
-                if (!ownerId.equals(userId)) {
-                    throw new BusinessException(COMPANY_ACCESS_DENIED);
-                }
-            }
-            default -> throw new BusinessException(FORBIDDEN);
-        }
     }
 
     // 선택 입력이라 null이면 검사하지 않는다 (null로 조회하면 IS NULL 조건이 되어 미입력 업체끼리 중복으로 오판)
