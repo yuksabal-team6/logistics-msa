@@ -1,4 +1,4 @@
-package com.yuksabal.order.order.domain;
+package com.yuksabal.order.order.entity;
 
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
@@ -24,7 +24,7 @@ public class Order extends BaseEntity {
 
     // 요청(수령) 업체 → company-service p_companies.company_id
     @Column(nullable = false)
-    private UUID requesterCompanyId;
+    private UUID requestCompanyId;
 
     // 공급 업체 → company-service p_companies.company_id
     @Column(nullable = false)
@@ -63,7 +63,7 @@ public class Order extends BaseEntity {
     private Long totalAmount;
 
     @Column(columnDefinition = "TEXT")
-    private String requestNote;
+    private String requestMessage;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -78,10 +78,10 @@ public class Order extends BaseEntity {
     private String idempotencyKey;
 
     @Builder
-    public Order(UUID requesterCompanyId, UUID supplierCompanyId, UUID productId, UUID departureHubId,
+    public Order(UUID requestCompanyId, UUID supplierCompanyId, UUID productId, UUID departureHubId,
                  UUID arrivalHubId, UUID ordererId, String orderNumber, Integer quantity, Long unitPrice,
-                 String requestNote, String idempotencyKey) {
-        this.requesterCompanyId = requesterCompanyId;
+                 String requestMessage, String idempotencyKey) {
+        this.requestCompanyId = requestCompanyId;
         this.supplierCompanyId = supplierCompanyId;
         this.productId = productId;
         this.departureHubId = departureHubId;
@@ -91,11 +91,30 @@ public class Order extends BaseEntity {
         this.quantity = quantity;
         this.unitPrice = unitPrice;
         this.totalAmount = (long) quantity * unitPrice;
-        this.requestNote = requestNote;
+        this.requestMessage = requestMessage;
         this.idempotencyKey = idempotencyKey;
         this.status = OrderStatus.PENDING;
         this.compensationStatus = CompensationStatus.NOT_REQUIRED;
     }
+
+    // 배송 생성 성공 (결정 #17 ④)
+    public void confirm(UUID deliveryId) {
+        this.deliveryId = deliveryId;
+        this.status = OrderStatus.CONFIRMED;
+    }
+
+    // 생성 실패. 재고 부족이면 NOT_REQUIRED, 보상이 필요하면 PENDING (결정 #21)
+    public void fail(CompensationStatus compensationStatus) {
+        this.status = OrderStatus.FAILED;
+        this.compensationStatus = compensationStatus;
+    }
+
+    // 보상 결과 기록: COMPLETED 또는 FAILED(수동 처리 대상)
+    public void changeCompensationStatus(CompensationStatus compensationStatus) {
+        this.compensationStatus = compensationStatus;
+    }
+
+    // TODO 확인: 취소(CANCELLED)·완료(COMPLETED) 전이 규칙은 주문 취소·#10 구현 때 추가 (결정 #19)
 
     public void delete(UUID deletedBy) {
         markDeleted(deletedBy);
