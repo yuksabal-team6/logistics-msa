@@ -14,6 +14,7 @@ import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
@@ -77,5 +78,25 @@ public class DeliveryService {
                 .map(DeliveryCreateResponse::from)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND,
                         "존재하지 않거나 삭제된 배송입니다.", "orderId"));
+    }
+
+    // 내부 API #9. 주문 취소(결정 #19)와 보상(결정 #17)에서 호출된다.
+    // 같은 orderId로 여러 번 불려도 결과가 같다.
+    @Transactional
+    public void cancelDelivery(UUID orderId) {
+        Optional<Delivery> found = deliveryRepository.findByOrderId(orderId);
+        if (found.isEmpty()) {
+            return;   // 배송이 없음: 배송 생성 전에 실패한 보상 → 성공
+        }
+        Delivery delivery = found.get();
+        if (delivery.isCancelled()) {
+            return;   // 이미 취소됨: 재시도 → 성공
+        }
+
+        // 경로 기록을 먼저 확인한다.
+        // 배송이 READY여도 경로 기록이 이미 출발했을 수 있다
+        deliveryRouteLogRepository.findByDeliveryId(delivery.getId())
+                .ifPresent(DeliveryRouteLog::cancel);
+        delivery.cancel();
     }
 }
