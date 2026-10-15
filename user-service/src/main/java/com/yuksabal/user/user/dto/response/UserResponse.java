@@ -25,12 +25,15 @@ public record UserResponse(
         UUID companyId,
         @Schema(description = "정보 공개 여부", example = "true")
         boolean isPublic,
+        @Schema(description = "계정 활성 여부", example = "true")
+        boolean active,
         @Schema(description = "가입 일시", example = "2026-10-15T10:00:00")
         LocalDateTime createdAt
 ) {
 
     public static UserResponse from(User user) {
         return new UserResponse(user.getId(), user.getUsername(), user.getEmail(), user.getSlackId(),
-                user.getRole().name(), user.getHubId(), user.getCompanyId(), user.isPublic(), user.getCreatedAt());
+                user.getRole().name(), user.getHubId(), user.getCompanyId(), user.isPublic(), user.isActive(),
+                user.getCreatedAt());
     }
 }

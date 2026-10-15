@@ -70,6 +70,10 @@ public class UserService {
         if (!passwordEncoder.matches(request.password(), passwordHash) || user == null) {
             throw new BusinessException(UserErrorCode.INVALID_CREDENTIALS);
         }
+        // 비밀번호가 맞을 때만 비활성 여부를 알려준다 (틀리면 위에서 401로 끝나 계정 상태가 드러나지 않는다)
+        if (!user.isActive()) {
+            throw new BusinessException(UserErrorCode.ACCOUNT_DISABLED);
+        }
 
         String accessToken = jwtProvider.createAccessToken(user.getId(), user.getRole());
         return LoginResponse.bearer(accessToken, jwtProvider.getAccessTokenExpirationSeconds());
@@ -110,9 +114,14 @@ public class UserService {
     }
 
     // 토큰은 유효하지만 탈퇴(소프트 삭제)한 회원이면 404 — 토큰 무효화가 없어 생길 수 있다
+    // 비활성 계정은 토큰이 아직 유효해도 403 ACCOUNT_DISABLED (#67)
     private User findActiveUser(UUID userId) {
-        return userRepository.findById(userId)
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND, "존재하지 않거나 탈퇴한 회원입니다."));
+        if (!user.isActive()) {
+            throw new BusinessException(UserErrorCode.ACCOUNT_DISABLED);
+        }
+        return user;
     }
 
     // 본인을 뺀 다른 회원과 아이디·이메일이 겹치면 409. 본인의 현재 값을 그대로 보내는 것은 허용한다

@@ -14,6 +14,9 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
     // 최초 MASTER 생성 전 확인 (삭제되지 않은 MASTER가 한 명이라도 있으면 만들지 않는다)
     boolean existsByRole(UserRole role);
 
+    // 마지막 활성 MASTER 보호 (역할 강등·비활성화 전에 확인)
+    long countByRoleAndIsActiveTrue(UserRole role);
+
     // 삭제된 회원은 조회되지 않으므로 로그인할 수 없다
     Optional<User> findByUsername(String username);
 
