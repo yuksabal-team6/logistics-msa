@@ -13,11 +13,13 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import static com.yuksabal.common.exception.CommonErrorCode.UNAUTHORIZED;
-import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
+import java.util.UUID;
+
+import static com.yuksabal.common.exception.CommonErrorCode.*;
 
 // 인증은 게이트웨이가 JWT로 처리한다. 로그인한 모든 역할이 조회할 수 있어 서비스에서 권한을 다시 확인하지 않는다.
 @Tag(name = "Hub Route", description = "허브 경로 조회 외부 API")
@@ -37,5 +39,12 @@ public class HubRouteController {
             @ParameterObject HubRouteSearchRequest request,
             @ParameterObject Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.success(hubRouteService.getHubRoutes(request, pageable), "목록을 조회했습니다."));
+    }
+
+    @Operation(summary = "허브 경로 상세 조회", description = "경로 ID로 한 건을 조회한다. 경로가 없으면 404.")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND})
+    @GetMapping("/{routeId}")
+    public ResponseEntity<ApiResponse<HubRouteResponse>> getHubRoute(@PathVariable UUID routeId) {
+        return ResponseEntity.ok(ApiResponse.success(hubRouteService.getHubRouteById(routeId), "허브 경로를 상세 조회했습니다."));
     }
 }

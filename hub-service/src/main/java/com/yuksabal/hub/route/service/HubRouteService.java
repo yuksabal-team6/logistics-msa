@@ -45,4 +45,15 @@ public class HubRouteService {
                 toStablePageable(pageable, SORTABLE_FIELDS));
         return PageResponse.from(hubRoutes, HubRouteResponse::from);
     }
+
+    // 삭제된 경로는 @SQLRestriction으로 조회되지 않아 없는 경로와 같이 404로 응답한다.
+    public HubRouteResponse getHubRouteById(UUID routeId) {
+        HubRoute hubRoute = hubRouteRepository.findById(routeId)
+                .orElseThrow(() -> new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않는 허브 경로입니다.",
+                        "routeId"));
+        return HubRouteResponse.from(hubRoute);
+    }
+
 }
