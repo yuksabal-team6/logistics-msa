@@ -1,6 +1,7 @@
 package com.yuksabal.delivery.delivery.service;
 
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.PageResponse;
@@ -12,15 +13,12 @@ import com.yuksabal.delivery.delivery.dto.response.DeliveryCreateResponse;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryResponse;
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
-import com.yuksabal.delivery.global.auth.UserRole;
 import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
 import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -29,6 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.delivery.delivery.repository.DeliverySpecification.search;
 
 @Service
@@ -85,15 +84,6 @@ public class DeliveryService {
         return delivery;
     }
 
-
-    // 동시 요청으로 유니크 위반이 났을 때 먼저 저장된 배송을 찾는다.
-    private DeliveryCreateResponse getByOrderId(UUID orderId) {
-        return deliveryRepository.findByOrderId(orderId)
-                .map(DeliveryCreateResponse::from)
-                .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 배송입니다.", "orderId"));
-    }
-
     // 내부 API #9. 주문 취소(결정 #19)와 보상(결정 #17)에서 호출된다.
     // 같은 orderId로 여러 번 불려도 결과가 같다.
     @Transactional
@@ -136,7 +126,7 @@ public class DeliveryService {
                                                         UUID userId, UserRole role) {
         Page<Delivery> deliveries = deliveryRepository.findAll(
                 search(request, userId, role),
-                toStablePageable(pageable));
+                toStablePageable(pageable, SORTABLE_FIELDS));
         return PageResponse.from(deliveries, DeliveryResponse::from);
     }
 
@@ -150,19 +140,4 @@ public class DeliveryService {
                 .orElse(false);
     }
 
-    // 허용하지 않은 정렬 필드는 400. 정렬 값이 같은 행의 순서가 페이지마다 바뀌지 않게 id를 마지막 기준으로 붙인다
-    private Pageable toStablePageable(Pageable pageable) {
-        for (Sort.Order order : pageable.getSort()) {
-            if (!SORTABLE_FIELDS.contains(order.getProperty())) {
-                throw new BusinessException(
-                        CommonErrorCode.VALIDATION_ERROR,
-                        "정렬할 수 없는 필드입니다: " + order.getProperty(),
-                        "sort");
-            }
-        }
-        return PageRequest.of(
-                pageable.getPageNumber(),
-                pageable.getPageSize(),
-                pageable.getSort().and(Sort.by("id")));
-    }
 }

@@ -1,9 +1,9 @@
 package com.yuksabal.delivery.delivery.repository;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.delivery.delivery.dto.request.DeliverySearchRequest;
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.delivery.delivery.entity.DeliveryStatus;
-import com.yuksabal.delivery.global.auth.UserRole;
 import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
