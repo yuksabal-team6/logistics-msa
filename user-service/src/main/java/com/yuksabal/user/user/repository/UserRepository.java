@@ -15,4 +15,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByUsername(String username);
 
     boolean existsByEmail(String email);
+
+    // 프로필 수정 시 본인을 뺀 다른 회원과 겹치는지 확인
+    boolean existsByUsernameAndIdNot(String username, UUID id);
+
+    boolean existsByEmailAndIdNot(String email, UUID id);
 }

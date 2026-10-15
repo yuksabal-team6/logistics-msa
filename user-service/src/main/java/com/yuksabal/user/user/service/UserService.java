@@ -5,9 +5,12 @@ import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.user.global.exception.UserErrorCode;
 import com.yuksabal.user.global.jwt.JwtProvider;
+import com.yuksabal.user.user.dto.request.ChangePasswordRequest;
 import com.yuksabal.user.user.dto.request.LoginRequest;
 import com.yuksabal.user.user.dto.request.RegisterRequest;
+import com.yuksabal.user.user.dto.request.UpdateMeRequest;
 import com.yuksabal.user.user.dto.response.LoginResponse;
+import com.yuksabal.user.user.dto.response.MeResponse;
 import com.yuksabal.user.user.dto.response.RegisterResponse;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.entity.UserRole;
@@ -70,6 +73,60 @@ public class UserService {
 
         String accessToken = jwtProvider.createAccessToken(user.getId(), user.getRole());
         return LoginResponse.bearer(accessToken, jwtProvider.getAccessTokenExpirationSeconds());
+    }
+
+    // userId는 게이트웨이가 검증된 JWT에서 넣어 준 X-User-Id 값이다 (클라이언트가 보낸 값은 게이트웨이가 지운다)
+    @Transactional(readOnly = true)
+    public MeResponse getMe(UUID userId) {
+        return MeResponse.from(findActiveUser(userId));
+    }
+
+    @Transactional
+    public MeResponse updateMe(UUID userId, UpdateMeRequest request) {
+        if (request.hasNoChanges()) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "수정할 항목이 없습니다.");
+        }
+        User user = findActiveUser(userId);
+        validateNotDuplicatedForUpdate(userId, request);
+
+        user.updateProfile(request.username(), request.email(), request.slackId(), request.isPublic());
+        // 동시 수정으로 중복 확인을 함께 통과하면 부분 유니크 인덱스(#15)가 막고 common 핸들러가 409로 응답한다
+        userRepository.flush();
+        return MeResponse.from(user);
+    }
+
+    // 현재 비밀번호 불일치 401, 새 비밀번호 정책 위반(형식은 DTO, 기존과 동일 여부는 여기서) 400
+    @Transactional
+    public void changePassword(UUID userId, ChangePasswordRequest request) {
+        User user = findActiveUser(userId);
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+            throw new BusinessException(UserErrorCode.INVALID_PASSWORD);
+        }
+        if (passwordEncoder.matches(request.newPassword(), user.getPassword())) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR,
+                    "새 비밀번호는 현재 비밀번호와 달라야 합니다.", "newPassword");
+        }
+        user.changePassword(passwordEncoder.encode(request.newPassword()));
+    }
+
+    // 토큰은 유효하지만 탈퇴(소프트 삭제)한 회원이면 404 — 토큰 무효화가 없어 생길 수 있다
+    private User findActiveUser(UUID userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND, "존재하지 않거나 탈퇴한 회원입니다."));
+    }
+
+    // 본인을 뺀 다른 회원과 아이디·이메일이 겹치면 409. 본인의 현재 값을 그대로 보내는 것은 허용한다
+    private void validateNotDuplicatedForUpdate(UUID userId, UpdateMeRequest request) {
+        List<ApiErrorDetail> details = new ArrayList<>();
+        if (request.username() != null && userRepository.existsByUsernameAndIdNot(request.username(), userId)) {
+            details.add(new ApiErrorDetail("username", "이미 사용 중인 아이디입니다."));
+        }
+        if (request.email() != null && userRepository.existsByEmailAndIdNot(request.email(), userId)) {
+            details.add(new ApiErrorDetail("email", "이미 사용 중인 이메일입니다."));
+        }
+        if (!details.isEmpty()) {
+            throw new BusinessException(CommonErrorCode.DUPLICATE_RESOURCE, DUPLICATE_MESSAGE, details);
+        }
     }
 
     // 삭제되지 않은 회원과 아이디·이메일이 겹치면 409. 둘 다 겹치면 둘 다 details로 알려준다
