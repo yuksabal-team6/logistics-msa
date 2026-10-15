@@ -1,15 +1,19 @@
 package com.yuksabal.company.product.controller;
 
 import com.yuksabal.common.response.ApiResponse;
+import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.global.auth.UserRole;
 import com.yuksabal.company.global.swagger.ApiErrorCodes;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
+import com.yuksabal.company.product.dto.request.ProductSearchRequest;
 import com.yuksabal.company.product.dto.response.ProductResponse;
 import com.yuksabal.company.product.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -60,5 +64,18 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(
                 productService.getProduct(productId),
                 "상품을 조회했습니다."));
+    }
+
+    // 목록 조회: 200 + ApiResponse.success(PageResponse, message). 검색 조건은 모두 선택
+    @Operation(summary = "상품 목록 조회 및 검색", description = "정렬 가능: createdAt, productName, unitPrice")
+    @ApiErrorCodes(common = {VALIDATION_ERROR})
+    @GetMapping("/products")
+    public ResponseEntity<ApiResponse<PageResponse<ProductResponse>>> getProducts(
+            @Valid @ParameterObject ProductSearchRequest request,
+            @ParameterObject Pageable pageable) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                productService.getProducts(request, pageable),
+                "목록을 조회했습니다."));
     }
 }
