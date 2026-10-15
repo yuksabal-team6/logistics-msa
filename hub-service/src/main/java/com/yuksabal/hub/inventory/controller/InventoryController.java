@@ -62,4 +62,19 @@ public class InventoryController {
                 inventoryService.getInventory(inventoryId, UserRole.from(role)),
                 "재고를 상세 조회했습니다."));
     }
+
+    // ?page=0&size=20&sort=quantity,desc
+    @Operation(summary = "허브별 재고 조회 (MASTER 또는 허용된 사용자)",
+            description = "허브의 재고 목록을 조회한다. 권한이 없으면 403, 허브가 없으면 404, 재고가 없으면 빈 목록. 정렬 가능: createdAt, quantity. 허용된 사용자 기준이 정해지기 전까지 MASTER만 가능")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND})
+    @GetMapping("/hubs/{hubId}")
+    public ResponseEntity<ApiResponse<PageResponse<InventoryResponse>>> getInventoriesByHub(
+            @PathVariable UUID hubId,
+            @ParameterObject Pageable pageable,
+            @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
+            @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(ApiResponse.success(
+                inventoryService.getInventoriesByHub(hubId, pageable, UserRole.from(role)),
+                "허브별 재고를 조회했습니다."));
+    }
 }
