@@ -6,6 +6,7 @@ import com.yuksabal.company.company.service.CompanyService;
 import com.yuksabal.company.global.auth.OwnerPermission;
 import com.yuksabal.company.global.auth.UserRole;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
+import com.yuksabal.company.product.dto.response.ProductInternalResponse;
 import com.yuksabal.company.product.dto.response.ProductResponse;
 import com.yuksabal.company.product.entity.Product;
 import com.yuksabal.company.product.repository.ProductRepository;
@@ -43,6 +44,11 @@ public class ProductService {
 
     public ProductResponse getProduct(UUID productId) {
         return ProductResponse.from(findProduct(productId));
+    }
+
+    // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
+    public ProductInternalResponse getProductForInternal(UUID productId) {
+        return ProductInternalResponse.from(findProduct(productId));
     }
 
     // 삭제된 상품은 @SQLRestriction으로 조회되지 않아 없는 상품과 같이 404. 조회·수정·삭제 공용
