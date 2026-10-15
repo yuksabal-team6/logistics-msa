@@ -1,10 +1,10 @@
 package com.yuksabal.company.product.service;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.service.CompanyService;
 import com.yuksabal.company.global.auth.OwnerPermission;
-import com.yuksabal.company.global.auth.UserRole;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.response.ProductInternalResponse;
 import com.yuksabal.company.product.dto.response.ProductResponse;
