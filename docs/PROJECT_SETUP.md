@@ -12,8 +12,7 @@
 8. [예외 처리](#8-예외-처리)
 9. [Swagger](#9--swagger)
 10. [DB](#10-db)
-11. [TODO](#11-todo)
-12. [트러블슈팅](#12-트러블슈팅)
+11. [트러블슈팅](#11-트러블슈팅)
 
 ---
 
@@ -26,8 +25,9 @@ docker-compose up -d postgres
 ```
 
 1. IntelliJ로 **루트 폴더** 열기 → Gradle 탭 🔄
-2. `EurekaServerApplication` 먼저 실행 → 나머지 앱 실행 (hotkey: cmd+8 / alt+8 )
-3. http://localhost:8761 에 6개 UP이면 끝
+2. user-service, api-gateway에 JWT 키 넣기 → [10장 JWT 키](#-jwt-키) (없으면 둘 다 안 뜸)
+3. `EurekaServerApplication` 먼저 실행 → 나머지 앱 실행 (hotkey: cmd+8 / alt+8 )
+4. http://localhost:8761 에 6개 UP이면 끝
 
 필요: JDK 17+, Docker + Compose v2 이상, IntelliJ
 
@@ -97,6 +97,7 @@ docker-compose down                                        # 종료
 docker-compose down -v                                     # 종료 + DB 초기화
 ```
 
+- 📌 처음 한 번: `cp .env.example .env` → `JWT_SECRET`에 팀 공용 키 넣기 (없으면 user·gateway 기동 실패)
 - ⚠️ 코드 수정 후엔 위 `실행` 명령 그대로 (`./gradlew build` 빠지면 예전 코드로 뜸)
 - 📌 서비스 포트(8081~8085) 직접 접속 ❌ → `localhost:8080`(게이트웨이)으로 요청
 - (참고) 수평 확장: `docker-compose up -d --scale order-service=2`
@@ -261,7 +262,7 @@ compileOnly 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.22'   // @Schema
 | `created_by`, `updated_by` | 요청 헤더 `X-User-Id`로 자동 |
 | `deleted_at`, `deleted_by` | `delete()` 호출 시 |
 
-> 💡 `X-User-Id`는 게이트웨이가 JWT 검증 후 넣어줄 헤더입니다 (아직 TODO) 헤더가 없으면 `created_by`는 null입니다. 서비스에 직접 요청해 테스트할 땐 헤더를 직접 넣어야 합니다.
+> 💡 `X-User-Id`는 게이트웨이가 JWT 검증 후 넣어주는 헤더입니다. 서비스 포트로 직접 요청해 테스트할 땐 헤더를 직접 넣어야 하고, 없으면 `created_by`는 null입니다.
 
 ### 📌📌 소프트 삭제
 
@@ -441,17 +442,29 @@ public class OrderController {
 
 > ⚠️ 비밀값은 커밋 ❌ 공유는 슬랙 또는 노션 사용.
 
+### 📌 JWT 키
+
+user-service(발급)와 api-gateway(검증)가 **같은 키**를 써야 함 → 다르면 모든 요청 401
+
+```yaml
+# user-service, api-gateway 각각 src/main/resources/application-secret.yml
+jwt:
+  secret: 팀 공용 키 (슬랙·노션)
+```
+
+- Docker는 `.env`의 `JWT_SECRET` 하나로 두 서비스에 같이 들어감
+- 키가 없거나 형식이 틀리면 user·gateway **기동 실패** 
+- 토큰 규격: HS256, `sub` = userId, `role`, `iss` = user-service, 만료 1시간
+
+로그인 흐름
+
+1. `POST /api/v1/auth/login` → `{ accessToken, tokenType: "Bearer", expiresIn }` (`expiresIn` 단위: 초)
+2. 이후 요청 헤더: `Authorization: Bearer {accessToken}` (Swagger는 Authorize 버튼에 토큰만 입력)
+3. 게이트웨이가 검증 후 `X-User-Id`, `X-User-Role`을 서비스로 전달
+
 ---
 
-## 11. TODO
-
-- 📌 게이트웨이 JWT 필터 → 클라이언트가 보낸 `X-User-Id`, `X-User-Role` 제거 후 토큰 값으로 다시 설정
-- 📌 Swagger 경로(`/swagger-ui/**`, `/v3/api-docs/**`, `/*-service/v3/api-docs`)는 인증 제외
-- 회원가입·로그인 (JWT, BCrypt)
-
----
-
-## 12. 트러블슈팅
+## 11. 트러블슈팅
 
 ### 🔧 자주 발생하는 오류 및 해결 방법
 
@@ -467,6 +480,12 @@ public class OrderController {
 
 - **`Port already in use`**
   - 해당 포트를 사용 중인 애플리케이션 종료
+
+- **`JWT_SECRET 환경변수가 설정되지 않았습니다` (user·gateway 기동 실패)**
+  - IntelliJ: 해당 서비스 `application-secret.yml`에 `jwt.secret` 추가 / Docker: `.env`에 `JWT_SECRET` → [10장 JWT 키](#-jwt-키)
+
+- **로그인은 되는데 다른 요청이 전부 401 `UNAUTHORIZED`**
+  - user와 gateway의 JWT 키가 다른지 확인 (같은 공용 키여야 함)
 
 - **Gateway 500/503: `Unable to find instance`**
   - 서비스 시작 직후라면 Eureka 등록을 기다린 뒤 약 30초 후 재시도
