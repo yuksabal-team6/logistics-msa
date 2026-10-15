@@ -1,28 +1,41 @@
 package com.yuksabal.delivery.delivery.service;
 
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
+import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.delivery.delivery.client.HubClient;
 import com.yuksabal.delivery.delivery.client.dto.HubRouteResponse;
 import com.yuksabal.delivery.delivery.dto.request.DeliveryCreateRequest;
+import com.yuksabal.delivery.delivery.dto.request.DeliverySearchRequest;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryCreateResponse;
+import com.yuksabal.delivery.delivery.dto.response.DeliveryResponse;
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
 import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
 import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+
+import static com.yuksabal.common.util.PageableUtils.toStablePageable;
+import static com.yuksabal.delivery.delivery.repository.DeliverySpecification.search;
 
 @Service
 @RequiredArgsConstructor
 public class DeliveryService {
+
+    // 목록 정렬 허용 필드 (API 명세 0.4: 정렬 필드는 API별로 제한)
+    private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt");
 
     private final DeliveryRepository deliveryRepository;
     private final DeliveryRouteLogRepository deliveryRouteLogRepository;
@@ -71,15 +84,6 @@ public class DeliveryService {
         return delivery;
     }
 
-
-    // 동시 요청으로 유니크 위반이 났을 때 먼저 저장된 배송을 찾는다.
-    private DeliveryCreateResponse getByOrderId(UUID orderId) {
-        return deliveryRepository.findByOrderId(orderId)
-                .map(DeliveryCreateResponse::from)
-                .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 배송입니다.", "orderId"));
-    }
-
     // 내부 API #9. 주문 취소(결정 #19)와 보상(결정 #17)에서 호출된다.
     // 같은 orderId로 여러 번 불려도 결과가 같다.
     @Transactional
@@ -99,4 +103,41 @@ public class DeliveryService {
                 .ifPresent(DeliveryRouteLog::cancel);
         delivery.cancel();
     }
+
+    // 삭제된 배송은 @SQLRestriction으로 조회되지 않아 없는 배송과 같이 404.
+    // DELIVERY는 본인 담당 배송이 아니면 403
+    @Transactional(readOnly = true)
+    public DeliveryResponse getDelivery(UUID deliveryId, UUID userId, UserRole role) {
+        Delivery delivery = deliveryRepository.findById(deliveryId)
+                .orElseThrow(() -> new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않거나 삭제된 배송입니다.",
+                        "deliveryId"));
+
+        if (role == UserRole.DELIVERY && !isManagedBy(delivery, userId)) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+        return DeliveryResponse.from(delivery);
+    }
+
+    // DELIVERY는 본인 담당 배송만, 그 외 역할은 전체 조회
+    @Transactional(readOnly = true)
+    public PageResponse<DeliveryResponse> getDeliveries(DeliverySearchRequest request, Pageable pageable,
+                                                        UUID userId, UserRole role) {
+        Page<Delivery> deliveries = deliveryRepository.findAll(
+                search(request, userId, role),
+                toStablePageable(pageable, SORTABLE_FIELDS));
+        return PageResponse.from(deliveries, DeliveryResponse::from);
+    }
+
+    // 배송(허브→업체) 담당자 또는 경로 기록(허브→허브) 담당자가 본인인지 확인한다.
+    private boolean isManagedBy(Delivery delivery, UUID userId) {
+        if (userId.equals(delivery.getDeliveryManagerId())) {
+            return true;
+        }
+        return deliveryRouteLogRepository.findByDeliveryId(delivery.getId())
+                .map(routeLog -> userId.equals(routeLog.getDeliveryManagerId()))
+                .orElse(false);
+    }
+
 }
