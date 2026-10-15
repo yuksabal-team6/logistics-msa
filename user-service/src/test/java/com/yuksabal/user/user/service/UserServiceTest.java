@@ -6,8 +6,10 @@ import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.user.global.exception.UserErrorCode;
 import com.yuksabal.user.global.jwt.JwtProvider;
 import com.yuksabal.user.support.TestJwt;
+import com.yuksabal.user.user.dto.request.ChangePasswordRequest;
 import com.yuksabal.user.user.dto.request.LoginRequest;
 import com.yuksabal.user.user.dto.request.RegisterRequest;
+import com.yuksabal.user.user.dto.request.UpdateMeRequest;
 import com.yuksabal.user.user.dto.response.LoginResponse;
 import com.yuksabal.user.user.dto.response.RegisterResponse;
 import com.yuksabal.user.user.entity.User;
@@ -138,6 +140,61 @@ class UserServiceTest {
         given(userRepository.findByUsername("nobody")).willReturn(Optional.empty());
 
         assertInvalidCredentials(new LoginRequest("nobody", RAW_PASSWORD));
+    }
+
+    @Test
+    void 내_정보_조회_시_회원이_없으면_404() {
+        UUID userId = UUID.randomUUID();
+        given(userRepository.findById(userId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.getMe(userId))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CommonErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    @Test
+    void 수정할_항목이_없으면_조회하지_않고_400() {
+        assertThatThrownBy(() -> userService.updateMe(UUID.randomUUID(), new UpdateMeRequest(null, null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CommonErrorCode.VALIDATION_ERROR);
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    void 비밀번호_변경은_현재_비밀번호가_맞으면_새_해시로_바꾼다() {
+        UUID userId = UUID.randomUUID();
+        User user = savedUser(userId, UserRole.USER);
+        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+
+        userService.changePassword(userId, new ChangePasswordRequest(RAW_PASSWORD, "Newpass123!"));
+
+        assertThat(passwordEncoder.matches("Newpass123!", user.getPassword())).isTrue();
+        assertThat(passwordEncoder.matches(RAW_PASSWORD, user.getPassword())).isFalse();
+    }
+
+    @Test
+    void 현재_비밀번호가_틀리면_401_INVALID_PASSWORD이고_바뀌지_않는다() {
+        UUID userId = UUID.randomUUID();
+        User user = savedUser(userId, UserRole.USER);
+        String before = user.getPassword();
+        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.changePassword(userId, new ChangePasswordRequest("Wrong123!", "Newpass123!")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.INVALID_PASSWORD);
+        assertThat(user.getPassword()).isEqualTo(before);
+    }
+
+    @Test
+    void 새_비밀번호가_현재와_같으면_400() {
+        UUID userId = UUID.randomUUID();
+        given(userRepository.findById(userId)).willReturn(Optional.of(savedUser(userId, UserRole.USER)));
+
+        assertThatThrownBy(() -> userService.changePassword(userId, new ChangePasswordRequest(RAW_PASSWORD, RAW_PASSWORD)))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.VALIDATION_ERROR);
+                    assertThat(e.getDetails()).extracting(ApiErrorDetail::field).containsExactly("newPassword");
+                });
     }
 
     private User savedUser(UUID userId, UserRole role) {
