@@ -1,7 +1,7 @@
 package com.yuksabal.user.user.repository;
 
 import com.yuksabal.user.user.entity.User;
-import com.yuksabal.user.user.entity.UserRole;
+import com.yuksabal.common.auth.UserRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 

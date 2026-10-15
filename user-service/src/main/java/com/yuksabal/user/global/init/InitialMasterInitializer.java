@@ -3,7 +3,7 @@ package com.yuksabal.user.global.init;
 import com.yuksabal.user.global.config.InitialMasterProperties;
 import com.yuksabal.user.user.dto.request.RegisterRequest;
 import com.yuksabal.user.user.entity.User;
-import com.yuksabal.user.user.entity.UserRole;
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;

@@ -5,7 +5,7 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.user.global.swagger.ApiErrorCodes;
 import com.yuksabal.user.user.dto.request.UserSearchRequest;
 import com.yuksabal.user.user.dto.response.UserResponse;
-import com.yuksabal.user.user.entity.UserRole;
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.user.service.UserQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

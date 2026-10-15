@@ -6,7 +6,7 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.user.user.dto.request.UserSearchRequest;
 import com.yuksabal.user.user.dto.response.UserResponse;
 import com.yuksabal.user.user.entity.User;
-import com.yuksabal.user.user.entity.UserRole;
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
