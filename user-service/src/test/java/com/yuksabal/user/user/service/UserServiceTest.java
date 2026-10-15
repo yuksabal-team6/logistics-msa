@@ -3,18 +3,26 @@ package com.yuksabal.user.user.service;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.ApiErrorDetail;
+import com.yuksabal.user.global.exception.UserErrorCode;
+import com.yuksabal.user.global.jwt.JwtProvider;
+import com.yuksabal.user.support.TestJwt;
+import com.yuksabal.user.user.dto.request.LoginRequest;
 import com.yuksabal.user.user.dto.request.RegisterRequest;
+import com.yuksabal.user.user.dto.response.LoginResponse;
 import com.yuksabal.user.user.dto.response.RegisterResponse;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.entity.UserRole;
 import com.yuksabal.user.user.repository.UserRepository;
+import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,7 +39,9 @@ class UserServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-    private final UserService userService = new UserService(userRepository, passwordEncoder);
+    private final String jwtSecret = TestJwt.randomBase64Secret(32);
+    private final UserService userService =
+            new UserService(userRepository, passwordEncoder, new JwtProvider(TestJwt.properties(jwtSecret)));
 
     private final UUID hubId = UUID.randomUUID();
     private final UUID companyId = UUID.randomUUID();
@@ -100,6 +110,53 @@ class UserServiceTest {
         given(userRepository.saveAndFlush(any(User.class))).willThrow(violation);
 
         assertThatThrownBy(() -> userService.register(request)).isSameAs(violation);
+    }
+
+    @Test
+    void 로그인하면_회원_ID와_역할을_담은_토큰을_발급한다() {
+        UUID userId = UUID.randomUUID();
+        given(userRepository.findByUsername("user01")).willReturn(Optional.of(savedUser(userId, UserRole.DELIVERY)));
+
+        LoginResponse response = userService.login(new LoginRequest("user01", RAW_PASSWORD));
+
+        Claims claims = TestJwt.parse(jwtSecret, response.accessToken()).getPayload();
+        assertThat(claims.getSubject()).isEqualTo(userId.toString());
+        assertThat(claims.get("role")).isEqualTo("DELIVERY");
+        assertThat(response.tokenType()).isEqualTo("Bearer");
+        assertThat(response.expiresIn()).isEqualTo(3600);
+    }
+
+    @Test
+    void 비밀번호가_틀리면_401() {
+        given(userRepository.findByUsername("user01")).willReturn(Optional.of(savedUser(UUID.randomUUID(), UserRole.USER)));
+
+        assertInvalidCredentials(new LoginRequest("user01", "Wrong123!"));
+    }
+
+    @Test
+    void 아이디가_없으면_비밀번호_불일치와_같은_401() {
+        given(userRepository.findByUsername("nobody")).willReturn(Optional.empty());
+
+        assertInvalidCredentials(new LoginRequest("nobody", RAW_PASSWORD));
+    }
+
+    private User savedUser(UUID userId, UserRole role) {
+        User user = User.builder()
+                .username("user01")
+                .slackId("U12345678")
+                .email("user01@example.com")
+                .password(passwordEncoder.encode(RAW_PASSWORD))
+                .role(role)
+                .build();
+        // id는 JPA가 저장할 때 채우므로 단위 테스트에서는 직접 넣는다
+        ReflectionTestUtils.setField(user, "id", userId);
+        return user;
+    }
+
+    private void assertInvalidCredentials(LoginRequest loginRequest) {
+        assertThatThrownBy(() -> userService.login(loginRequest))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.INVALID_CREDENTIALS);
     }
 
     private void assertDuplicated(String... fields) {
