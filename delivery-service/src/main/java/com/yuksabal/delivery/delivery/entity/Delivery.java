@@ -102,6 +102,24 @@ public class Delivery extends BaseEntity {
         }
     }
 
+    // 경로 기록 READY → IN_TRANSIT 연동. DeliveryRouteLog 상태 변경에서만 호출한다 (외부 API로는 바꿀 수 없음)
+    public void departHub() {
+        if (deliveryStatus != DeliveryStatus.READY) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "READY 상태의 배송만 허브에서 출발할 수 있습니다.");
+        }
+        this.deliveryStatus = DeliveryStatus.IN_TRANSIT;
+    }
+
+    // 경로 기록 IN_TRANSIT → ARRIVED 연동. DeliveryRouteLog 상태 변경에서만 호출한다 (외부 API로는 바꿀 수 없음)
+    public void arriveAtHub() {
+        if (deliveryStatus != DeliveryStatus.IN_TRANSIT) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "이동 중(IN_TRANSIT)인 배송만 허브에 도착할 수 있습니다.");
+        }
+        this.deliveryStatus = DeliveryStatus.ARRIVED_AT_HUB;
+    }
+
     // 같은 허브: READY → DELIVERING, 다른 허브: ARRIVED_AT_HUB → DELIVERING (결정 #16)
     private void startDelivery() {
         DeliveryStatus required = isSameHub() ? DeliveryStatus.READY : DeliveryStatus.ARRIVED_AT_HUB;

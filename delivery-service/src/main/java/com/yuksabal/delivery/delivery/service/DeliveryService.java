@@ -135,7 +135,7 @@ public class DeliveryService {
         Delivery delivery = findDelivery(deliveryId);
 
         if (!canChangeStatus(delivery, userId, role)) {
-            throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED);
+            throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED, "업체 배송 담당자만 변경할 수 있습니다.");
         }
         delivery.changeStatus(target);
         return DeliveryResponse.from(delivery);
