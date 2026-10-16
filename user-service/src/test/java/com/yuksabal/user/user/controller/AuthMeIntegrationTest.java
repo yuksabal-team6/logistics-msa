@@ -2,6 +2,8 @@ package com.yuksabal.user.user.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.user.support.TestJwt;
+import com.yuksabal.user.user.client.CompanyClient;
+import com.yuksabal.user.user.client.HubClient;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -58,6 +61,11 @@ class AuthMeIntegrationTest {
     private UserRepository userRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    // 허브·업체 내부 API는 테스트 대역 (기본 동작: 존재함). 검증 시나리오는 AffiliationValidationIntegrationTest
+    @MockBean
+    private HubClient hubClient;
+    @MockBean
+    private CompanyClient companyClient;
 
     private record Session(UUID userId, String token) {
     }

@@ -31,20 +31,25 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final AffiliationValidator affiliationValidator;
     // 없는 아이디도 BCrypt 비교를 한 번 수행해 응답 시간으로 가입 여부를 알 수 없게 한다
     private final String dummyPasswordHash;
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider,
+                       AffiliationValidator affiliationValidator) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
+        this.affiliationValidator = affiliationValidator;
         this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
-    // 역할은 항상 USER. 허브·업체 존재 확인은 내부 API(#7, #2) 준비 후 추가한다.
+    // 역할은 항상 USER. 아이디·이메일 중복(409)을 먼저 보고, 허브·업체 존재는 내부 API(#7, #2)로 확인한다
+    // (없으면 400, 확인 실패면 502)
     @Transactional
     public RegisterResponse register(RegisterRequest request) {
         validateNotDuplicated(request);
+        affiliationValidator.validate(request.hubId(), request.companyId());
 
         User user = User.builder()
                 .username(request.username())

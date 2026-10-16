@@ -3,6 +3,8 @@ package com.yuksabal.user.user.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.support.TestJwt;
+import com.yuksabal.user.user.client.CompanyClient;
+import com.yuksabal.user.user.client.HubClient;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -54,6 +57,11 @@ class AuthControllerIntegrationTest {
     private UserRepository userRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    // 허브·업체 내부 API는 테스트 대역 (기본 동작: 존재함). 검증 시나리오는 AffiliationValidationIntegrationTest
+    @MockBean
+    private HubClient hubClient;
+    @MockBean
+    private CompanyClient companyClient;
 
     @BeforeEach
     void clean() {
@@ -161,6 +169,32 @@ class AuthControllerIntegrationTest {
         register(body)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void 소속_ID가_빈_문자열이면_소속_없이_가입되지_않고_400() throws Exception {
+        for (String blank : new String[]{"", " "}) {
+            for (String field : new String[]{"hubId", "companyId"}) {
+                Map<String, Object> body = new HashMap<>(validBody("user01", "user01@example.com"));
+                body.put(field, blank);
+
+                register(body)
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+            }
+        }
+        assertThat(userRepository.findByUsername("user01")).isEmpty();
+    }
+
+    @Test
+    void 같은_키가_두_번_오면_400() throws Exception {
+        String json = "{\"username\":\"user01\",\"password\":\"" + PASSWORD + "\",\"slackId\":\"U1\","
+                + "\"email\":\"user01@example.com\",\"username\":\"user02\"}";
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+        assertThat(userRepository.count()).isZero();
     }
 
     @Test
