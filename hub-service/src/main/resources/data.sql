@@ -62,6 +62,7 @@ WHERE d.hub_id::text LIKE '00000000-0000-0000-0000-0000000000%'
 
 -- 재고 로그 change_type CHECK 제약 (Hibernate가 enum으로 만든 제약)
 -- ddl-auto update는 기존 CHECK 제약을 바꾸지 않아, InventoryChangeType에 값을 추가하면 여기서 다시 만든다
+-- TODO 운영 DB 통합 시 제거하고 일회성 SQL로 한 번만 실행 (sql.init.mode=always라 시작할 때마다 테이블 잠금·전체 행 검사가 일어난다)
 ALTER TABLE hub_service.p_inventory_logs DROP CONSTRAINT IF EXISTS p_inventory_logs_change_type_check;
 ALTER TABLE hub_service.p_inventory_logs ADD CONSTRAINT p_inventory_logs_change_type_check
     CHECK (change_type IN ('DECREASE', 'RESTORE', 'INBOUND', 'ADJUST_INCREASE', 'ADJUST_DECREASE'));
