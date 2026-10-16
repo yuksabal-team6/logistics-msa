@@ -9,8 +9,8 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum HubErrorCode implements ErrorCode {
-    // 기능 개발 시 추가 (예: HUB_NOT_FOUND(HttpStatus.NOT_FOUND, "...을 찾을 수 없습니다."))
-    ;
+    // 404는 CommonErrorCode.RESOURCE_NOT_FOUND를 쓰고, 여기에는 허브 도메인 에러만 추가한다
+    INVENTORY_CONFLICT(HttpStatus.CONFLICT, "재고 데이터가 중복되어 있습니다.");
 
     private final HttpStatus status;
     private final String message;
