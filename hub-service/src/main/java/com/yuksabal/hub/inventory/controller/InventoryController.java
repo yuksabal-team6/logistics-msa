@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.*;
+import static com.yuksabal.hub.global.exception.HubErrorCode.INVENTORY_CONFLICT;
 
 // 인증은 게이트웨이가 JWT로 처리하고, 역할은 게이트웨이가 넣어 준 X-User-Role로 서비스에서 확인한다.
 @Tag(name = "Inventory", description = "허브 재고 조회 외부 API")
@@ -31,7 +32,8 @@ import static com.yuksabal.common.exception.CommonErrorCode.*;
 @RequestMapping("/api/v1/inventories")
 public class InventoryController {
 
-    private static final String USER_ROLE_DESCRIPTION = "로그인한 사용자 역할입니다. (MASTER, USER, COMPANY, DELIVERY) 게이트웨이를 거치면 자동으로 들어갑니다.";
+    private static final String USER_ID_DESCRIPTION = "로그인한 사용자 ID입니다. 게이트웨이를 거치면 자동으로 들어갑니다.";
+    private static final String USER_ROLE_DESCRIPTION ="로그인한 사용자 역할입니다. (MASTER, USER, COMPANY, DELIVERY) 게이트웨이를 거치면 자동으로 들어갑니다.";
 
     private final InventoryService inventoryService;
 
@@ -76,5 +78,20 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.success(
                 inventoryService.getInventoriesByHub(hubId, pageable, UserRole.from(role)),
                 "허브별 재고를 조회했습니다."));
+    }
+
+    @Operation(summary = "상품별 재고 조회 (MASTER 또는 해당 상품의 업체)",
+            description = "상품 재고는 업체 관리 허브 한 곳에만 있어 한 건을 조회한다. 재고가 없으면 404, 해당 상품의 업체 관리자가 아니면 403")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {INVENTORY_CONFLICT})
+    @GetMapping("/products/{productId}")
+    public ResponseEntity<ApiResponse<InventoryResponse>> getInventoryByProduct(
+            @PathVariable UUID productId,
+            @Parameter(description = USER_ID_DESCRIPTION, example = "10000000-0000-4000-8000-000000000001")
+            @RequestHeader("X-User-Id") UUID userId,
+            @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
+            @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(ApiResponse.success(
+                inventoryService.getInventoryByProduct(productId, userId, UserRole.from(role)),
+                "상품별 재고를 조회했습니다."));
     }
 }

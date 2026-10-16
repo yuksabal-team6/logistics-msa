@@ -6,6 +6,7 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.order.global.exception.OrderErrorCode;
 import com.yuksabal.order.order.dto.request.OrderCreateRequest;
 import com.yuksabal.order.order.dto.request.OrderSearchRequest;
+import com.yuksabal.order.order.dto.response.OrderCompleteResponse;
 import com.yuksabal.order.order.dto.response.OrderCreateResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.Order;
@@ -127,6 +128,20 @@ public class OrderService {
                     "완료된 주문 또는 보상이 끝난 실패/취소 주문만 삭제할 수 있습니다.", "orderId");
         }
         order.delete(userId);
+    }
+
+    /**
+     * 배송 완료 시 주문을 완료 처리한다. (delivery 호출)
+     * CONFIRMED 주문만 COMPLETED로 변경, 이미 COMPLETED면 변경하지 않고 응답한다.
+     *
+     * @param orderId 완료 처리할 주문 ID
+     * @return 주문 ID와 상태
+     */
+    @Transactional
+    public OrderCompleteResponse completeOrder(UUID orderId) {
+        Order order = findOrder(orderId);
+        order.complete();
+        return OrderCompleteResponse.from(order);
     }
 
     /**

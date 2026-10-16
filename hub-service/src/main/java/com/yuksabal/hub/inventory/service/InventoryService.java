@@ -3,8 +3,12 @@ package com.yuksabal.hub.inventory.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
+import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.PageResponse;
+import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.hub.repository.HubRepository;
+import com.yuksabal.hub.inventory.client.CompanyClient;
+import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
@@ -12,9 +16,11 @@ import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -32,6 +38,7 @@ public class InventoryService {
 
     private final InventoryRepository inventoryRepository;
     private final HubRepository hubRepository;
+    private final CompanyClient companyClient;
 
     // 전체 재고 목록은 MASTER만 조회할 수 있다. 없는 허브·상품 ID는 에러 없이 빈 목록
     public PageResponse<InventoryResponse> getInventories(InventorySearchRequest request, Pageable pageable, UserRole role) {
@@ -79,5 +86,51 @@ public class InventoryService {
                 hubIdEquals(hubId),
                 toStablePageable(pageable, SORTABLE_FIELDS));
         return PageResponse.from(inventories, InventoryResponse::from);
+    }
+
+    // 상품별 재고는 MASTER 또는 해당 상품의 업체(COMPANY)가 조회할 수 있다.
+    // 상품 재고는 업체 관리 허브 한 곳에만 생겨 0~1건이라 단건으로 응답하고, 없으면 404
+    // COMPANY는 재고의 업체를 알아야 소유권을 판단할 수 있어 조회 후에 403을 확인한다
+    public InventoryResponse getInventoryByProduct(UUID productId, UUID userId, UserRole role) {
+        if (role != UserRole.MASTER && role != UserRole.COMPANY) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+
+        Inventory inventory = findSingleInventoryByProduct(productId);
+        if (role == UserRole.COMPANY) {
+            validateCompanyOwner(inventory.getCompanyId(), userId);
+        }
+        return InventoryResponse.from(inventory);
+    }
+
+    private Inventory findSingleInventoryByProduct(UUID productId) {
+        List<Inventory> inventories = inventoryRepository.findByProductId(productId);
+        if (inventories.isEmpty()) {
+            throw new BusinessException(
+                    CommonErrorCode.RESOURCE_NOT_FOUND,
+                    "존재하지 않는 재고입니다.",
+                    "productId");
+        }
+        // 업체 허브가 바뀌어 같은 상품 재고가 여러 허브에 생긴 경우 (지금은 고려하지 않는 상황)
+        if (inventories.size() > 1) {
+            throw new BusinessException(HubErrorCode.INVENTORY_CONFLICT);
+        }
+        return inventories.get(0);
+    }
+
+    // 업체 관리자(ownerId) 본인만 허용. 업체가 없거나 삭제되면(404) 소유권을 확인할 수 없어 403
+    private void validateCompanyOwner(UUID companyId, UUID userId) {
+        CompanyResponse company;
+        try {
+            company = companyClient.getCompany(companyId).data();
+        } catch (FeignClientException e) {
+            if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
+                throw new BusinessException(CommonErrorCode.FORBIDDEN);
+            }
+            throw e;
+        }
+        if (!company.ownerId().equals(userId)) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
     }
 }

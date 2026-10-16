@@ -11,6 +11,10 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+  # SQL 파일을 OS 기본 인코딩이 아닌 UTF-8로 읽는다. SQL 파일을 추가하면 mode: always도 함께 설정
+  sql:
+    init:
+      encoding: UTF-8
   jpa:
     open-in-view: false
     hibernate:

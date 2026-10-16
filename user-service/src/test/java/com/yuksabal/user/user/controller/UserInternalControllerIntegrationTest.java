@@ -61,12 +61,13 @@ class UserInternalControllerIntegrationTest {
     }
 
     @Test
-    void 회원의_ID_활성_여부_역할_소속을_공통_응답으로_돌려준다() throws Exception {
+    void 회원의_ID_아이디_활성_여부_역할_소속을_공통_응답으로_돌려준다() throws Exception {
         getUser(delivery.getId())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("요청이 성공했습니다."))
                 .andExpect(jsonPath("$.data.userId").value(delivery.getId().toString()))
+                .andExpect(jsonPath("$.data.username").value("deliver01"))
                 .andExpect(jsonPath("$.data.active").value(true))
                 .andExpect(jsonPath("$.data.role").value("DELIVERY"))
                 .andExpect(jsonPath("$.data.hubId").value(HUB.toString()))
@@ -76,7 +77,7 @@ class UserInternalControllerIntegrationTest {
     @Test
     void 응답에는_내부_계약_필드만_있고_비밀번호_등_개인_정보는_없다() throws Exception {
         String body = getUser(delivery.getId())
-                .andExpect(jsonPath("$.data.*", org.hamcrest.Matchers.hasSize(5)))
+                .andExpect(jsonPath("$.data.*", org.hamcrest.Matchers.hasSize(6)))
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.email").doesNotExist())
                 .andExpect(jsonPath("$.data.slackId").doesNotExist())
