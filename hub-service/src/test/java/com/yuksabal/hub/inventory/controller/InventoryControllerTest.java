@@ -8,6 +8,9 @@ import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
 import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
+import com.yuksabal.hub.inventory.entity.InventoryChangeType;
+import com.yuksabal.hub.inventory.entity.InventoryLog;
+import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import com.yuksabal.hub.inventory.service.InventoryService;
 import org.junit.jupiter.api.Test;
@@ -24,20 +27,25 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
+import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -59,6 +67,9 @@ class InventoryControllerTest {
 
     @MockBean
     private InventoryRepository inventoryRepository;
+
+    @MockBean
+    private InventoryLogRepository inventoryLogRepository;
 
     @MockBean
     private HubRepository hubRepository;
@@ -399,6 +410,144 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.error.details[0].field").value(USER_ID_HEADER));
     }
 
+    @Test
+    void 수량을_줄이면_조정하고_ADJUST_DECREASE_로그를_남긴다() throws Exception {
+        given(inventoryRepository.updateQuantityIfMatches(eq(INVENTORY_ID), eq(100), eq(80), any(LocalDateTime.class), eq(USER_ID)))
+                .willReturn(1);
+        given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(seoulInventory(80)));
+
+        mockMvc.perform(adjustRequest("MASTER", adjustBody(100, 80)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("재고 수량을 조정했습니다."))
+                .andExpect(jsonPath("$.data.inventoryId").value(INVENTORY_ID.toString()))
+                .andExpect(jsonPath("$.data.quantity").value(80));
+
+        InventoryLog log = savedLog();
+        assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.ADJUST_DECREASE);
+        assertThat(log.getQuantity()).isEqualTo(20);
+        assertThat(log.getOrderId()).isNull();
+    }
+
+    @Test
+    void 수량을_늘리면_ADJUST_INCREASE_로그를_남긴다() throws Exception {
+        given(inventoryRepository.updateQuantityIfMatches(eq(INVENTORY_ID), eq(100), eq(120), any(LocalDateTime.class), eq(USER_ID)))
+                .willReturn(1);
+        given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(seoulInventory(120)));
+
+        mockMvc.perform(adjustRequest("MASTER", adjustBody(100, 120)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.quantity").value(120));
+
+        InventoryLog log = savedLog();
+        assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.ADJUST_INCREASE);
+        assertThat(log.getQuantity()).isEqualTo(20);
+    }
+
+    // 조회한 뒤 주문 차감 등으로 수량이 바뀌어 조건부 UPDATE가 0건인 경우
+    @Test
+    void 조회한_수량과_현재_수량이_다르면_409와_현재_수량을_반환한다() throws Exception {
+        given(inventoryRepository.updateQuantityIfMatches(eq(INVENTORY_ID), eq(100), eq(80), any(LocalDateTime.class), eq(USER_ID)))
+                .willReturn(0);
+        given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(seoulInventory(95)));
+
+        mockMvc.perform(adjustRequest("MASTER", adjustBody(100, 80)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INVENTORY_QUANTITY_CONFLICT"))
+                .andExpect(jsonPath("$.error.details[0].field").value("quantity"))
+                .andExpect(jsonPath("$.error.details[0].reason").value("현재 재고는 95개입니다."));
+
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
+    @Test
+    void 조정할_재고가_없으면_404를_반환한다() throws Exception {
+        given(inventoryRepository.updateQuantityIfMatches(any(UUID.class), anyInt(), anyInt(), any(LocalDateTime.class), any(UUID.class)))
+                .willReturn(0);
+        given(inventoryRepository.findById(any(UUID.class))).willReturn(Optional.empty());
+
+        mockMvc.perform(adjustRequest("MASTER", adjustBody(100, 80)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("존재하지 않는 재고입니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("inventoryId"));
+
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
+    @Test
+    void 조정할_수량이_조회한_수량과_같으면_400을_반환한다() throws Exception {
+        mockMvc.perform(adjustRequest("MASTER", adjustBody(100, 100)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("quantity"));
+
+        then(inventoryRepository).should(never())
+                .updateQuantityIfMatches(any(UUID.class), anyInt(), anyInt(), any(LocalDateTime.class), any(UUID.class));
+    }
+
+    @Test
+    void 조정할_수량이_음수면_400을_반환한다() throws Exception {
+        mockMvc.perform(adjustRequest("MASTER", adjustBody(100, -1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("quantity"));
+    }
+
+    @Test
+    void 조회한_수량이_없으면_400을_반환한다() throws Exception {
+        mockMvc.perform(adjustRequest("MASTER", """
+                        {"quantity": 80}
+                        """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("expectedQuantity"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "COMPANY", "DELIVERY"})
+    void 수량_조정_권한이_없으면_403을_반환한다(String role) throws Exception {
+        mockMvc.perform(adjustRequest(role, adjustBody(100, 80)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        then(inventoryRepository).should(never())
+                .updateQuantityIfMatches(any(UUID.class), anyInt(), anyInt(), any(LocalDateTime.class), any(UUID.class));
+    }
+
+    // updatedBy를 채울 수 없으므로 조정하지 않는다
+    @Test
+    void 수량_조정에서_사용자_ID_헤더가_없으면_400을_반환한다() throws Exception {
+        mockMvc.perform(patch("/api/v1/inventories/{inventoryId}", INVENTORY_ID)
+                        .header(ROLE_HEADER, "MASTER")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(adjustBody(100, 80)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value(USER_ID_HEADER));
+    }
+
+    private MockHttpServletRequestBuilder adjustRequest(String role, String body) {
+        return patch("/api/v1/inventories/{inventoryId}", INVENTORY_ID)
+                .header(USER_ID_HEADER, USER_ID.toString())
+                .header(ROLE_HEADER, role)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
+    private String adjustBody(int expectedQuantity, int quantity) {
+        return """
+                {"expectedQuantity": %d, "quantity": %d}
+                """.formatted(expectedQuantity, quantity);
+    }
+
+    private InventoryLog savedLog() {
+        ArgumentCaptor<InventoryLog> log = ArgumentCaptor.forClass(InventoryLog.class);
+        then(inventoryLogRepository).should().save(log.capture());
+        return log.getValue();
+    }
+
     private MockHttpServletRequestBuilder productRequest(UUID productId, String role) {
         return get("/api/v1/inventories/products/{productId}", productId)
                 .header(USER_ID_HEADER, USER_ID.toString())
@@ -406,9 +555,13 @@ class InventoryControllerTest {
     }
 
     private Inventory seoulInventory() {
+        return seoulInventory(100);
+    }
+
+    private Inventory seoulInventory(int quantity) {
         Hub seoul = Hub.builder().hubName("서울특별시 센터").address("주소").build();
         ReflectionTestUtils.setField(seoul, "id", SEOUL_ID);
-        Inventory inventory = Inventory.builder().hub(seoul).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(100).build();
+        Inventory inventory = Inventory.builder().hub(seoul).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", INVENTORY_ID);
         return inventory;
     }
