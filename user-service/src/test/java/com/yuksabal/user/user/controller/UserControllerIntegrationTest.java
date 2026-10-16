@@ -111,6 +111,27 @@ class UserControllerIntegrationTest {
     }
 
     @Test
+    void 아이디_검색어의_퍼센트와_밑줄은_와일드카드가_아니라_글자로_비교한다() throws Exception {
+        // 아이디는 영문 소문자·숫자만 가능해서 % _ 가 든 회원은 없다 → 0건이어야 한다
+        mockMvc.perform(withUser(get(USERS_URL).param("username", "%"), master))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+        mockMvc.perform(withUser(get(USERS_URL).param("username", "_"), master))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+    }
+
+    @Test
+    void 아이디_검색어가_공백이면_조건_없이_조회하고_앞뒤_공백은_무시한다() throws Exception {
+        mockMvc.perform(withUser(get(USERS_URL).param("username", "   "), master))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(4)));
+        mockMvc.perform(withUser(get(USERS_URL).param("username", " ali "), master))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].username").value(contains("alice01")));
+    }
+
+    @Test
     void 역할과_허브로_검색한다() throws Exception {
         list(master, "?hubId=" + HUB_A)
                 .andExpect(jsonPath("$.data.items[*].username").value(containsInAnyOrder("alice01", "carol01")));
