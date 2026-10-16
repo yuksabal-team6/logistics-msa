@@ -3,6 +3,8 @@ package com.yuksabal.user.user.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.user.support.TestJwt;
+import com.yuksabal.user.user.client.CompanyClient;
+import com.yuksabal.user.user.client.HubClient;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -57,6 +60,11 @@ class UserAdminIntegrationTest {
     private UserRepository userRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    // 허브·업체 내부 API는 테스트 대역 (기본 동작: 존재함). 검증 시나리오는 AffiliationValidationIntegrationTest
+    @MockBean
+    private HubClient hubClient;
+    @MockBean
+    private CompanyClient companyClient;
 
     private User master;
     private User master2;
@@ -162,6 +170,35 @@ class UserAdminIntegrationTest {
         update(master, alice.getId(), Map.of())
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.message").value("수정할 항목이 없습니다."));
+    }
+
+    @Test
+    void 소속_ID가_빈_문자열이면_변경_없음으로_무시하지_않고_400() throws Exception {
+        for (String blank : new String[]{"", " "}) {
+            for (String field : new String[]{"hubId", "companyId"}) {
+                update(master, alice.getId(), Map.of("slackId", "U99", field, blank))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+            }
+        }
+        assertThat(reload(alice).getSlackId()).isEqualTo("Ualice01");
+    }
+
+    @Test
+    void 같은_키가_두_번_오면_400이고_아무것도_바꾸지_않는다() throws Exception {
+        // 보고된 요청 그대로: hubId 공백 + slackId 중복
+        String json = "{\"slackId\":\"U99999999\",\"isPublic\":false,\"hubId\":\" \",\"slackId\":\"U99\"}";
+
+        mockMvc.perform(withMaster(patch(USERS_URL + "/" + alice.getId())).content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+        mockMvc.perform(withMaster(patch(USERS_URL + "/" + alice.getId()))
+                        .content("{\"slackId\":\"U99999999\",\"slackId\":\"U99\"}"))
+                .andExpect(status().isBadRequest());
+
+        User reloaded = reload(alice);
+        assertThat(reloaded.getSlackId()).isEqualTo("Ualice01");
+        assertThat(reloaded.isPublic()).isTrue();
     }
 
     @Test
