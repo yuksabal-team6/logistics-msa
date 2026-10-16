@@ -49,6 +49,7 @@ public class DeliveryService {
     private final DeliveryRouteLogRepository deliveryRouteLogRepository;
     private final HubClient hubClient;
     private final OrderClient orderClient;
+    private final DeliveryManagerValidator deliveryManagerValidator;
     private final TransactionTemplate transactionTemplate;
 
     // 내부 API #5. 배송과 경로 기록을 한 트랜잭션으로 저장
@@ -177,6 +178,28 @@ public class DeliveryService {
             // 안전망: 예상 못 한 예외. 배송은 이미 커밋됐으므로 500을 내지 않는다
             log.error("[수동 처리 필요] 주문 완료 처리 실패 orderId={}, deliveryId={}",
                     orderId, deliveryId, e);
+        }
+    }
+
+    // 배송(허브→업체) 담당자 지정. 403 → 404 → 409 → user 확인(404·422) 순서
+    // 1차 확인으로 담당자를 지정할 수 없는 배송(업체로 출발했거나 끝남)이면 user를 부르지 않고, user 호출은 트랜잭션 밖에서 한다 (createDelivery와 같은 이유)
+    // 저장 트랜잭션에서 상태를 다시 확인해 그 사이에 지정할 수 없게 된 배송은 409, 동시 수정은 @Version 충돌로 409
+    public DeliveryResponse assignDeliveryManager(UUID deliveryId, UUID deliveryManagerId, UserRole role) {
+        requireMaster(role);
+        transactionTemplate.executeWithoutResult(status -> findDelivery(deliveryId).checkManagerAssignable());
+
+        deliveryManagerValidator.validate(deliveryManagerId);
+
+        return transactionTemplate.execute(status -> {
+            Delivery delivery = findDelivery(deliveryId);
+            delivery.assignManager(deliveryManagerId);
+            return DeliveryResponse.from(delivery);
+        });
+    }
+
+    private void requireMaster(UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN, "MASTER만 담당자를 지정할 수 있습니다.");
         }
     }
 

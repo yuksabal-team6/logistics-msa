@@ -5,6 +5,7 @@ import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
+import com.yuksabal.delivery.delivery.service.DeliveryManagerValidator;
 import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.routelog.dto.request.RouteLogStatusUpdateRequest;
 import com.yuksabal.delivery.routelog.dto.response.DeliveryRouteLogResponse;
@@ -13,6 +14,7 @@ import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +26,8 @@ public class DeliveryRouteLogService {
 
     private final DeliveryRepository deliveryRepository;
     private final DeliveryRouteLogRepository deliveryRouteLogRepository;
+    private final DeliveryManagerValidator deliveryManagerValidator;
+    private final TransactionTemplate transactionTemplate;
 
     // 배송당 경로 기록은 0~1건이라 페이징 없이 목록으로 응답한다. 같은 허브 배송이면 빈 목록 (결정 #12, #16)
     // 권한은 배송 상세 조회와 같다: DELIVERY는 배송 담당자 또는 경로 기록 담당자만
@@ -62,6 +66,31 @@ public class DeliveryRouteLogService {
         }
         routeLog.changeStatus(request.routeStatus(), request.actualDistanceKm());
         return DeliveryRouteLogResponse.from(routeLog);
+    }
+
+    // 경로 기록(허브→허브) 담당자 지정. 403 → 404 → 409 → user 확인(404·422) 순서
+    // 1차 확인으로 담당자를 지정할 수 없는 경로 기록(허브를 출발했거나 끝남)이면 user를 부르지 않고, user 호출은 트랜잭션 밖에서 한다
+    // 1차 확인도 트랜잭션 안에서 한다: findRouteLog가 LAZY 프록시(delivery)를 거치기 때문
+    // 저장 트랜잭션에서 상태를 다시 확인해 그 사이에 지정할 수 없게 된 경로 기록은 409, 동시 수정은 @Version 충돌로 409
+    public DeliveryRouteLogResponse assignRouteManager(UUID deliveryId, UUID routeLogId,
+                                                       UUID deliveryManagerId, UserRole role) {
+        requireMaster(role);
+        transactionTemplate.executeWithoutResult(status ->
+                findRouteLog(findDelivery(deliveryId), routeLogId).checkManagerAssignable());
+
+        deliveryManagerValidator.validate(deliveryManagerId);
+
+        return transactionTemplate.execute(status -> {
+            DeliveryRouteLog routeLog = findRouteLog(findDelivery(deliveryId), routeLogId);
+            routeLog.assignManager(deliveryManagerId);
+            return DeliveryRouteLogResponse.from(routeLog);
+        });
+    }
+
+    private void requireMaster(UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN, "MASTER만 담당자를 지정할 수 있습니다.");
+        }
     }
 
     private Delivery findDelivery(UUID deliveryId) {
