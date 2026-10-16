@@ -2,6 +2,7 @@ package com.yuksabal.user.user.repository;
 
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.common.auth.UserRole;
+import com.yuksabal.common.util.LikeUtils;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
@@ -16,7 +17,7 @@ public class UserSpecification {
         return (root, query, cb) ->
                 username == null || username.isBlank()
                         ? null
-                        : cb.like(root.get("username"), "%" + username.trim() + "%");
+                        : cb.like(root.get("username"), LikeUtils.contains(username), LikeUtils.ESCAPE_CHAR);
     }
 
     public static Specification<User> roleEquals(UserRole role) {
