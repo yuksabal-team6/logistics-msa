@@ -5,6 +5,7 @@ import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.user.user.dto.request.UserSearchRequest;
+import com.yuksabal.user.user.dto.response.UserInternalResponse;
 import com.yuksabal.user.user.dto.response.UserResponse;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
@@ -79,6 +80,12 @@ public class UserQueryService {
             throw new BusinessException(FORBIDDEN);
         }
         return userRepository.findById(userId).map(UserResponse::from).orElseThrow(this::notFound);
+    }
+
+    // 내부 API (#76): 다른 서비스가 Feign으로 호출하므로 요청자 권한을 검사하지 않는다 (명세 0.3, 게이트웨이 미노출)
+    // 탈퇴(소프트 삭제)한 회원은 404, 비활성 회원은 active=false로 그대로 돌려준다 (판단은 호출 측)
+    public UserInternalResponse getInternalUser(UUID userId) {
+        return userRepository.findById(userId).map(UserInternalResponse::from).orElseThrow(this::notFound);
     }
 
     private BusinessException notFound() {
