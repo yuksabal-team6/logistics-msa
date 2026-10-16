@@ -4,17 +4,21 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.delivery.delivery.dto.request.DeliverySearchRequest;
+import com.yuksabal.delivery.delivery.dto.request.DeliveryStatusUpdateRequest;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryResponse;
 import com.yuksabal.delivery.delivery.service.DeliveryService;
 import com.yuksabal.delivery.global.swagger.ApiErrorCodes;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +28,9 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
+import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.DELIVERY_ACCESS_DENIED;
+import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.DELIVERY_CONFLICT;
+import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.INVALID_STATUS_TRANSITION;
 
 @Tag(name = "Delivery", description = "배송 외부 API")
 @RestController
@@ -50,7 +57,7 @@ public class DeliveryController {
 
     @Operation(summary = "배송 상세 조회",
             description = "배송이 없으면 404. DELIVERY가 본인 담당이 아닌 배송을 조회하면 403.")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {DELIVERY_ACCESS_DENIED})
     @GetMapping("/{deliveryId}")
     public ResponseEntity<ApiResponse<DeliveryResponse>> getDelivery(
             @PathVariable UUID deliveryId,
@@ -59,5 +66,21 @@ public class DeliveryController {
         return ResponseEntity.ok(ApiResponse.success(
                 deliveryService.getDelivery(deliveryId, userId, UserRole.from(role)),
                 "배송을 조회했습니다."));
+    }
+
+    @Operation(summary = "배송 상태 변경",
+            description = "DELIVERING(같은 허브: READY→, 다른 허브: ARRIVED_AT_HUB→) 또는 COMPLETED(DELIVERING→)만 가능. "
+                    + "MASTER는 전체, DELIVERY는 본인이 배송 담당자인 배송만. 그 외 전이는 409")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND},
+            value = {DELIVERY_ACCESS_DENIED, INVALID_STATUS_TRANSITION, DELIVERY_CONFLICT})
+    @PatchMapping("/{deliveryId}/status")
+    public ResponseEntity<ApiResponse<DeliveryResponse>> changeDeliveryStatus(
+            @PathVariable UUID deliveryId,
+            @Valid @RequestBody DeliveryStatusUpdateRequest request,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(ApiResponse.success(
+                deliveryService.changeDeliveryStatus(deliveryId, request.deliveryStatus(), userId, UserRole.from(role)),
+                "배송 상태를 변경했습니다."));
     }
 }

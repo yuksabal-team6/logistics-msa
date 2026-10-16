@@ -12,7 +12,9 @@ import com.yuksabal.delivery.delivery.dto.request.DeliverySearchRequest;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryCreateResponse;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryResponse;
 import com.yuksabal.delivery.delivery.entity.Delivery;
+import com.yuksabal.delivery.delivery.entity.DeliveryStatus;
 import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
+import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
 import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
 import lombok.RequiredArgsConstructor;
@@ -108,14 +110,10 @@ public class DeliveryService {
     // DELIVERY는 본인 담당 배송이 아니면 403
     @Transactional(readOnly = true)
     public DeliveryResponse getDelivery(UUID deliveryId, UUID userId, UserRole role) {
-        Delivery delivery = deliveryRepository.findById(deliveryId)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 배송입니다.",
-                        "deliveryId"));
+        Delivery delivery = findDelivery(deliveryId);
 
         if (role == UserRole.DELIVERY && !isManagedBy(delivery, userId)) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+            throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED);
         }
         return DeliveryResponse.from(delivery);
     }
@@ -128,6 +126,36 @@ public class DeliveryService {
                 search(request, userId, role),
                 toStablePageable(pageable, SORTABLE_FIELDS));
         return PageResponse.from(deliveries, DeliveryResponse::from);
+    }
+
+    // 배송(허브→업체) 상태 변경. 404 → 403 → 409 순서로 확인하고, 전이 규칙은 Delivery.changeStatus()가 맡는다.
+    // 동시 수정은 @Version 충돌로 커밋 시 409 (DeliveryExceptionHandler)
+    @Transactional
+    public DeliveryResponse changeDeliveryStatus(UUID deliveryId, DeliveryStatus target, UUID userId, UserRole role) {
+        Delivery delivery = findDelivery(deliveryId);
+
+        if (!canChangeStatus(delivery, userId, role)) {
+            throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED);
+        }
+        delivery.changeStatus(target);
+        return DeliveryResponse.from(delivery);
+    }
+
+    private Delivery findDelivery(UUID deliveryId) {
+        return deliveryRepository.findById(deliveryId)
+                .orElseThrow(() -> new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않거나 삭제된 배송입니다.",
+                        "deliveryId"));
+    }
+
+    // MASTER는 전체, DELIVERY는 배송(허브→업체) 담당자 본인만. 경로 기록 담당자는 불가라 조회용 isManagedBy를 쓰지 않는다
+    private boolean canChangeStatus(Delivery delivery, UUID userId, UserRole role) {
+        return switch (role) {
+            case MASTER -> true;
+            case DELIVERY -> userId.equals(delivery.getDeliveryManagerId());
+            case USER, COMPANY -> false;
+        };
     }
 
     // 배송(허브→업체) 담당자 또는 경로 기록(허브→허브) 담당자가 본인인지 확인한다.

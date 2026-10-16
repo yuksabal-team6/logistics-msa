@@ -61,6 +61,10 @@ public class DeliveryRouteLog extends BaseEntity {
 
     private LocalDateTime arrivedAt;
 
+    // 낙관적 락. 기존 행은 null이라 schema.sql에서 0으로 채운다
+    @Version
+    private Long version;
+
     @Builder
     public DeliveryRouteLog(Delivery delivery, UUID hubRouteId, UUID deliveryManagerId,
                             BigDecimal expectedDistanceKm, Integer expectedDurationMinutes) {

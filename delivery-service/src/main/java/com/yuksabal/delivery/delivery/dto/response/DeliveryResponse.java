@@ -41,10 +41,10 @@ public record DeliveryResponse(
         @Schema(description = "수령인 Slack ID")
         String recipientSlackId,
 
-        @Schema(description = "배송 시작 시각")
+        @Schema(description = "업체로 출발한 시각 (DELIVERING)")
         LocalDateTime startedAt,
 
-        @Schema(description = "배송 완료 시각")
+        @Schema(description = "업체 도착 시각, 배송 완료 (COMPLETED)")
         LocalDateTime completedAt,
 
         @Schema(description = "생성 시각")
