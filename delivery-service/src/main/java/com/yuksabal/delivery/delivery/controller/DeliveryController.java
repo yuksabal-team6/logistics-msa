@@ -3,6 +3,7 @@ package com.yuksabal.delivery.delivery.controller;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
+import com.yuksabal.delivery.delivery.dto.request.DeliveryManagerAssignRequest;
 import com.yuksabal.delivery.delivery.dto.request.DeliverySearchRequest;
 import com.yuksabal.delivery.delivery.dto.request.DeliveryStatusUpdateRequest;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryResponse;
@@ -25,6 +26,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
+import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
@@ -82,5 +85,22 @@ public class DeliveryController {
         return ResponseEntity.ok(ApiResponse.success(
                 deliveryService.changeDeliveryStatus(deliveryId, request.deliveryStatus(), userId, UserRole.from(role)),
                 "배송 상태를 변경했습니다."));
+    }
+
+    @Operation(summary = "배송 담당자 지정 (MASTER)",
+            description = "배송(허브→업체) 담당자를 지정하거나 다른 사람으로 바꾼다. MASTER가 아니면 403, 배송이 없으면 404, "
+                    + "업체로 출발(DELIVERING)했거나 끝난(COMPLETED·CANCELLED) 배송이면 409. 지정할 회원이 없거나 탈퇴했으면 404, "
+                    + "비활성이거나 DELIVERY 역할이 아니면 422. user-service 장애 시 502")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE},
+            value = {INVALID_STATUS_TRANSITION, DELIVERY_CONFLICT})
+    @PatchMapping("/{deliveryId}/manager")
+    public ResponseEntity<ApiResponse<DeliveryResponse>> assignDeliveryManager(
+            @PathVariable UUID deliveryId,
+            @Valid @RequestBody DeliveryManagerAssignRequest request,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(ApiResponse.success(
+                deliveryService.assignDeliveryManager(deliveryId, request.deliveryManagerId(), UserRole.from(role)),
+                "배송 담당자를 지정했습니다."));
     }
 }

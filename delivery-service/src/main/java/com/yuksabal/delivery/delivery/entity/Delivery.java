@@ -141,6 +141,25 @@ public class Delivery extends BaseEntity {
         this.completedAt = LocalDateTime.now();
     }
 
+    // 배송(허브→업체) 담당자의 구간은 DELIVERING부터 시작한다. 출발 전(READY·IN_TRANSIT·ARRIVED_AT_HUB)에만 지정·재지정할 수 있다
+    // 허용 상태만 나열해 새 상태가 추가돼도 기본은 지정 불가. user 호출 전 1차 확인에도 쓴다 (지정할 수 없으면 user를 부르지 않도록)
+    public void checkManagerAssignable() {
+        boolean assignable = switch (deliveryStatus) {
+            case READY, IN_TRANSIT, ARRIVED_AT_HUB -> true;
+            default -> false;
+        };
+        if (!assignable) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "업체로 출발했거나 끝난 배송은 담당자를 지정할 수 없습니다.");
+        }
+    }
+
+    // 배송(허브→업체) 담당자 지정. 회원 검증(활성 DELIVERY)은 서비스가 user 호출로 먼저 한다
+    public void assignManager(UUID deliveryManagerId) {
+        checkManagerAssignable();
+        this.deliveryManagerId = deliveryManagerId;
+    }
+
     private boolean isSameHub() {
         return departureHubId.equals(destinationHubId);
     }
