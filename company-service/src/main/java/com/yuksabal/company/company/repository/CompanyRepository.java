@@ -11,4 +11,7 @@ public interface CompanyRepository extends
         JpaSpecificationExecutor<Company> {
 
     boolean existsByBusinessNumber(String businessNumber);
+
+    // 한 회원은 한 업체만 관리한다. 삭제된 업체는 @SQLRestriction으로 빠진다
+    boolean existsByOwnerId(UUID ownerId);
 }

@@ -29,6 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
+import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
@@ -45,7 +47,7 @@ public class CompanyController {
 
     // 생성: 201 + ApiResponse.success(data, message). 역할 헤더는 여기서 UserRole로 변환해 넘긴다
     @Operation(summary = "업체 생성")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, DUPLICATE_RESOURCE}, value = {COMPANY_ACCESS_DENIED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE}, value = {COMPANY_ACCESS_DENIED})
     @PostMapping
     public ResponseEntity<ApiResponse<CompanyResponse>> createCompany(
             @Valid @RequestBody CompanyCreateRequest request,
@@ -83,7 +85,7 @@ public class CompanyController {
 
     // 수정: 200 + ApiResponse.success(data, message). 보낸 필드만 수정, 허브·관리자 변경은 MASTER만
     @Operation(summary = "업체 수정")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE}, value = {COMPANY_ACCESS_DENIED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE}, value = {COMPANY_ACCESS_DENIED})
     @PatchMapping("/{companyId}")
     public ResponseEntity<ApiResponse<CompanyResponse>> updateCompany(
             @PathVariable UUID companyId,

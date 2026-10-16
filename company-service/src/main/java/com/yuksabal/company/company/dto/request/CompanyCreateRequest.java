@@ -16,13 +16,12 @@ public record CompanyCreateRequest(
         @Size(max = 200, message = "업체명은 200자 이하로 입력해 주세요.")
         String companyName,
 
-        // 존재 여부는 hub-service에 확인 (Feign, #58)
+        // 존재 여부는 서비스에서 hub-service에 확인 (Feign)
         @Schema(description = "관리 허브 ID", example = "00000000-0000-0000-0000-000000000004")
         @NotNull(message = "관리 허브 ID는 필수입니다.")
         UUID hubId,
 
-        // MASTER는 지정할 관리자 ID, COMPANY는 본인 ID여야 한다 (서비스에서 X-User-Id와 비교)
-        @Schema(description = "업체 관리자 회원 ID", example = "10000000-0000-4000-8000-000000000001")
+        @Schema(description = "업체 관리자 회원 ID. COMPANY 역할의 활성 회원이며 다른 업체의 관리자가 아니어야 함 (COMPANY는 본인만 지정 가능)", example = "10000000-0000-4000-8000-000000000001")
         @NotNull(message = "업체 관리자 ID는 필수입니다.")
         UUID ownerId,
 
