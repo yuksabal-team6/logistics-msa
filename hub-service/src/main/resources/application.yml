@@ -15,6 +15,7 @@ spring:
   sql:
     init:
       mode: always
+      encoding: UTF-8  # SQL 파일을 OS 기본 인코딩이 아닌 UTF-8로 읽는다
   jpa:
     # Hibernate가 테이블을 만든 뒤에 data.sql 실행
     defer-datasource-initialization: true
