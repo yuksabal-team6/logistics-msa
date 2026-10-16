@@ -4,6 +4,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+	// 허브·업체 존재 확인 (hub #7, company #2 내부 API). common Feign 설정(헤더 전달·에러 디코더·예외 처리)이 자동 적용된다
+	implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
 	// JWT 발급 (api-gateway 검증 규격과 동일하게 HS256, 같은 버전)

@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.UNAUTHORIZED;
@@ -44,9 +45,11 @@ public class AuthController {
     private final UserService userService;
 
     // 공개 API (게이트웨이 auth.public-paths)
-    @Operation(summary = "회원가입", description = "가입 즉시 USER 역할로 활성화된다.")
+    @Operation(summary = "회원가입",
+            description = "가입 즉시 USER 역할로 활성화된다. hubId·companyId는 내부 API로 존재를 확인한다 "
+                    + "(없거나 삭제됨 400, 허브·업체 서비스 확인 실패 502)")
     @SecurityRequirements
-    @ApiErrorCodes(common = {VALIDATION_ERROR, DUPLICATE_RESOURCE})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, DUPLICATE_RESOURCE, DEPENDENCY_FAILURE})
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<RegisterResponse>> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity

@@ -31,6 +31,15 @@ spring:
         jdbc:
           time_zone: Asia/Seoul
     show-sql: false
+  # 내부 API 호출 제한 시간 (order·delivery와 같은 값). 넘기면 502 DEPENDENCY_FAILURE
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 3000
+            read-timeout: 5000
+            logger-level: basic
 
 eureka:
   client:

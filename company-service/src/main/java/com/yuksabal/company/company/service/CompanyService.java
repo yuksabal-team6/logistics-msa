@@ -2,7 +2,11 @@ package com.yuksabal.company.company.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.PageResponse;
+import com.yuksabal.company.company.client.HubClient;
+import com.yuksabal.company.company.client.UserClient;
+import com.yuksabal.company.company.client.dto.response.UserResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
 import com.yuksabal.company.company.dto.request.CompanySearchRequest;
 import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
@@ -16,12 +20,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
 import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
@@ -29,6 +36,7 @@ import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
 
+// 생성·수정 검증 순서: 권한 → 로컬 검사(중복) → 외부 서비스 확인(hub·user). 실패할 요청을 싼 검사에서 먼저 거른다
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -39,11 +47,15 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final ProductService productService;
+    private final HubClient hubClient;
+    private final UserClient userClient;
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
         OwnerPermission.validate(request.ownerId(), userId, role);
         validateDuplicateBusinessNumber(request.businessNumber());
+        validateHubExists(request.hubId());
+        validateNewOwner(request.ownerId());
 
         Company company = Company.builder()
                 .hubId(request.hubId())
@@ -66,6 +78,13 @@ public class CompanyService {
         return CompanyInternalResponse.from(findCompany(companyId));
     }
 
+    // 내부 API #11 전용. 관리 중인 업체가 없으면 빈 목록 (회원 삭제·역할 변경 확인용이라 "없음"은 정상 결과)
+    public List<CompanyInternalResponse> getCompaniesByOwnerForInternal(UUID ownerId) {
+        return companyRepository.findAllByOwnerId(ownerId).stream()
+                .map(CompanyInternalResponse::from)
+                .toList();
+    }
+
     public PageResponse<CompanyResponse> getCompanies(CompanySearchRequest request, Pageable pageable) {
         Specification<Company> spec = Specification
                 .where(companyNameContains(request.companyName()))
@@ -81,23 +100,31 @@ public class CompanyService {
         Company company = findCompany(companyId);
         OwnerPermission.validate(company.getOwnerId(), userId, role);
 
-        if (role != UserRole.MASTER &&
-                (isChanged(request.hubId(), company.getHubId()) ||
-                        isChanged(request.ownerId(), company.getOwnerId()))) {
+        // 변경 여부는 값을 바꾸기 전에 한 번만 판단해 검증과 반영에 같이 쓴다
+        boolean hubChanged = isChanged(request.hubId(), company.getHubId());
+        boolean ownerChanged = isChanged(request.ownerId(), company.getOwnerId());
+        boolean businessNumberChanged = isChanged(request.businessNumber(), company.getBusinessNumber());
+
+        // 관리 허브·관리자 변경은 MASTER만 가능
+        if (role != UserRole.MASTER && (hubChanged || ownerChanged)) {
             throw new BusinessException(FORBIDDEN);
         }
-        if (isChanged(request.businessNumber(), company.getBusinessNumber())) {
+        if (businessNumberChanged) {
             validateDuplicateBusinessNumber(request.businessNumber());
+        }
+        if (hubChanged) {
+            validateHubExists(request.hubId());
+        }
+        if (ownerChanged) {
+            validateOwnerChange(request.ownerId(), companyId);
         }
 
         company.updateInfo(request.companyName(), request.address(),
                 request.contactPhone(), request.businessNumber());
-        if (isChanged(request.hubId(), company.getHubId())) {
-            // TODO #58: 허브 존재 확인 (내부 API #7, hub 준비 후)
+        if (hubChanged) {
             company.changeHub(request.hubId());
         }
-        if (isChanged(request.ownerId(), company.getOwnerId())) {
-            // TODO #58: 새 관리자 소속 확인 (내부 API #8, user 준비 후)
+        if (ownerChanged) {
             company.changeOwner(request.ownerId());
         }
 
@@ -142,5 +169,60 @@ public class CompanyService {
                     "이미 등록된 사업자 등록번호입니다.",
                     "businessNumber");
         }
+    }
+
+    // 허브가 없으면 hub가 404로 응답하고 common Feign 처리로 그대로 전달된다. hub 장애·타임아웃은 502
+    private void validateHubExists(UUID hubId) {
+        hubClient.getHub(hubId);
+    }
+
+    // 업체 생성: 업체가 아직 없어 소속은 확인하지 않는다
+    private void validateNewOwner(UUID ownerId) {
+        validateOwner(ownerId, null);
+    }
+
+    // 관리자 변경: 새 관리자가 이 업체 소속이어야 한다
+    private void validateOwnerChange(UUID ownerId, UUID companyId) {
+        validateOwner(ownerId, companyId);
+    }
+
+    // 관리자 중복(로컬)을 먼저 확인한 뒤 user에 회원 상태를 조회한다. user 장애·타임아웃은 common Feign 처리로 502
+    // 동시 요청이 중복 검사를 함께 통과하면 DB 부분 유니크 인덱스가 막고 common 핸들러가 409로 응답한다
+    private void validateOwner(UUID ownerId, UUID requiredCompanyId) {
+        if (companyRepository.existsByOwnerId(ownerId)) {
+            throw new BusinessException(
+                    DUPLICATE_RESOURCE,
+                    "이미 다른 업체를 관리하는 회원입니다.",
+                    "ownerId");
+        }
+
+        UserResponse owner = getOwner(ownerId);
+
+        if (!owner.active()) {
+            throw ownerRuleViolation("비활성화된 회원은 업체 관리자로 지정할 수 없습니다.");
+        }
+        // UserRole.from()은 요청자 헤더용이라 모르는 값이면 403을 던진다. 여기선 어떤 값이든 COMPANY가 아니면 422
+        if (!UserRole.COMPANY.name().equals(owner.role())) {
+            throw ownerRuleViolation("업체 관리자는 COMPANY 역할 회원만 지정할 수 있습니다.");
+        }
+        if (requiredCompanyId != null && !requiredCompanyId.equals(owner.companyId())) {
+            throw ownerRuleViolation("새 관리자는 이 업체 소속 회원이어야 합니다.");
+        }
+    }
+
+    // user의 404는 field가 userId라 요청 필드(ownerId)와 company 메시지로 바꿔 던진다. 다른 4xx는 그대로 전달
+    private UserResponse getOwner(UUID ownerId) {
+        try {
+            return userClient.getUser(ownerId).data();
+        } catch (FeignClientException e) {
+            if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
+                throw new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 탈퇴한 회원입니다.", "ownerId");
+            }
+            throw e;
+        }
+    }
+
+    private BusinessException ownerRuleViolation(String message) {
+        return new BusinessException(BUSINESS_RULE_VIOLATION, message, "ownerId");
     }
 }

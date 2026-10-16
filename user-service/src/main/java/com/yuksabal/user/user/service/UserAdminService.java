@@ -36,7 +36,9 @@ public class UserAdminService {
 
     private final UserRepository userRepository;
     private final RequesterValidator requesterValidator;
+    private final AffiliationValidator affiliationValidator;
 
+    // 허브·업체는 값이 바뀔 때만 내부 API로 존재를 확인한다 (현재 값과 같으면 호출하지 않음)
     public UserResponse updateUser(UUID requesterId, UserRole headerRole, UUID userId, AdminUpdateUserRequest request) {
         requesterValidator.verifyMaster(requesterId, headerRole);
         if (request.hasNoChanges()) {
@@ -44,6 +46,8 @@ public class UserAdminService {
         }
         User user = findTarget(userId);
         validateNotDuplicated(userId, request);
+        affiliationValidator.validate(changedOrNull(request.hubId(), user.getHubId()),
+                changedOrNull(request.companyId(), user.getCompanyId()));
 
         user.updateProfile(request.username(), request.email(), request.slackId(), request.isPublic());
         user.changeAffiliation(request.hubId(), request.companyId());
@@ -101,6 +105,11 @@ public class UserAdminService {
     private boolean isLastActiveMaster(User user) {
         return user.getRole() == UserRole.MASTER && user.isActive()
                 && userRepository.countByRoleAndIsActiveTrue(UserRole.MASTER) <= 1;
+    }
+
+    // 보낸 값이 있고 현재 값과 다를 때만 그 값, 아니면 null (확인 대상 아님)
+    private UUID changedOrNull(UUID requested, UUID current) {
+        return requested != null && !requested.equals(current) ? requested : null;
     }
 
     // 대상 본인을 뺀 다른 회원과 아이디·이메일이 겹치면 409 (본인 프로필 수정과 같은 규칙)

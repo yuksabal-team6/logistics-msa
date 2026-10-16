@@ -42,8 +42,9 @@ class UserServiceTest {
     private final UserRepository userRepository = mock(UserRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final String jwtSecret = TestJwt.randomBase64Secret(32);
-    private final UserService userService =
-            new UserService(userRepository, passwordEncoder, new JwtProvider(TestJwt.properties(jwtSecret)));
+    private final AffiliationValidator affiliationValidator = mock(AffiliationValidator.class);
+    private final UserService userService = new UserService(userRepository, passwordEncoder,
+            new JwtProvider(TestJwt.properties(jwtSecret)), affiliationValidator);
 
     private final UUID hubId = UUID.randomUUID();
     private final UUID companyId = UUID.randomUUID();

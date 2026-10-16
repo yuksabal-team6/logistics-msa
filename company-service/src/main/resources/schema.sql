@@ -7,3 +7,8 @@
 CREATE UNIQUE INDEX IF NOT EXISTS uk_companies_business_number
     ON company_service.p_companies (business_number)
     WHERE deleted_at IS NULL;
+
+-- 업체 관리자: 한 회원은 삭제되지 않은 업체 하나만 관리한다 (동시 요청 대비, 서비스의 중복 검사와 함께)
+CREATE UNIQUE INDEX IF NOT EXISTS uk_companies_owner_id
+    ON company_service.p_companies (owner_id)
+    WHERE deleted_at IS NULL;

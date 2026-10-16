@@ -18,7 +18,7 @@ public record CompanyUpdateRequest(
         @Schema(description = "관리 허브 ID. MASTER만 변경 가능, 생략 시 유지", example = "00000000-0000-0000-0000-000000000004")
         UUID hubId,
 
-        @Schema(description = "업체 관리자 회원 ID. MASTER만 변경 가능, 생략 시 유지", example = "10000000-0000-4000-8000-000000000001")
+        @Schema(description = "업체 관리자 회원 ID. MASTER만 변경 가능, 이 업체 소속의 COMPANY 활성 회원이어야 함. 생략 시 유지", example = "10000000-0000-4000-8000-000000000001")
         UUID ownerId,
 
         @Schema(description = "사업자 등록번호. 생략 시 유지", example = "123-45-67890")
