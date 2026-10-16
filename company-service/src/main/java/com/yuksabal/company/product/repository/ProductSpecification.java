@@ -1,5 +1,6 @@
 package com.yuksabal.company.product.repository;
 
+import com.yuksabal.common.util.LikeUtils;
 import com.yuksabal.company.product.entity.Product;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -15,7 +16,7 @@ public class ProductSpecification {
         return (root, query, cb) ->
                 productName == null || productName.isBlank()
                         ? null
-                        : cb.like(root.get("productName"), "%" + productName.trim() + "%");
+                        : cb.like(root.get("productName"), LikeUtils.contains(productName), LikeUtils.ESCAPE_CHAR);
     }
 
     // company.id는 상품 테이블의 FK(company_id)라 업체 조인 없이 비교된다
