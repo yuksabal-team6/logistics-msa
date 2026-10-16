@@ -9,8 +9,4 @@ public record HubSearchRequest(
         @Schema(description = "검색어 (허브명 또는 주소에 포함). 생략 시 전체 조회", example = "서울")
         String keyword
 ) {
-
-    public boolean hasKeyword() {
-        return keyword != null && !keyword.isBlank();
-    }
 }

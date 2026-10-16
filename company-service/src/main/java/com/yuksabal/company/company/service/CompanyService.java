@@ -36,7 +36,8 @@ import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
 
-// 생성·수정 검증 순서: 권한 → 로컬 검사(중복) → 외부 서비스 확인(hub·user). 실패할 요청을 싼 검사에서 먼저 거른다
+// 검증 메서드 이름 규칙: validate* = 로컬 검사, verify* = 외부 서비스 확인, fetch* = 외부 서비스 조회 (외부는 502 가능)
+// 생성·수정은 권한 → 로컬 → 외부 순서로 검증해, 실패할 요청을 싼 검사에서 먼저 거른다
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -47,16 +48,23 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final ProductService productService;
-    private final HubClient hubClient;
     private final UserClient userClient;
+    private final HubClient hubClient;
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
-        OwnerPermission.validate(request.ownerId(), userId, role);
-        validateDuplicateBusinessNumber(request.businessNumber());
-        validateHubExists(request.hubId());
-        validateNewOwner(request.ownerId());
+        // 1. 권한: MASTER는 누구든 관리자로 지정, COMPANY는 본인만 (403)
+        OwnerPermission.validateOwner(request.ownerId(), userId, role);
 
+        // 2. 로컬 검사: 사업자 등록번호 중복, 관리자가 이미 다른 업체를 관리 중 (409)
+        validateDuplicateBusinessNumber(request.businessNumber());
+        validateDuplicateOwner(request.ownerId());
+
+        // 3. 외부 확인: 허브 존재(hub, 404) → 관리자 자격(user, 회원 없음 404 / 비활성·COMPANY 아님 422). 장애는 502
+        verifyHubExists(request.hubId());
+        verifyOwner(request.ownerId(), null);   // 업체가 아직 없어 소속 확인 생략
+
+        // 4. 반영
         Company company = Company.builder()
                 .hubId(request.hubId())
                 .ownerId(request.ownerId())
@@ -66,6 +74,7 @@ public class CompanyService {
                 .contactPhone(request.contactPhone())
                 .build();
 
+        // TODO 관리자 소속(user company_id) 자동 지정 검토 중. 현재는 업체 생성 후 MASTER가 회원 수정으로 지정
         return CompanyResponse.from(companyRepository.save(company));
     }
 
@@ -97,28 +106,37 @@ public class CompanyService {
 
     @Transactional
     public CompanyResponse updateCompany(UUID companyId, CompanyUpdateRequest request, UUID userId, UserRole role) {
+        // 1-1. 권한: 업체 조회(404) 후 MASTER 또는 이 업체의 관리자 본인 (403)
         Company company = findCompany(companyId);
-        OwnerPermission.validate(company.getOwnerId(), userId, role);
+        OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
 
         // 변경 여부는 값을 바꾸기 전에 한 번만 판단해 검증과 반영에 같이 쓴다
+        boolean businessNumberChanged = isChanged(request.businessNumber(), company.getBusinessNumber());
         boolean hubChanged = isChanged(request.hubId(), company.getHubId());
         boolean ownerChanged = isChanged(request.ownerId(), company.getOwnerId());
-        boolean businessNumberChanged = isChanged(request.businessNumber(), company.getBusinessNumber());
 
-        // 관리 허브·관리자 변경은 MASTER만 가능
+        // 1-2. 권한: 관리 허브·관리자 변경은 MASTER만 가능 (403)
         if (role != UserRole.MASTER && (hubChanged || ownerChanged)) {
             throw new BusinessException(FORBIDDEN);
         }
+
+        // 2. 로컬 검사: 바뀌는 값만 중복 확인 (409)
         if (businessNumberChanged) {
             validateDuplicateBusinessNumber(request.businessNumber());
         }
-        if (hubChanged) {
-            validateHubExists(request.hubId());
-        }
         if (ownerChanged) {
-            validateOwnerChange(request.ownerId(), companyId);
+            validateDuplicateOwner(request.ownerId());
         }
 
+        // 3. 외부 확인: 바뀌는 값만 hub·user에 확인 (404, 422, 장애 502)
+        if (hubChanged) {
+            verifyHubExists(request.hubId());
+        }
+        if (ownerChanged) {
+            verifyOwner(request.ownerId(), companyId);   // 새 관리자가 이 업체 소속이어야 함
+        }
+
+        // 4. 반영
         company.updateInfo(request.companyName(), request.address(),
                 request.contactPhone(), request.businessNumber());
         if (hubChanged) {
@@ -171,47 +189,39 @@ public class CompanyService {
         }
     }
 
-    // 허브가 없으면 hub가 404로 응답하고 common Feign 처리로 그대로 전달된다. hub 장애·타임아웃은 502
-    private void validateHubExists(UUID hubId) {
-        hubClient.getHub(hubId);
-    }
-
-    // 업체 생성: 업체가 아직 없어 소속은 확인하지 않는다
-    private void validateNewOwner(UUID ownerId) {
-        validateOwner(ownerId, null);
-    }
-
-    // 관리자 변경: 새 관리자가 이 업체 소속이어야 한다
-    private void validateOwnerChange(UUID ownerId, UUID companyId) {
-        validateOwner(ownerId, companyId);
-    }
-
-    // 관리자 중복(로컬)을 먼저 확인한 뒤 user에 회원 상태를 조회한다. user 장애·타임아웃은 common Feign 처리로 502
-    // 동시 요청이 중복 검사를 함께 통과하면 DB 부분 유니크 인덱스가 막고 common 핸들러가 409로 응답한다
-    private void validateOwner(UUID ownerId, UUID requiredCompanyId) {
+    // 한 회원은 한 업체만 관리한다. 동시 요청이 함께 통과하면 DB 부분 유니크 인덱스가 막고 common 핸들러가 409로 응답한다
+    private void validateDuplicateOwner(UUID ownerId) {
         if (companyRepository.existsByOwnerId(ownerId)) {
             throw new BusinessException(
                     DUPLICATE_RESOURCE,
                     "이미 다른 업체를 관리하는 회원입니다.",
                     "ownerId");
         }
+    }
 
-        UserResponse owner = getOwner(ownerId);
+    // 허브가 없으면 hub가 404로 응답하고 common Feign 처리로 그대로 전달된다
+    private void verifyHubExists(UUID hubId) {
+        hubClient.getHub(hubId);
+    }
+
+    // 관리자로 지정할 회원이 활성 상태의 COMPANY인지 user에 확인한다
+    // requiredCompanyId: 관리자 변경이면 새 관리자가 소속돼야 하는 업체 ID, 생성이면 업체가 아직 없어 null(소속 확인 생략)
+    private void verifyOwner(UUID ownerId, UUID requiredCompanyId) {
+        UserResponse owner = fetchOwner(ownerId);
 
         if (!owner.active()) {
             throw ownerRuleViolation("비활성화된 회원은 업체 관리자로 지정할 수 없습니다.");
         }
-        // UserRole.from()은 요청자 헤더용이라 모르는 값이면 403을 던진다. 여기선 어떤 값이든 COMPANY가 아니면 422
-        if (!UserRole.COMPANY.name().equals(owner.role())) {
-            throw ownerRuleViolation("업체 관리자는 COMPANY 역할 회원만 지정할 수 있습니다.");
+        if (UserRole.from(owner.role()) != UserRole.COMPANY) {
+            throw ownerRuleViolation("COMPANY 역할 회원만 업체 관리자로 지정할 수 있습니다.");
         }
         if (requiredCompanyId != null && !requiredCompanyId.equals(owner.companyId())) {
-            throw ownerRuleViolation("새 관리자는 이 업체 소속 회원이어야 합니다.");
+            throw ownerRuleViolation("이 업체 소속 회원만 업체 관리자로 지정할 수 있습니다.");
         }
     }
 
     // user의 404는 field가 userId라 요청 필드(ownerId)와 company 메시지로 바꿔 던진다. 다른 4xx는 그대로 전달
-    private UserResponse getOwner(UUID ownerId) {
+    private UserResponse fetchOwner(UUID ownerId) {
         try {
             return userClient.getUser(ownerId).data();
         } catch (FeignClientException e) {

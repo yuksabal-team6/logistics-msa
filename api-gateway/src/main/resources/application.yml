@@ -104,6 +104,77 @@ auth:
       path: /v3/api-docs/**
     - method: GET
       path: /*-service/v3/api-docs
-  # API별 역할 제한. 위에서부터 처음 맞는 규칙 하나만 적용, 맞는 규칙이 없으면 인증만 확인한다.
-  # 팀 권한 표 확정 후 추가 (예: - method: DELETE / path: /api/v1/hubs/** / roles: [MASTER])
-  role-rules: []
+  # API별 역할 제한 (1단계). 위에서부터 처음 맞는 규칙 하나만 적용, 맞는 규칙이 없으면 인증만 확인한다.
+  # 서비스도 담당자·소유자·DB 역할을 다시 확인한다 (2단계). 다른 서비스 경로는 담당자별 권한 표를 모아 한 PR로 추가
+  # 경로 패턴의 *는 경로 한 칸(예: 회원 ID), **는 그 아래 전부
+  # 순서: 구체적인 경로를 위에, 넓은 패턴(/**)은 아래에 둔다 (넓은 패턴이 위에 있으면 아래 규칙이 적용되지 않는다)
+  role-rules:
+    # user-service 회원 관리 (MASTER 전용). 상세 GET /api/v1/users/{userId}는 본인도 조회하므로 넣지 않는다
+    - method: GET
+      path: /api/v1/users
+      roles: [MASTER]
+    - method: PATCH
+      path: /api/v1/users/*
+      roles: [MASTER]
+    - method: PATCH
+      path: /api/v1/users/*/role
+      roles: [MASTER]
+    - method: PATCH
+      path: /api/v1/users/*/status
+      roles: [MASTER]
+
+    # company-service 업체·상품. 조회(GET)는 로그인만, 본인 업체인지는 서비스가 확인한다
+    - method: POST
+      path: /api/v1/companies
+      roles: [MASTER, COMPANY]
+    - method: PATCH
+      path: /api/v1/companies/*
+      roles: [MASTER, COMPANY]
+    - method: DELETE
+      path: /api/v1/companies/*
+      roles: [MASTER]
+    - method: POST
+      path: /api/v1/companies/*/products
+      roles: [MASTER, COMPANY]
+    - method: PATCH
+      path: /api/v1/products/*
+      roles: [MASTER, COMPANY]
+    - method: DELETE
+      path: /api/v1/products/*
+      roles: [MASTER, COMPANY]
+
+    # order-service. 주문 삭제만 MASTER 전용
+    - method: DELETE
+      path: /api/v1/orders/*
+      roles: [MASTER]
+
+    # delivery-service. 담당 배송인지는 서비스가 확인한다
+    - method: PATCH
+      path: /api/v1/deliveries/*/status
+      roles: [MASTER, DELIVERY]
+    - method: PATCH
+      path: /api/v1/deliveries/*/routes/*/status
+      roles: [MASTER, DELIVERY]
+    - method: PATCH
+      path: /api/v1/deliveries/*/manager
+      roles: [MASTER]
+    - method: PATCH
+      path: /api/v1/deliveries/*/routes/*/manager
+      roles: [MASTER]
+    - method: DELETE
+      path: /api/v1/deliveries/*
+      roles: [MASTER]
+
+    # hub-service 재고. 허브·경로 조회는 로그인만. 재고 수정(#97)·생성·입고는 경로 확정 후 추가
+    - method: GET
+      path: /api/v1/inventories
+      roles: [MASTER]
+    - method: GET
+      path: /api/v1/inventories/*
+      roles: [MASTER]
+    - method: GET
+      path: /api/v1/inventories/hubs/*
+      roles: [MASTER]
+    - method: GET
+      path: /api/v1/inventories/products/*
+      roles: [MASTER, COMPANY]

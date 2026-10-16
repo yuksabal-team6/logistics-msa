@@ -27,13 +27,14 @@ public class InventoryLog extends BaseEntity {
     @JoinColumn(name = "inventory_id", nullable = false)
     private Inventory inventory;
 
-    // 주문 → order-service p_orders.order_id. 입고(INBOUND)면 null
+    // 주문 → order-service p_orders.order_id. 입고(INBOUND)·관리자 조정(ADJUST_*)이면 null
     private UUID orderId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InventoryChangeType changeType;
 
+    // 변화량 (항상 양수, 방향은 changeType으로 구분)
     @Column(nullable = false)
     private Integer quantity;
 
