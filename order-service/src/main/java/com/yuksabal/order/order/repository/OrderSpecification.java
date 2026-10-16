@@ -1,5 +1,6 @@
 package com.yuksabal.order.order.repository;
 
+import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
 import lombok.AccessLevel;
@@ -107,5 +108,20 @@ public class OrderSpecification {
                 to == null
                         ? null
                         : cb.lessThan(root.get("createdAt"), to.plusDays(1).atStartOfDay());
+    }
+
+    /**
+     * 진행 중인 주문을 조회하기 위한 조건을 생성한다.
+     * PENDING, CONFIRMED 주문 또는
+     * 보상 미완료(PENDING/FAILED) 상태인 FAILED/CANCELLED 주문을 포함한다.
+     *
+     * @return 진행 중인 주문 검색 조건
+     */
+    public static Specification<Order> inProgress() {
+        return (root, query, cb) -> cb.or(
+                root.get("status").in(OrderStatus.PENDING, OrderStatus.CONFIRMED),
+                cb.and(
+                        root.get("status").in(OrderStatus.FAILED, OrderStatus.CANCELLED),
+                        root.get("compensationStatus").in(CompensationStatus.PENDING, CompensationStatus.FAILED)));
     }
 }

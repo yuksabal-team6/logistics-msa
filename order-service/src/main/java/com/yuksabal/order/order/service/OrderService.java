@@ -8,6 +8,7 @@ import com.yuksabal.order.order.dto.request.OrderCreateRequest;
 import com.yuksabal.order.order.dto.request.OrderSearchRequest;
 import com.yuksabal.order.order.dto.response.OrderCompleteResponse;
 import com.yuksabal.order.order.dto.response.OrderCreateResponse;
+import com.yuksabal.order.order.dto.response.OrderInProgressResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.repository.OrderRepository;
@@ -142,6 +143,18 @@ public class OrderService {
         Order order = findOrder(orderId);
         order.complete();
         return OrderCompleteResponse.from(order);
+    }
+
+    /**
+     * 회원의 진행 중 주문 존재 여부를 확인한다.
+     * 논리적으로 삭제된 주문은 제외한다.
+     *
+     * @param ordererId 확인할 주문자 ID
+     * @return 주문자의 진행 중 주문 존재 여부
+     */
+    public OrderInProgressResponse hasInProgressOrder(UUID ordererId) {
+        boolean exists = orderRepository.exists(ordererIdEquals(ordererId).and(inProgress()));
+        return new OrderInProgressResponse(ordererId, exists);
     }
 
     /**
