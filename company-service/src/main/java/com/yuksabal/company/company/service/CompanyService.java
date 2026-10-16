@@ -3,6 +3,7 @@ package com.yuksabal.company.company.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
+import com.yuksabal.company.company.client.HubClient;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
 import com.yuksabal.company.company.dto.request.CompanySearchRequest;
 import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
@@ -39,10 +40,12 @@ public class CompanyService {
 
     private final CompanyRepository companyRepository;
     private final ProductService productService;
+    private final HubClient hubClient;
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
         OwnerPermission.validate(request.ownerId(), userId, role);
+        validateHubExists(request.hubId());
         validateDuplicateBusinessNumber(request.businessNumber());
 
         Company company = Company.builder()
@@ -86,6 +89,9 @@ public class CompanyService {
                         isChanged(request.ownerId(), company.getOwnerId()))) {
             throw new BusinessException(FORBIDDEN);
         }
+        if (isChanged(request.hubId(), company.getHubId())) {
+            validateHubExists(request.hubId());
+        }
         if (isChanged(request.businessNumber(), company.getBusinessNumber())) {
             validateDuplicateBusinessNumber(request.businessNumber());
         }
@@ -93,7 +99,6 @@ public class CompanyService {
         company.updateInfo(request.companyName(), request.address(),
                 request.contactPhone(), request.businessNumber());
         if (isChanged(request.hubId(), company.getHubId())) {
-            // TODO #58: 허브 존재 확인 (내부 API #7, hub 준비 후)
             company.changeHub(request.hubId());
         }
         if (isChanged(request.ownerId(), company.getOwnerId())) {
@@ -142,5 +147,11 @@ public class CompanyService {
                     "이미 등록된 사업자 등록번호입니다.",
                     "businessNumber");
         }
+    }
+
+    // 허브가 없으면 hub가 404로 응답하고 common Feign 처리로 그대로 전달된다. hub 장애·타임아웃은 502
+    // 권한 확인 뒤, 저장 전에 호출한다 (권한 없는 요청으로 hub를 부르지 않고, 실패 시 남는 데이터가 없게)
+    private void validateHubExists(UUID hubId) {
+        hubClient.getHub(hubId);
     }
 }
