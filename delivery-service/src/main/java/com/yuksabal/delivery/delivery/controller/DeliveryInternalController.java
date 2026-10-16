@@ -5,6 +5,7 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.delivery.delivery.dto.request.DeliveryCancelRequest;
 import com.yuksabal.delivery.delivery.dto.request.DeliveryCreateRequest;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryCreateResponse;
+import com.yuksabal.delivery.delivery.dto.response.DeliveryInProgressResponse;
 import com.yuksabal.delivery.delivery.service.DeliveryService;
 import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.global.swagger.ApiErrorCodes;
@@ -14,10 +15,14 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.UUID;
 
 @Tag(name = "Delivery Internal", description = "배송 내부 API (Feign 전용)")
 @RestController
@@ -45,6 +50,23 @@ public class DeliveryInternalController {
     public ResponseEntity<ApiResponse<Void>> cancelDelivery(@Valid @RequestBody DeliveryCancelRequest request) {
         deliveryService.cancelDelivery(request.orderId());
         return ResponseEntity.ok(ApiResponse.success(null, "배송이 취소되었습니다."));
+    }
+
+    // 회원의 진행 중 배송 존재 여부. user가 회원 탈퇴(소프트 삭제) 전 호출, 담당 건이 없으면 false
+    @Operation(summary = "회원 진행 중 배송 존재 여부",
+            description = """
+                    **user-service**가 회원 탈퇴 전에 호출합니다.
+
+                    배송(허브→업체) 담당자로 진행 중(READY, IN_TRANSIT, ARRIVED_AT_HUB, DELIVERING)인 배송이 있거나,
+                    경로 기록(허브→허브) 담당자로 진행 중(READY, IN_TRANSIT)인 경로 기록이 있으면 **true**입니다.
+                    """)
+    @ApiErrorCodes(common = {CommonErrorCode.VALIDATION_ERROR})
+    @GetMapping("/in-progress")
+    public ResponseEntity<ApiResponse<DeliveryInProgressResponse>> hasInProgressDelivery(
+            @RequestParam UUID deliveryManagerId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                deliveryService.hasInProgressDelivery(deliveryManagerId),
+                "진행 중 배송 여부를 조회했습니다."));
     }
 
 }

@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -102,5 +103,20 @@ public class DeliveryController {
         return ResponseEntity.ok(ApiResponse.success(
                 deliveryService.assignDeliveryManager(deliveryId, request.deliveryManagerId(), UserRole.from(role)),
                 "배송 담당자를 지정했습니다."));
+    }
+
+    // 삭제: 200 + ApiResponse.success(null, message). MASTER만 가능, 응답 data 없음
+    @Operation(summary = "배송 삭제 (MASTER)",
+            description = "끝난(COMPLETED·CANCELLED) 배송만 삭제할 수 있다. 배송과 경로 기록을 함께 Soft Delete한다. "
+                    + "MASTER가 아니면 403, 배송이 없으면 404, 진행 중인 배송이면 409")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND},
+            value = {INVALID_STATUS_TRANSITION, DELIVERY_CONFLICT})
+    @DeleteMapping("/{deliveryId}")
+    public ResponseEntity<ApiResponse<Void>> deleteDelivery(
+            @PathVariable UUID deliveryId,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+        deliveryService.deleteDelivery(deliveryId, userId, UserRole.from(role));
+        return ResponseEntity.ok(ApiResponse.success(null, "배송을 삭제했습니다."));
     }
 }
