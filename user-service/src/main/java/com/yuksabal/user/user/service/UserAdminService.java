@@ -37,8 +37,10 @@ public class UserAdminService {
     private final UserRepository userRepository;
     private final RequesterValidator requesterValidator;
     private final AffiliationValidator affiliationValidator;
+    private final CompanyOwnerGuard companyOwnerGuard;
 
     // 허브·업체는 값이 바뀔 때만 내부 API로 존재를 확인한다 (현재 값과 같으면 호출하지 않음)
+    // 업체 관리자(COMPANY)의 companyId는 관리 업체로만 바꿀 수 있다 (422, CompanyOwnerGuard)
     public UserResponse updateUser(UUID requesterId, UserRole headerRole, UUID userId, AdminUpdateUserRequest request) {
         requesterValidator.verifyMaster(requesterId, headerRole);
         if (request.hasNoChanges()) {
@@ -46,8 +48,9 @@ public class UserAdminService {
         }
         User user = findTarget(userId);
         validateNotDuplicated(userId, request);
-        affiliationValidator.validate(changedOrNull(request.hubId(), user.getHubId()),
-                changedOrNull(request.companyId(), user.getCompanyId()));
+        UUID changedCompanyId = changedOrNull(request.companyId(), user.getCompanyId());
+        affiliationValidator.validate(changedOrNull(request.hubId(), user.getHubId()), changedCompanyId);
+        companyOwnerGuard.validateCompanyChange(user, changedCompanyId);
 
         user.updateProfile(request.username(), request.email(), request.slackId(), request.isPublic());
         user.changeAffiliation(request.hubId(), request.companyId());
@@ -72,6 +75,8 @@ public class UserAdminService {
         if (isLastActiveMaster(user)) {
             throw new BusinessException(BUSINESS_RULE_VIOLATION, "마지막 MASTER의 역할은 변경할 수 없습니다.");
         }
+        // 업체 관리자는 COMPANY 역할을 잃으면 안 된다 (422). 내부 API 호출이라 다른 확인 뒤에 한다
+        companyOwnerGuard.validateRoleChange(user, newRole);
         user.changeRole(newRole);
         return UserResponse.from(user);
     }

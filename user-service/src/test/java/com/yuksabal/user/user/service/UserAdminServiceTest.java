@@ -25,7 +25,8 @@ class UserAdminServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final UserAdminService service =
-            new UserAdminService(userRepository, new RequesterValidator(userRepository), mock(AffiliationValidator.class));
+            new UserAdminService(userRepository, new RequesterValidator(userRepository), mock(AffiliationValidator.class),
+                    mock(CompanyOwnerGuard.class));
 
     private final User requester = master("master01");
     private final User target = master("master02");
