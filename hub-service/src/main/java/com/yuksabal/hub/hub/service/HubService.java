@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
+import static com.yuksabal.hub.hub.repository.HubSpecification.keywordContains;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -30,9 +32,7 @@ public class HubService {
      */
     public PageResponse<HubResponse> getHubs(HubSearchRequest request, Pageable pageable) {
         Pageable stablePageable = withIdTiebreaker(pageable);
-        Page<Hub> hubs = request.hasKeyword()
-                ? hubRepository.searchByKeyword(request.keyword().trim(), stablePageable)
-                : hubRepository.findAll(stablePageable);
+        Page<Hub> hubs = hubRepository.findAll(keywordContains(request.keyword()), stablePageable);
         return PageResponse.from(hubs, HubResponse::from);
     }
 
