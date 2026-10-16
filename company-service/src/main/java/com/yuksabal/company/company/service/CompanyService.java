@@ -52,7 +52,7 @@ public class CompanyService {
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
-        OwnerPermission.validate(request.ownerId(), userId, role);
+        OwnerPermission.validateOwner(request.ownerId(), userId, role);
         validateDuplicateBusinessNumber(request.businessNumber());
         validateHubExists(request.hubId());
         validateNewOwner(request.ownerId());
@@ -98,7 +98,7 @@ public class CompanyService {
     @Transactional
     public CompanyResponse updateCompany(UUID companyId, CompanyUpdateRequest request, UUID userId, UserRole role) {
         Company company = findCompany(companyId);
-        OwnerPermission.validate(company.getOwnerId(), userId, role);
+        OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
 
         // 변경 여부는 값을 바꾸기 전에 한 번만 판단해 검증과 반영에 같이 쓴다
         boolean hubChanged = isChanged(request.hubId(), company.getHubId());

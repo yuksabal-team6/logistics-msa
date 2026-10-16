@@ -40,11 +40,11 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final CompanyRepository companyRepository;
 
-    // 소속 업체를 먼저 찾아야 관리자를 알 수 있어 업체 조회 → 권한 순서
+    // 업체 조회 → 소유권 확인 순서. 관리자(ownerId)는 업체를 조회해야 알 수 있다
     @Transactional
     public ProductResponse createProduct(UUID companyId, ProductCreateRequest request, UUID userId, UserRole role) {
         Company company = findCompany(companyId);
-        OwnerPermission.validate(company.getOwnerId(), userId, role);
+        OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
 
         Product product = Product.builder()
                 .company(company)
@@ -72,11 +72,11 @@ public class ProductService {
         return PageResponse.from(products, ProductResponse::from);
     }
 
-    // 권한은 상품의 소속 업체 관리자 기준이라 상품 조회 → 권한 순서
+    // 상품 조회 → 소유권 확인 순서. 소유권은 상품의 소속 업체 관리자 기준
     @Transactional
     public ProductResponse updateProduct(UUID productId, ProductUpdateRequest request, UUID userId, UserRole role) {
         Product product = findProduct(productId);
-        OwnerPermission.validate(product.getCompany().getOwnerId(), userId, role);
+        OwnerPermission.validateOwner(product.getCompany().getOwnerId(), userId, role);
 
         product.updateInfo(request.productName(), request.description(), request.unitPrice());
 
@@ -89,7 +89,7 @@ public class ProductService {
     @Transactional
     public void deleteProduct(UUID productId, UUID userId, UserRole role) {
         Product product = findProduct(productId);
-        OwnerPermission.validate(product.getCompany().getOwnerId(), userId, role);
+        OwnerPermission.validateOwner(product.getCompany().getOwnerId(), userId, role);
 
         product.delete(userId);
     }
