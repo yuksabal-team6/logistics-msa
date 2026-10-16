@@ -11,12 +11,12 @@ import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
 
 // 업체 관리 권한 판단. 업체 생성·수정과 상품 생성·수정·삭제가 같은 규칙을 쓴다
-// 게이트웨이 역할 검사와 별개로 서비스에서도 확인한다
+// 게이트웨이는 역할만 알기 때문에, 요청자가 "이 업체"의 관리자인지(소유권)는 서비스에서만 확인할 수 있다
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class OwnerPermission {
 
-    // MASTER 또는 업체 관리자 본인(ownerId == userId)만 허용
-    public static void validate(UUID ownerId, UUID userId, UserRole role) {
+    // MASTER는 모든 업체, COMPANY는 자기가 관리하는 업체(ownerId == userId)만 허용. 그 외 역할은 403
+    public static void validateOwner(UUID ownerId, UUID userId, UserRole role) {
         switch (role) {
             case MASTER -> {
                 // 모든 업체를 관리할 수 있다

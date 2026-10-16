@@ -6,7 +6,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 // 부분 수정: 모든 필드 선택, null이면 기존 값 유지. 길이 제한은 생성 요청과 같다
-// 값을 지우는(null로 바꾸는) 기능은 지원하지 않는다. 소속 업체 변경도 지원하지 않는다
+// 설명은 빈 문자열("")로 보내면 비운다. 그 외 값 지우기(null로 바꾸기)와 소속 업체 변경은 지원하지 않는다
 @Schema(description = "상품 수정 요청 (보낸 필드만 수정)")
 public record ProductUpdateRequest(
         @Schema(description = "상품명. 생략 시 유지", example = "냉동 고등어 5kg")
