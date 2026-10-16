@@ -24,6 +24,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -75,6 +76,13 @@ public class CompanyService {
     // 내부 API #2 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(CompanyInternalResponse)
     public CompanyInternalResponse getCompanyForInternal(UUID companyId) {
         return CompanyInternalResponse.from(findCompany(companyId));
+    }
+
+    // 내부 API #11 전용. 관리 중인 업체가 없으면 빈 목록 (회원 삭제·역할 변경 확인용이라 "없음"은 정상 결과)
+    public List<CompanyInternalResponse> getCompaniesByOwnerForInternal(UUID ownerId) {
+        return companyRepository.findAllByOwnerId(ownerId).stream()
+                .map(CompanyInternalResponse::from)
+                .toList();
     }
 
     public PageResponse<CompanyResponse> getCompanies(CompanySearchRequest request, Pageable pageable) {
