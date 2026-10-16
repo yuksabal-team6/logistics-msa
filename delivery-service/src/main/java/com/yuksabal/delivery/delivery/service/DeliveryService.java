@@ -4,8 +4,11 @@ package com.yuksabal.delivery.delivery.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
+import com.yuksabal.common.feign.FeignClientException;
+import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.delivery.delivery.client.HubClient;
+import com.yuksabal.delivery.delivery.client.OrderClient;
 import com.yuksabal.delivery.delivery.client.dto.HubRouteResponse;
 import com.yuksabal.delivery.delivery.dto.request.DeliveryCreateRequest;
 import com.yuksabal.delivery.delivery.dto.request.DeliverySearchRequest;
@@ -17,7 +20,9 @@ import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
 import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
 import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +37,7 @@ import java.util.UUID;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.delivery.delivery.repository.DeliverySpecification.search;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DeliveryService {
@@ -42,6 +48,7 @@ public class DeliveryService {
     private final DeliveryRepository deliveryRepository;
     private final DeliveryRouteLogRepository deliveryRouteLogRepository;
     private final HubClient hubClient;
+    private final OrderClient orderClient;
     private final TransactionTemplate transactionTemplate;
 
     // 내부 API #5. 배송과 경로 기록을 한 트랜잭션으로 저장
@@ -129,16 +136,48 @@ public class DeliveryService {
     }
 
     // 배송(허브→업체) 상태 변경. 404 → 403 → 409 순서로 확인하고, 전이 규칙은 Delivery.changeStatus()가 맡는다.
-    // 동시 수정은 @Version 충돌로 커밋 시 409 (DeliveryExceptionHandler)
-    @Transactional
+    // 저장만 transactionTemplate으로 커밋하고, COMPLETED면 커밋 후 트랜잭션 밖에서 order에 알린다 (createDelivery와 같은 이유).
+    // 동시 수정은 @Version 충돌로 커밋 시 execute()에서 예외가 나가 order를 호출하지 않고 409 (DeliveryExceptionHandler)
     public DeliveryResponse changeDeliveryStatus(UUID deliveryId, DeliveryStatus target, UUID userId, UserRole role) {
-        Delivery delivery = findDelivery(deliveryId);
+        DeliveryResponse response = transactionTemplate.execute(status -> {
+            Delivery delivery = findDelivery(deliveryId);
 
-        if (!canChangeStatus(delivery, userId, role)) {
-            throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED, "업체 배송 담당자만 변경할 수 있습니다.");
+            if (!canChangeStatus(delivery, userId, role)) {
+                throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED, "업체 배송 담당자만 변경할 수 있습니다.");
+            }
+            delivery.changeStatus(target);
+            return DeliveryResponse.from(delivery);
+        });
+
+        if (response.deliveryStatus() == DeliveryStatus.COMPLETED) {
+            notifyOrderCompleted(response.orderId(), response.deliveryId());
         }
-        delivery.changeStatus(target);
-        return DeliveryResponse.from(delivery);
+        return response;
+    }
+
+    // 내부 API #10. 배송은 이미 커밋됐으므로 order 실패는 배송 API 실패로 만들지 않고 로그만 남긴다.
+    // 배송 COMPLETED · 주문 CONFIRMED로 어긋난 채 남으므로 [수동 처리 필요]로 표시한다. 재시도·재처리는 별도 이슈
+    // try 안은 Feign 호출뿐이라 DB 예외가 섞이지 않는다
+    private void notifyOrderCompleted(UUID orderId, UUID deliveryId) {
+        try {
+            orderClient.completeOrder(orderId);
+        } catch (FeignClientException e) {
+            // 404 주문 없음, 409 CONFIRMED가 아닌 주문
+            log.warn("[수동 처리 필요] 주문 완료 처리 실패 orderId={}, deliveryId={}, status={}, code={}, message={}",
+                    orderId, deliveryId, e.getStatus(), e.getCode(), e.getMessage());
+        } catch (FeignServerException e) {
+            // order 5xx, Eureka에 order 인스턴스 없음(LoadBalancer 503)
+            log.error("[수동 처리 필요] 주문 완료 처리 실패 orderId={}, deliveryId={}, status={}, code={}, message={}",
+                    orderId, deliveryId, e.getStatus(), e.getCode(), e.getMessage());
+        } catch (FeignException e) {
+            // 타임아웃·연결 실패(RetryableException), 응답 역직렬화 실패
+            log.error("[수동 처리 필요] 주문 완료 처리 실패 orderId={}, deliveryId={}, cause={}",
+                    orderId, deliveryId, e.getMessage());
+        } catch (RuntimeException e) {
+            // 안전망: 예상 못 한 예외. 배송은 이미 커밋됐으므로 500을 내지 않는다
+            log.error("[수동 처리 필요] 주문 완료 처리 실패 orderId={}, deliveryId={}",
+                    orderId, deliveryId, e);
+        }
     }
 
     private Delivery findDelivery(UUID deliveryId) {
