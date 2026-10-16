@@ -77,9 +77,10 @@ public class UserController {
     @Operation(summary = "회원 정보 수정 (MASTER)",
             description = "보낸 필드만 수정한다. 수정 가능: username, email, slackId, isPublic, hubId, companyId "
                     + "(비밀번호·역할·계정 상태는 수정 불가, 요청에 있어도 무시). "
-                    + "hubId·companyId가 바뀌면 내부 API로 존재를 확인한다 (없거나 삭제됨 400, 확인 실패 502)")
+                    + "hubId·companyId가 바뀌면 내부 API로 존재를 확인한다 (없거나 삭제됨 400, 확인 실패 502). "
+                    + "업체 관리자인 COMPANY 회원의 companyId는 관리 업체로만 바꿀 수 있다 (422)")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE,
-            DEPENDENCY_FAILURE}, value = ACCOUNT_DISABLED)
+            BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE}, value = ACCOUNT_DISABLED)
     @PatchMapping("/{userId}")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
             @PathVariable UUID userId,
@@ -92,10 +93,10 @@ public class UserController {
     }
 
     @Operation(summary = "회원 역할 변경 (MASTER)",
-            description = "자기 자신·마지막 MASTER는 변경 불가(422), 같은 역할이면 변경 없이 200. "
-                    + "대상은 다시 로그인해야 새 역할이 토큰에 반영된다")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION},
-            value = ACCOUNT_DISABLED)
+            description = "자기 자신·마지막 MASTER·업체 관리자(COMPANY → 다른 역할)는 변경 불가(422), "
+                    + "같은 역할이면 변경 없이 200. 업체 관리자 확인 실패 502. 대상은 다시 로그인해야 새 역할이 토큰에 반영된다")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION,
+            DEPENDENCY_FAILURE}, value = ACCOUNT_DISABLED)
     @PatchMapping("/{userId}/role")
     public ResponseEntity<ApiResponse<UserResponse>> changeRole(
             @PathVariable UUID userId,
