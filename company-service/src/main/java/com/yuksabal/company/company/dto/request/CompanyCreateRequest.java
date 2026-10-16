@@ -21,7 +21,7 @@ public record CompanyCreateRequest(
         @NotNull(message = "관리 허브 ID는 필수입니다.")
         UUID hubId,
 
-        @Schema(description = "업체 관리자 회원 ID. COMPANY 역할의 활성 회원이어야 함 (COMPANY는 본인만 지정 가능)", example = "10000000-0000-4000-8000-000000000001")
+        @Schema(description = "업체 관리자 회원 ID. COMPANY 역할의 활성 회원이며 다른 업체의 관리자가 아니어야 함 (COMPANY는 본인만 지정 가능)", example = "10000000-0000-4000-8000-000000000001")
         @NotNull(message = "업체 관리자 ID는 필수입니다.")
         UUID ownerId,
 

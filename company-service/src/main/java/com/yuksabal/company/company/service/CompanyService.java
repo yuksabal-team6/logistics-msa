@@ -178,8 +178,16 @@ public class CompanyService {
         validateOwner(ownerId, companyId);
     }
 
-    // user에 회원 상태를 조회해 활성·역할·소속을 확인한다. user 장애·타임아웃은 common Feign 처리로 502
+    // 관리자 중복(로컬)을 먼저 확인한 뒤 user에 회원 상태를 조회한다. user 장애·타임아웃은 common Feign 처리로 502
+    // 동시 요청이 중복 검사를 함께 통과하면 DB 부분 유니크 인덱스가 막고 common 핸들러가 409로 응답한다
     private void validateOwner(UUID ownerId, UUID requiredCompanyId) {
+        if (companyRepository.existsByOwnerId(ownerId)) {
+            throw new BusinessException(
+                    DUPLICATE_RESOURCE,
+                    "이미 다른 업체를 관리하는 회원입니다.",
+                    "ownerId");
+        }
+
         UserResponse owner = getOwner(ownerId);
 
         if (!owner.active()) {
