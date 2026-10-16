@@ -2,8 +2,11 @@ package com.yuksabal.company.company.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.client.HubClient;
+import com.yuksabal.company.company.client.UserClient;
+import com.yuksabal.company.company.client.dto.response.UserResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
 import com.yuksabal.company.company.dto.request.CompanySearchRequest;
 import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
@@ -17,12 +20,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Set;
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
 import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
@@ -30,7 +35,7 @@ import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
 
-// 생성·수정 검증 순서: 권한 → 로컬 검사(중복) → 외부 서비스 확인(hub). 실패할 요청을 싼 검사에서 먼저 거른다
+// 생성·수정 검증 순서: 권한 → 로컬 검사(중복) → 외부 서비스 확인(hub·user). 실패할 요청을 싼 검사에서 먼저 거른다
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -42,12 +47,14 @@ public class CompanyService {
     private final CompanyRepository companyRepository;
     private final ProductService productService;
     private final HubClient hubClient;
+    private final UserClient userClient;
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
         OwnerPermission.validate(request.ownerId(), userId, role);
         validateDuplicateBusinessNumber(request.businessNumber());
         validateHubExists(request.hubId());
+        validateNewOwner(request.ownerId());
 
         Company company = Company.builder()
                 .hubId(request.hubId())
@@ -100,6 +107,9 @@ public class CompanyService {
         if (hubChanged) {
             validateHubExists(request.hubId());
         }
+        if (ownerChanged) {
+            validateOwnerChange(request.ownerId(), companyId);
+        }
 
         company.updateInfo(request.companyName(), request.address(),
                 request.contactPhone(), request.businessNumber());
@@ -107,7 +117,6 @@ public class CompanyService {
             company.changeHub(request.hubId());
         }
         if (ownerChanged) {
-            // TODO #58: 새 관리자 소속 확인 (내부 API #8, user 준비 후)
             company.changeOwner(request.ownerId());
         }
 
@@ -157,5 +166,47 @@ public class CompanyService {
     // 허브가 없으면 hub가 404로 응답하고 common Feign 처리로 그대로 전달된다. hub 장애·타임아웃은 502
     private void validateHubExists(UUID hubId) {
         hubClient.getHub(hubId);
+    }
+
+    // 업체 생성: 업체가 아직 없어 소속은 확인하지 않는다
+    private void validateNewOwner(UUID ownerId) {
+        validateOwner(ownerId, null);
+    }
+
+    // 관리자 변경: 새 관리자가 이 업체 소속이어야 한다
+    private void validateOwnerChange(UUID ownerId, UUID companyId) {
+        validateOwner(ownerId, companyId);
+    }
+
+    // user에 회원 상태를 조회해 활성·역할·소속을 확인한다. user 장애·타임아웃은 common Feign 처리로 502
+    private void validateOwner(UUID ownerId, UUID requiredCompanyId) {
+        UserResponse owner = getOwner(ownerId);
+
+        if (!owner.active()) {
+            throw ownerRuleViolation("비활성화된 회원은 업체 관리자로 지정할 수 없습니다.");
+        }
+        // UserRole.from()은 요청자 헤더용이라 모르는 값이면 403을 던진다. 여기선 어떤 값이든 COMPANY가 아니면 422
+        if (!UserRole.COMPANY.name().equals(owner.role())) {
+            throw ownerRuleViolation("업체 관리자는 COMPANY 역할 회원만 지정할 수 있습니다.");
+        }
+        if (requiredCompanyId != null && !requiredCompanyId.equals(owner.companyId())) {
+            throw ownerRuleViolation("새 관리자는 이 업체 소속 회원이어야 합니다.");
+        }
+    }
+
+    // user의 404는 field가 userId라 요청 필드(ownerId)와 company 메시지로 바꿔 던진다. 다른 4xx는 그대로 전달
+    private UserResponse getOwner(UUID ownerId) {
+        try {
+            return userClient.getUser(ownerId).data();
+        } catch (FeignClientException e) {
+            if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
+                throw new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 탈퇴한 회원입니다.", "ownerId");
+            }
+            throw e;
+        }
+    }
+
+    private BusinessException ownerRuleViolation(String message) {
+        return new BusinessException(BUSINESS_RULE_VIOLATION, message, "ownerId");
     }
 }
