@@ -1,5 +1,6 @@
 package com.yuksabal.company.company.repository;
 
+import com.yuksabal.common.util.LikeUtils;
 import com.yuksabal.company.company.entity.Company;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -22,6 +23,6 @@ public class CompanySpecification {
         return (root, query, cb) ->
                 companyName == null || companyName.isBlank()
                         ? null
-                        : cb.like(root.get("companyName"), "%" + companyName.trim() + "%");
+                        : cb.like(root.get("companyName"), LikeUtils.contains(companyName), LikeUtils.ESCAPE_CHAR);
     }
 }
