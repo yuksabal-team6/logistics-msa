@@ -11,6 +11,9 @@ import org.springframework.http.HttpStatus;
 public enum OrderErrorCode implements ErrorCode {
     // 기능 개발 시 추가 (예: ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "...을 찾을 수 없습니다."))
 
+    // 허용되지 않은 상태 전이. 예: CONFIRMED가 아닌 주문의 완료 처리
+    INVALID_STATUS_TRANSITION(HttpStatus.CONFLICT, "현재 상태에서는 변경할 수 없습니다."),
+
     // 삭제: 진행 중이거나 보상이 끝나지 않은 주문
     ORDER_NOT_DELETABLE(HttpStatus.CONFLICT, "삭제할 수 없는 주문 상태입니다."),
 

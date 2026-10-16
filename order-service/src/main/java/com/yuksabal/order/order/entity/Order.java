@@ -1,6 +1,8 @@
 package com.yuksabal.order.order.entity;
 
 import com.yuksabal.common.entity.BaseEntity;
+import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.order.global.exception.OrderErrorCode;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -114,7 +116,24 @@ public class Order extends BaseEntity {
         this.compensationStatus = compensationStatus;
     }
 
-    // TODO 확인: 취소(CANCELLED), 완료(COMPLETED) 전이 규칙은 주문 취소 구현 때 추가 (결정 #19)
+    /**
+     * 주문을 완료한다.(배송 완료 시)
+     * COMPLETED 면 변경 없음, CONFIRMED에서만 COMPLETED로 변경 가능하다.
+     */
+    public void complete() {
+        if (status == OrderStatus.COMPLETED) {
+            return;
+        }
+        if (status != OrderStatus.CONFIRMED) {
+            throw new BusinessException(
+                    OrderErrorCode.INVALID_STATUS_TRANSITION,
+                    "배송 중인 주문만 완료 처리할 수 있습니다.",
+                    "orderId");
+        }
+        this.status = OrderStatus.COMPLETED;
+    }
+
+    // TODO 확인: 취소(CANCELLED) 전이 규칙은 주문 취소 구현 때 추가 (결정 #19)
 
     /**
      * 주문의 삭제 가능 여부를 판단한다.

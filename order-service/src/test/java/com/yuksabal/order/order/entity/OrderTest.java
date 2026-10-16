@@ -1,5 +1,7 @@
 package com.yuksabal.order.order.entity;
 
+import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.order.global.exception.OrderErrorCode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.Test;
@@ -8,6 +10,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class OrderTest {
 
@@ -50,6 +53,38 @@ class OrderTest {
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING);
         assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
         assertThat(order.getTotalAmount()).isEqualTo(60_000L);
+    }
+
+    @Test
+    void 완료_처리_CONFIRMED면_COMPLETED() {
+        Order order = order();
+        order.confirm(UUID.randomUUID());
+
+        order.complete();
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @Test
+    void 완료_처리_이미_COMPLETED면_변경_없음() {
+        Order order = order();
+        ReflectionTestUtils.setField(order, "status", OrderStatus.COMPLETED);
+
+        order.complete();
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+    }
+
+    @ParameterizedTest(name = "{0} → 409")
+    @CsvSource({"PENDING", "FAILED", "CANCELLED"})
+    void 완료_처리_CONFIRMED가_아니면_409(OrderStatus status) {
+        Order order = order();
+        ReflectionTestUtils.setField(order, "status", status);
+
+        assertThatThrownBy(order::complete)
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(OrderErrorCode.INVALID_STATUS_TRANSITION);
+        assertThat(order.getStatus()).isEqualTo(status);
     }
 
     private Order order() {
