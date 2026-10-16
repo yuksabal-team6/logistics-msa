@@ -4,14 +4,19 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.feign.FeignClientException;
+import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
 import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
+import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
+import com.yuksabal.hub.inventory.entity.InventoryChangeType;
+import com.yuksabal.hub.inventory.entity.InventoryLog;
+import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -20,6 +25,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -37,6 +43,7 @@ public class InventoryService {
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "quantity");
 
     private final InventoryRepository inventoryRepository;
+    private final InventoryLogRepository inventoryLogRepository;
     private final HubRepository hubRepository;
     private final CompanyClient companyClient;
 
@@ -60,12 +67,7 @@ public class InventoryService {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
 
-        Inventory inventory = inventoryRepository.findById(inventoryId)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 재고입니다.",
-                        "inventoryId"));
-        return InventoryResponse.from(inventory);
+        return InventoryResponse.from(findInventory(inventoryId));
     }
 
     // 허브별 재고는 "MASTER 또는 허용된 사용자"가 조회할 수 있다.
@@ -101,6 +103,54 @@ public class InventoryService {
             validateCompanyOwner(inventory.getCompanyId(), userId);
         }
         return InventoryResponse.from(inventory);
+    }
+
+    // 관리자가 실사 결과로 재고 수량을 직접 바꾼다 (MASTER). 조회할 때 본 수량과 현재 수량이 같을 때만 조정한다
+    // 엔티티를 먼저 조회하지 않고 조건부 UPDATE부터 실행해, 1차 캐시에 예전 수량이 남지 않게 한다
+    // 값이 같으면 그 사이 변경의 순변화량이 0이라 조정 결과가 맞으므로 수량만 비교한다
+    @Transactional
+    public InventoryResponse adjustQuantity(UUID inventoryId, InventoryQuantityUpdateRequest request, UUID userId, UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+        int expectedQuantity = request.expectedQuantity();
+        int quantity = request.quantity();
+        if (expectedQuantity == quantity) {
+            throw new BusinessException(
+                    CommonErrorCode.VALIDATION_ERROR,
+                    "조정할 재고 수량이 조회한 수량과 같습니다.",
+                    "quantity");
+        }
+
+        int updated = inventoryRepository.updateQuantityIfMatches(
+                inventoryId, expectedQuantity, quantity, LocalDateTime.now(), userId);
+        if (updated == 0) {
+            // 재고가 없으면 404, 있으면 그 사이 수량이 바뀐 것이라 409 (현재 수량은 다시 바뀔 수 있어 참고용)
+            Inventory current = findInventory(inventoryId);
+            throw new BusinessException(
+                    HubErrorCode.INVENTORY_QUANTITY_CONFLICT,
+                    HubErrorCode.INVENTORY_QUANTITY_CONFLICT.getMessage(),
+                    List.of(new ApiErrorDetail("quantity", "현재 재고는 " + current.getQuantity() + "개입니다.")));
+        }
+
+        Inventory inventory = findInventory(inventoryId);
+        InventoryChangeType changeType = quantity > expectedQuantity
+                ? InventoryChangeType.ADJUST_INCREASE
+                : InventoryChangeType.ADJUST_DECREASE;
+        inventoryLogRepository.save(InventoryLog.builder()
+                .inventory(inventory)
+                .changeType(changeType)
+                .quantity(Math.abs(quantity - expectedQuantity))
+                .build());
+        return InventoryResponse.from(inventory);
+    }
+
+    private Inventory findInventory(UUID inventoryId) {
+        return inventoryRepository.findById(inventoryId)
+                .orElseThrow(() -> new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않는 재고입니다.",
+                        "inventoryId"));
     }
 
     private Inventory findSingleInventoryByProduct(UUID productId) {
