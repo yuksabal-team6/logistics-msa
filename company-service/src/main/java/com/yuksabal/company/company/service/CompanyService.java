@@ -30,6 +30,7 @@ import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
 
+// 생성·수정 검증 순서: 권한 → 로컬 검사(중복) → 외부 서비스 확인(hub). 실패할 요청을 싼 검사에서 먼저 거른다
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -45,8 +46,8 @@ public class CompanyService {
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
         OwnerPermission.validate(request.ownerId(), userId, role);
-        validateHubExists(request.hubId());
         validateDuplicateBusinessNumber(request.businessNumber());
+        validateHubExists(request.hubId());
 
         Company company = Company.builder()
                 .hubId(request.hubId())
@@ -84,24 +85,28 @@ public class CompanyService {
         Company company = findCompany(companyId);
         OwnerPermission.validate(company.getOwnerId(), userId, role);
 
-        if (role != UserRole.MASTER &&
-                (isChanged(request.hubId(), company.getHubId()) ||
-                        isChanged(request.ownerId(), company.getOwnerId()))) {
+        // 변경 여부는 값을 바꾸기 전에 한 번만 판단해 검증과 반영에 같이 쓴다
+        boolean hubChanged = isChanged(request.hubId(), company.getHubId());
+        boolean ownerChanged = isChanged(request.ownerId(), company.getOwnerId());
+        boolean businessNumberChanged = isChanged(request.businessNumber(), company.getBusinessNumber());
+
+        // 관리 허브·관리자 변경은 MASTER만 가능
+        if (role != UserRole.MASTER && (hubChanged || ownerChanged)) {
             throw new BusinessException(FORBIDDEN);
         }
-        if (isChanged(request.hubId(), company.getHubId())) {
-            validateHubExists(request.hubId());
-        }
-        if (isChanged(request.businessNumber(), company.getBusinessNumber())) {
+        if (businessNumberChanged) {
             validateDuplicateBusinessNumber(request.businessNumber());
+        }
+        if (hubChanged) {
+            validateHubExists(request.hubId());
         }
 
         company.updateInfo(request.companyName(), request.address(),
                 request.contactPhone(), request.businessNumber());
-        if (isChanged(request.hubId(), company.getHubId())) {
+        if (hubChanged) {
             company.changeHub(request.hubId());
         }
-        if (isChanged(request.ownerId(), company.getOwnerId())) {
+        if (ownerChanged) {
             // TODO #58: 새 관리자 소속 확인 (내부 API #8, user 준비 후)
             company.changeOwner(request.ownerId());
         }
@@ -150,7 +155,6 @@ public class CompanyService {
     }
 
     // 허브가 없으면 hub가 404로 응답하고 common Feign 처리로 그대로 전달된다. hub 장애·타임아웃은 502
-    // 권한 확인 뒤, 저장 전에 호출한다 (권한 없는 요청으로 hub를 부르지 않고, 실패 시 남는 데이터가 없게)
     private void validateHubExists(UUID hubId) {
         hubClient.getHub(hubId);
     }
