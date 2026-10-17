@@ -4,6 +4,7 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
 import com.yuksabal.hub.inventory.dto.request.StockRequest;
 import com.yuksabal.hub.inventory.dto.response.StockDecreaseResponse;
+import com.yuksabal.hub.inventory.dto.response.StockRestoreResponse;
 import com.yuksabal.hub.inventory.service.StockService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -44,5 +45,18 @@ public class StockInternalController {
             @Parameter(description = "주문 요청자 ID (Feign이 전달)", example = "10000000-0000-4000-8000-000000000001")
             @RequestHeader(value = "X-User-Id", required = false) UUID userId) {
         return ResponseEntity.ok(ApiResponse.success(stockService.decreaseStock(request, userId)));
+    }
+
+    // 배송 생성 실패 보상, 주문 취소 시 호출된다. 복원 수량은 요청 quantity가 아니라 실제로 차감한 수량이다
+    @Operation(summary = "주문 재고 복원",
+            description = "같은 orderId로 차감한 수량만큼 재고를 되돌린다. 이미 복원한 주문이면 변경 없이 200 (처음 복원한 수량). "
+                    + "차감 기록이 없으면 재고는 그대로 두고 200 (restoredQuantity 0). 해당 허브에 상품 재고가 없으면 404")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND})
+    @PostMapping("/restore")
+    public ResponseEntity<ApiResponse<StockRestoreResponse>> restoreStock(
+            @Valid @RequestBody StockRequest request,
+            @Parameter(description = "주문 요청자 ID (Feign이 전달)", example = "10000000-0000-4000-8000-000000000001")
+            @RequestHeader(value = "X-User-Id", required = false) UUID userId) {
+        return ResponseEntity.ok(ApiResponse.success(stockService.restoreStock(request, userId)));
     }
 }

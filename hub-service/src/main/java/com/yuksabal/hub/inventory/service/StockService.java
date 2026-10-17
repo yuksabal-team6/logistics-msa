@@ -6,6 +6,7 @@ import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.inventory.dto.request.StockRequest;
 import com.yuksabal.hub.inventory.dto.response.StockDecreaseResponse;
+import com.yuksabal.hub.inventory.dto.response.StockRestoreResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
 import com.yuksabal.hub.inventory.entity.InventoryChangeType;
 import com.yuksabal.hub.inventory.entity.InventoryLog;
@@ -86,6 +87,61 @@ public class StockService {
                 .quantity(request.quantity())
                 .build());
         return StockDecreaseResponse.of(inventory, orderId);
+    }
+
+    // 배송 생성 실패 보상·주문 취소 시 차감했던 재고를 되돌린다. 차감과 같이 재고 행 잠금 → 로그 확인 순서로 처리하고,
+    // 같은 주문의 동시 복원은 RESTORE 로그 유니크 위반으로 롤백한 뒤 먼저 커밋된 복원 결과로 성공 응답한다
+    public StockRestoreResponse restoreStock(StockRequest request, UUID userId) {
+        try {
+            return transactionTemplate.execute(status -> restore(request, userId));
+        } catch (DataIntegrityViolationException e) {
+            // 복원 로그가 없으면 다른 무결성 위반이므로 원래 예외를 그대로 던진다
+            return findOrderLog(request.orderId(), InventoryChangeType.RESTORE)
+                    .map(log -> StockRestoreResponse.of(log.getInventory(), log.getQuantity(), request.orderId()))
+                    .orElseThrow(() -> e);
+        }
+    }
+
+    // 재고 복원
+    private StockRestoreResponse restore(StockRequest request, UUID userId) {
+        UUID orderId = request.orderId();
+
+        // 1. 재고 행을 먼저 잠근다 (없으면 404). 차감이 처리 중이면 끝날 때까지 기다렸다가 그 DECREASE 로그를 본다
+        // 재고 행이 없으면 RESTORE 로그(inventory_id 필수)도 남길 수 없고, 늦게 온 차감도 같은 이유로 404라 재고가 깎이지 않는다
+        Inventory locked = findInventoryForUpdate(request);
+
+        // 2. 이미 복원한 주문이면 변경 없이 성공 (처음 복원한 수량으로 응답)
+        Optional<InventoryLog> restored = findOrderLog(orderId, InventoryChangeType.RESTORE);
+        if (restored.isPresent()) {
+            return StockRestoreResponse.of(locked, restored.get().getQuantity(), orderId);
+        }
+
+        // 3. 차감 기록이 없으면 재고는 그대로 두고, 복원 요청이 왔었다는 표시로 RESTORE 로그(0)만 남긴다
+        // 차감 요청이 타임아웃돼 실제로는 차감되지 않은 경우. 이 로그가 있어야 늦게 도착한 차감을 막을 수 있다
+        Optional<InventoryLog> decreased = findOrderLog(orderId, InventoryChangeType.DECREASE);
+        if (decreased.isEmpty()) {
+            saveRestoreLog(locked, orderId, 0);
+            return StockRestoreResponse.of(locked, 0, orderId);
+        }
+
+        // 4. 요청 수량이 아니라 실제로 차감한 수량(DECREASE 로그)만큼 되돌린다
+        int quantity = decreased.get().getQuantity();
+        inventoryRepository.increaseQuantity(locked.getId(), quantity, LocalDateTime.now(), userId);
+
+        // 5. 복원 후 수량으로 다시 조회한다 (UPDATE가 영속성 컨텍스트를 비워 복원 전 엔티티는 남지 않는다)
+        Inventory inventory = findInventory(request);
+        saveRestoreLog(inventory, orderId, quantity);
+        return StockRestoreResponse.of(inventory, quantity, orderId);
+    }
+
+    // 유니크 위반이 이 트랜잭션 안에서 나도록 바로 flush 한다
+    private void saveRestoreLog(Inventory inventory, UUID orderId, int quantity) {
+        inventoryLogRepository.saveAndFlush(InventoryLog.builder()
+                .inventory(inventory)
+                .orderId(orderId)
+                .changeType(InventoryChangeType.RESTORE)
+                .quantity(quantity)
+                .build());
     }
 
     // 재고 잠금 조회 (SELECT ... FOR UPDATE)
