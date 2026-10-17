@@ -73,3 +73,10 @@ ALTER TABLE hub_service.p_inventory_logs ADD CONSTRAINT p_inventory_logs_change_
 CREATE UNIQUE INDEX IF NOT EXISTS uk_inventory_logs_order_id_change_type
     ON hub_service.p_inventory_logs (order_id, change_type)
     WHERE order_id IS NOT NULL;
+
+-- 한 허브에 같은 상품의 활성 재고는 하나다. 주문 차감 UPDATE·조회가 허브 + 상품으로 한 행을 찾는 전제를 DB에서 보장한다
+-- 업체 허브가 바뀌어 다른 허브에 같은 상품 재고가 생기는 경우는 허브가 달라 대상이 아니다
+-- 활성 중복 행이 이미 있으면 인덱스 생성이 실패해 앱이 시작되지 않으므로, 중복을 먼저 정리해야 한다
+CREATE UNIQUE INDEX IF NOT EXISTS uk_inventories_hub_id_product_id
+    ON hub_service.p_inventories (hub_id, product_id)
+    WHERE deleted_at IS NULL;
