@@ -34,7 +34,8 @@ public class InventoryLog extends BaseEntity {
     @Column(nullable = false)
     private InventoryChangeType changeType;
 
-    // 변화량 (항상 양수, 방향은 changeType으로 구분)
+    // 변화량 (0 이상, 방향은 changeType으로 구분)
+    // 차감 기록 없이 온 복원은 재고를 바꾸지 않고 "복원 요청이 왔었다"는 표시로 0을 남긴다 (늦게 도착한 차감을 막기 위해)
     @Column(nullable = false)
     private Integer quantity;
 
