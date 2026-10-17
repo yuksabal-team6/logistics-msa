@@ -11,7 +11,9 @@ import java.util.Locale;
 // - 타임아웃·연결 실패: Feign이 RetryableException으로 넘긴다 → 그대로 던진다
 // - 4xx: FeignClientException이라 여기로 오지 않는다 (재시도 없음)
 // 횟수·간격 계산은 Retryer.Default에 맡긴다 (대기는 interval부터 1.5배씩, maxInterval까지)
-// 외부 API(Slack 등)는 같은 요청이 중복될 수 있으므로 @FeignClient(configuration = ...)에 Retryer.NEVER_RETRY를 지정한다.
+// 5xx 래핑을 푸는 건 이 Retryer뿐이라 내부 클라이언트의 Retryer는 반드시 FeignRetryer여야 한다 (서비스가 Retryer 빈을 직접 만들 때도).
+// 재시도를 끄려면 yml common.feign.retry.max-retries: 0 또는 FeignRetryer.noRetry()를 쓴다.
+// Retryer.NEVER_RETRY는 5xx가 RetryableException으로 나가므로, 자기 디코더를 쓰는 외부 클라이언트(Slack 등)에만 지정한다.
 public class FeignRetryer implements Retryer {
 
     private final long interval;
@@ -27,6 +29,12 @@ public class FeignRetryer implements Retryer {
         this.maxAttempts = maxAttempts;
         this.retryOnReadTimeout = retryOnReadTimeout;
         this.delegate = new Retryer.Default(interval, maxInterval, maxAttempts);
+    }
+
+    // 재시도 없이 1번만 호출. 5xx는 FeignServerException으로 꺼내 던진다
+    // 내부 클라이언트에서 재시도를 끌 때 Retryer.NEVER_RETRY 대신 사용 (NEVER_RETRY는 5xx가 RetryableException으로 나감)
+    public static FeignRetryer noRetry() {
+        return new FeignRetryer(0, 0, 1, true);
     }
 
     @Override

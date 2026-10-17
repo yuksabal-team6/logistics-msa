@@ -57,9 +57,10 @@ class CommonFeignAutoConfigurationTest {
 
     @Test
     void 서비스가_Retryer_빈을_만들면_그쪽을_사용한다() {
+        FeignRetryer serviceRetryer = FeignRetryer.noRetry();
         contextRunner
-                .withBean(Retryer.class, () -> Retryer.NEVER_RETRY)
-                .run(context -> assertThat(context.getBean(Retryer.class)).isSameAs(Retryer.NEVER_RETRY));
+                .withBean(Retryer.class, () -> serviceRetryer)
+                .run(context -> assertThat(context.getBean(Retryer.class)).isSameAs(serviceRetryer));
     }
 
     private RetryableException readTimeout() {

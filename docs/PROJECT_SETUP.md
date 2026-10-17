@@ -359,7 +359,9 @@ throw new BusinessException(HubErrorCode.INSUFFICIENT_STOCK);
 > 💡 5xx·타임아웃·연결 실패는 최대 2회 재시도 후 예외 (4xx는 재시도 없이 바로 예외). 재시도 후에도 예외 종류는 위 표와 같음
 
 - 내부 POST API는 같은 요청을 다시 받아도 결과가 같게(멱등) 만든다 (재시도 때문에)
-- 외부 API(Slack 등) Feign 클라이언트는 `configuration`에 `Retryer.NEVER_RETRY`를 지정한다
+- 내부 클라이언트에서 재시도를 끄려면 `Retryer.NEVER_RETRY` 대신 `common.feign.retry.max-retries: 0` 또는 `FeignRetryer.noRetry()`를 쓴다 (`NEVER_RETRY`면 5xx가 `FeignServerException`이 아니라 `RetryableException`으로 나옴)
+- `Retryer.NEVER_RETRY`는 자기 디코더를 쓰는 외부 API(Slack 등) Feign 클라이언트에만 지정한다
+- 서비스가 `Retryer` 빈을 직접 만들 때도 `FeignRetryer`를 써야 예외 종류가 유지된다
 
 재시도 설정 (서비스 `application.yml`에서 변경, 없으면 기본값)
 

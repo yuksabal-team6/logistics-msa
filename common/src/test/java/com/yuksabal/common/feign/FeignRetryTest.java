@@ -8,6 +8,7 @@ import feign.Feign;
 import feign.Request;
 import feign.RequestLine;
 import feign.RetryableException;
+import feign.Retryer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -192,6 +193,30 @@ class FeignRetryTest {
     }
 
     @Test
+    void noRetry를_쓰면_서버_오류를_한_번만_호출하고_FeignServerException을_던진다() {
+        reply(500, errorBody("INTERNAL_SERVER_ERROR", "서버 오류"));
+
+        assertThatThrownBy(() -> api(FeignRetryer.noRetry()).get())
+                .isInstanceOfSatisfying(FeignServerException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(500);
+                    assertThat(e.getCode()).isEqualTo("INTERNAL_SERVER_ERROR");
+                });
+        assertThat(attempts).hasValue(1);
+    }
+
+    // 내부 클라이언트에서 재시도를 끌 때 Retryer.NEVER_RETRY 대신 FeignRetryer.noRetry()를 써야 하는 이유:
+    // 5xx를 감싼 RetryableException을 풀어 줄 Retryer가 없어 catch (FeignServerException e)에 걸리지 않는다
+    @Test
+    void Retryer_NEVER_RETRY를_쓰면_서버_오류가_RetryableException으로_나간다() {
+        reply(500, errorBody("INTERNAL_SERVER_ERROR", "서버 오류"));
+
+        assertThatThrownBy(() -> api(Retryer.NEVER_RETRY).get())
+                .isInstanceOf(RetryableException.class)
+                .hasCauseInstanceOf(FeignServerException.class);
+        assertThat(attempts).hasValue(1);
+    }
+
+    @Test
     void 호출마다_재시도_횟수를_새로_센다() {
         TestApi api = api(retryer(2, true));
         for (int i = 0; i < 6; i++) {
@@ -225,11 +250,11 @@ class FeignRetryTest {
         return new FeignRetryer(1, 1, maxRetries + 1, retryOnReadTimeout);
     }
 
-    private TestApi api(FeignRetryer retryer) {
+    private TestApi api(Retryer retryer) {
         return api("http://localhost:" + server.getAddress().getPort(), retryer);
     }
 
-    private TestApi api(String url, FeignRetryer retryer) {
+    private TestApi api(String url, Retryer retryer) {
         Client delegate = new Client.Default(null, null);
         Client counting = (request, options) -> {
             attempts.incrementAndGet();

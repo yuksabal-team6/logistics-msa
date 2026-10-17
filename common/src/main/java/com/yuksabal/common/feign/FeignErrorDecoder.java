@@ -18,6 +18,7 @@ import java.util.List;
 // 내부 API(ApiResponse 형식) 응답이 2xx가 아니면 error의 code·message·details를 읽어 예외로 바꾼다.
 // 4xx → FeignClientException (업무 요청 실패, 재시도 없음), 5xx → FeignServerException (재시도·보상 대상)
 // 5xx는 Feign이 재시도하도록 RetryableException으로 감싸 반환하고, 재시도까지 실패하면 FeignRetryer가 FeignServerException으로 꺼내 던진다.
+// Retryer가 FeignRetryer가 아니면(Retryer.NEVER_RETRY 등) 5xx가 RetryableException으로 나간다.
 // 타임아웃·연결 실패는 이 디코더를 거치지 않고 feign.RetryableException으로 던져진다.
 // 외부 API(Slack 등)는 응답 형식이 다르므로 @FeignClient(configuration = ...)로 별도 디코더를 지정한다.
 @RequiredArgsConstructor

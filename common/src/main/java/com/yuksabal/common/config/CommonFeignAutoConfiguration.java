@@ -38,6 +38,8 @@ public class CommonFeignAutoConfiguration {
     // - max-interval: 대기 상한(ms). 대기는 1.5배씩 늘어나므로 횟수를 늘려도 이 값을 넘지 않는다
     // - retry-on-read-timeout: 응답 지연도 재시도할지. 끄면 최악 지연이 read-timeout 1번으로 줄어든다
     // 서비스에서 Retryer 빈을 직접 만들면 그쪽을 사용
+    // 이때도 FeignRetryer를 써야 5xx가 FeignServerException으로 나간다.
+    // 재시도를 끄려면 max-retries: 0 또는 FeignRetryer.noRetry()를 쓴다 (Retryer.NEVER_RETRY 금지)
     @Bean
     @ConditionalOnMissingBean(Retryer.class)
     public Retryer feignRetryer(
