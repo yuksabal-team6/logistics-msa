@@ -66,3 +66,10 @@ WHERE d.hub_id::text LIKE '00000000-0000-0000-0000-0000000000%'
 ALTER TABLE hub_service.p_inventory_logs DROP CONSTRAINT IF EXISTS p_inventory_logs_change_type_check;
 ALTER TABLE hub_service.p_inventory_logs ADD CONSTRAINT p_inventory_logs_change_type_check
     CHECK (change_type IN ('DECREASE', 'RESTORE', 'INBOUND', 'ADJUST_INCREASE', 'ADJUST_DECREASE'));
+
+-- 주문 재고 차감·복원 멱등성 키: 같은 주문의 같은 변경(DECREASE·RESTORE)은 한 번만 기록된다 (결정 #18)
+-- 동시에 같은 요청이 들어오면 두 번째 로그 INSERT가 유니크 위반으로 실패해 그 트랜잭션의 재고 변경도 롤백된다
+-- 입고·관리자 조정은 order_id가 null이라 대상이 아니다. ddl-auto는 조건부 인덱스를 만들 수 없어 직접 생성한다
+CREATE UNIQUE INDEX IF NOT EXISTS uk_inventory_logs_order_id_change_type
+    ON hub_service.p_inventory_logs (order_id, change_type)
+    WHERE order_id IS NOT NULL;
