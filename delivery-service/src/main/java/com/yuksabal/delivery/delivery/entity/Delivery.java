@@ -164,7 +164,12 @@ public class Delivery extends BaseEntity {
         return departureHubId.equals(destinationHubId);
     }
 
+    // 끝난 배송(COMPLETED·CANCELLED)만 삭제할 수 있다. 진행 중 기준은 DeliveryStatus가 정한다
     public void delete(UUID deletedBy) {
+        if (deliveryStatus.isInProgress()) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "진행 중인 배송은 삭제할 수 없습니다.");
+        }
         markDeleted(deletedBy);
     }
 }

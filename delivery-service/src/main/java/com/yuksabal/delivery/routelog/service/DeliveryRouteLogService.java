@@ -74,7 +74,7 @@ public class DeliveryRouteLogService {
     // 저장 트랜잭션에서 상태를 다시 확인해 그 사이에 지정할 수 없게 된 경로 기록은 409, 동시 수정은 @Version 충돌로 409
     public DeliveryRouteLogResponse assignRouteManager(UUID deliveryId, UUID routeLogId,
                                                        UUID deliveryManagerId, UserRole role) {
-        requireMaster(role);
+        requireMaster(role, "MASTER만 담당자를 지정할 수 있습니다.");
         transactionTemplate.executeWithoutResult(status ->
                 findRouteLog(findDelivery(deliveryId), routeLogId).checkManagerAssignable());
 
@@ -87,9 +87,9 @@ public class DeliveryRouteLogService {
         });
     }
 
-    private void requireMaster(UserRole role) {
+    private void requireMaster(UserRole role, String message) {
         if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN, "MASTER만 담당자를 지정할 수 있습니다.");
+            throw new BusinessException(CommonErrorCode.FORBIDDEN, message);
         }
     }
 

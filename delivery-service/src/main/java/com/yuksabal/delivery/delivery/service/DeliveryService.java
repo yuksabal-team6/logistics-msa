@@ -13,12 +13,14 @@ import com.yuksabal.delivery.delivery.client.dto.HubRouteResponse;
 import com.yuksabal.delivery.delivery.dto.request.DeliveryCreateRequest;
 import com.yuksabal.delivery.delivery.dto.request.DeliverySearchRequest;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryCreateResponse;
+import com.yuksabal.delivery.delivery.dto.response.DeliveryInProgressResponse;
 import com.yuksabal.delivery.delivery.dto.response.DeliveryResponse;
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.delivery.delivery.entity.DeliveryStatus;
 import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
 import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
+import com.yuksabal.delivery.routelog.entity.RouteStatus;
 import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -185,7 +187,7 @@ public class DeliveryService {
     // 1차 확인으로 담당자를 지정할 수 없는 배송(업체로 출발했거나 끝남)이면 user를 부르지 않고, user 호출은 트랜잭션 밖에서 한다 (createDelivery와 같은 이유)
     // 저장 트랜잭션에서 상태를 다시 확인해 그 사이에 지정할 수 없게 된 배송은 409, 동시 수정은 @Version 충돌로 409
     public DeliveryResponse assignDeliveryManager(UUID deliveryId, UUID deliveryManagerId, UserRole role) {
-        requireMaster(role);
+        requireMaster(role, "MASTER만 담당자를 지정할 수 있습니다.");
         transactionTemplate.executeWithoutResult(status -> findDelivery(deliveryId).checkManagerAssignable());
 
         deliveryManagerValidator.validate(deliveryManagerId);
@@ -197,9 +199,34 @@ public class DeliveryService {
         });
     }
 
-    private void requireMaster(UserRole role) {
+    // 배송 삭제. 403 → 404 → 409 순서. 배송과 경로 기록을 한 트랜잭션에서 Soft Delete (deleted_by = 요청자)
+    // 진행 중 여부는 Delivery.delete()가 확인한다. 동시 수정은 @Version 충돌로 커밋 시 409 (DeliveryExceptionHandler)
+    @Transactional
+    public void deleteDelivery(UUID deliveryId, UUID userId, UserRole role) {
+        requireMaster(role, "MASTER만 배송을 삭제할 수 있습니다.");
+        Delivery delivery = findDelivery(deliveryId);
+
+        delivery.delete(userId);
+        // 배송이 끝났으면 경로 기록도 끝나 있다 (COMPLETED는 ARRIVED를 거치고, CANCELLED는 경로 기록도 함께 취소)
+        deliveryRouteLogRepository.findByDeliveryId(delivery.getId())
+                .ifPresent(routeLog -> routeLog.delete(userId));
+    }
+
+    // 내부 API. 배송(허브→업체) 담당 또는 경로 기록(허브→허브) 담당으로 진행 중인 건이 있으면 true. user가 회원 탈퇴 전 호출
+    // 확인과 회원 삭제 사이의 틈은 user가 비활성화 → 확인 → 삭제 순서로 막는다 (비활성 회원은 담당자 지정 시 422)
+    // 배송 쪽에서 true면 경로 기록 쿼리는 실행하지 않는다
+    @Transactional(readOnly = true)
+    public DeliveryInProgressResponse hasInProgressDelivery(UUID deliveryManagerId) {
+        boolean exists = deliveryRepository.existsByDeliveryManagerIdAndDeliveryStatusIn(
+                        deliveryManagerId, DeliveryStatus.inProgressStatuses())
+                || deliveryRouteLogRepository.existsByDeliveryManagerIdAndRouteStatusIn(
+                        deliveryManagerId, RouteStatus.inProgressStatuses());
+        return new DeliveryInProgressResponse(deliveryManagerId, exists);
+    }
+
+    private void requireMaster(UserRole role, String message) {
         if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN, "MASTER만 담당자를 지정할 수 있습니다.");
+            throw new BusinessException(CommonErrorCode.FORBIDDEN, message);
         }
     }
 
