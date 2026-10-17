@@ -1,7 +1,7 @@
 # 통합 테스트 전용: 인메모리 H2(PostgreSQL 모드), Eureka 미사용
 spring:
   datasource:
-    url: jdbc:h2:mem:order_service_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:mem:order_service_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS order_service
     username: sa
     password:
     driver-class-name: org.h2.Driver
@@ -12,3 +12,8 @@ spring:
 eureka:
   client:
     enabled: false
+
+# 주문 서비스 흐름 디버그 로그 (테스트 실행 시 확인용)
+logging:
+  level:
+    com.yuksabal.order.order.service: DEBUG

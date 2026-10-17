@@ -18,9 +18,11 @@ public enum OrderErrorCode implements ErrorCode {
     ORDER_NOT_DELETABLE(HttpStatus.CONFLICT, "삭제할 수 없는 주문 상태입니다."),
 
     // API 스펙만 먼저 만든 상태 (이슈 #47). 기능 구현 후 사용처가 없으면 삭제
+    // TODO 이슈 51(주문 취소) 구현 후 사용처가 없어지면 삭제 (OrderController import, @ApiErrorCodes 포함)
     NOT_IMPLEMENTED(HttpStatus.NOT_IMPLEMENTED, "아직 구현되지 않은 기능입니다."),
 
     // 참고용 sample api 전용
+    // TODO sample 패키지 삭제할 때 같이 삭제
     SAMPLE_NOT_FOUND(HttpStatus.NOT_FOUND, "샘플을 찾을 수 없습니다."),
     ;
 

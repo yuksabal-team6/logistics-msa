@@ -2,6 +2,7 @@ package com.yuksabal.order.order.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.common.feign.FeignClientException;
+import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.order.order.client.CompanyClient;
 import com.yuksabal.order.order.client.DeliveryClient;
@@ -182,6 +183,37 @@ class OrderCreateIntegrationTest {
 
         assertThat(orderRepository.count()).isZero();
         verify(companyClient, never()).getProduct(any());
+    }
+
+    @Test
+    void 재고_부족이면_409이고_FAILED_NOT_REQUIRED() throws Exception {
+        given(hubClient.decreaseStock(any())).willThrow(new FeignClientException(409, "INSUFFICIENT_STOCK",
+                "주문 가능한 재고가 부족합니다.", List.of(new ApiErrorDetail("quantity", "요청 수량을 출고할 수 없습니다."))));
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INSUFFICIENT_STOCK"))
+                .andExpect(jsonPath("$.error.details[0].field").value("quantity"));
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+        assertThat(saved.getDeliveryId()).isNull();
+        verify(deliveryClient, never()).createDelivery(any());
+        verify(hubClient, never()).restoreStock(any());
+    }
+
+    @Test
+    void 재고_차감_404도_FAILED_NOT_REQUIRED() throws Exception {
+        given(hubClient.decreaseStock(any())).willThrow(
+                new FeignClientException(404, "RESOURCE_NOT_FOUND", "재고가 없습니다.", List.of()));
+
+        create(validBody()).andExpect(status().isNotFound());
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+        verify(deliveryClient, never()).createDelivery(any());
     }
 
     private Map<String, Object> validBody() {

@@ -2,6 +2,7 @@ package com.yuksabal.order.order.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.order.global.exception.OrderErrorCode;
 import com.yuksabal.order.order.client.CompanyClient;
@@ -20,9 +21,11 @@ import com.yuksabal.order.order.dto.response.OrderCompleteResponse;
 import com.yuksabal.order.order.dto.response.OrderCreateResponse;
 import com.yuksabal.order.order.dto.response.OrderInProgressResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
+import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -45,6 +48,7 @@ import static com.yuksabal.order.order.repository.OrderSpecification.*;
 /**
  * 주문 서비스 로직을 정의한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -73,9 +77,17 @@ public class OrderService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OrderCreateResponse createOrder(OrderCreateRequest request, UUID idempotencyKey, UUID userId, UserRole role) {
 
+        log.debug("[주문 생성] 시작 userId={}, productId={}, quantity={}, idempotencyKey={}",
+                userId, request.productId(), request.quantity(), idempotencyKey);
+
+        // TODO ⑤ 멱등성: 같은 Idempotency-Key 주문이 있으면 기존 결과 응답 (CONFIRMED면 그 결과, FAILED면 실패 결과, PENDING이면 409 처리 중)
+        //  동시에 같은 키가 들어오면 idempotency_key 부분 유니크 위반 → 기존 주문 응답 (schema.sql 필요, 결정 18)
+
         // 0. 주문자 확인: 탈퇴 회원은 user가 404, 비활성 회원은 403 (주문 저장 없이 끝)
         UserResponse orderer = userClient.getUser(userId).data();
+        log.debug("[주문 생성] 0. 주문자 확인 userId={}, active={}", userId, orderer.active());
         if (!orderer.active()) {
+            // TODO common에 ACCOUNT_DISABLED(403)가 추가되면 그 코드로 교체 (user 명세 변경 공지)
             throw new BusinessException(FORBIDDEN, "비활성화된 회원은 주문할 수 없습니다.");
         }
 
@@ -86,8 +98,11 @@ public class OrderService {
         }
         CompanyResponse supplier = companyClient.getCompany(request.supplierCompanyId()).data();
         CompanyResponse requester = companyClient.getCompany(request.requestCompanyId()).data();
+        log.debug("[주문 생성] 1, 2. 조회 완료 unitPrice={}, 출발 허브(공급 업체)={}, 도착 허브(요청 업체)={}",
+                product.unitPrice(), supplier.hubId(), requester.hubId());
 
         // 3. 주문 PENDING 저장 (출발 허브 = 공급 업체 허브, 도착 허브 = 요청 업체 허브)
+        // TODO [선택] 저장 후 user 내부 API 8로 회원 재확인, 비활성이면 FAILED (회원 삭제와 동시 요청 경합 방지, PR 68 리뷰)
         Order order = transactionTemplate.execute(status -> orderRepository.save(Order.builder()
                 .requestCompanyId(request.requestCompanyId())
                 .supplierCompanyId(request.supplierCompanyId())
@@ -100,15 +115,47 @@ public class OrderService {
                 .requestMessage(request.requestMessage())
                 .idempotencyKey(idempotencyKey.toString())
                 .build()));
+        log.debug("[주문 생성] 3. PENDING 저장 orderId={}, orderNumber={}", order.getId(), order.getOrderNumber());
 
-        // 4. 재고 차감 (출발 허브)
-        hubClient.decreaseStock(new StockRequest(
-                order.getDepartureHubId(), order.getProductId(), order.getQuantity(), order.getId()));
+        // 4. 출발 허브의 재고 차감
+        try {
+            // Hub 서비스에 재고 차감 요청
+            hubClient.decreaseStock(new StockRequest(
+                    order.getDepartureHubId(),
+                    order.getProductId(),
+                    order.getQuantity(),
+                    order.getId()));
 
+            log.debug("[주문 생성] 4. 재고 차감 성공 orderId={}", order.getId());
+
+        } catch (FeignClientException e) {
+            // 재고 차감 요청 오류
+
+            // 4xx(재고 부족 409 등)는 재고가 안 빠짐 → 되돌릴 것 없음. hub 오류를 그대로 응답
+            log.debug("[주문 생성] 4. 재고 차감 실패 orderId={}, status={}, code={} → FAILED + NOT_REQUIRED",
+                    order.getId(), e.getStatus(), e.getCode());
+
+            // 주문 상태 FAILED, 보상 상태 NOT_REQUIRED 처리
+            failOrder(order.getId(), CompensationStatus.NOT_REQUIRED);
+            throw e;
+        }
+        // TODO ④ 재고 차감 5xx/타임아웃(FeignServerException 등): 같은 orderId로 2회 재시도
+        //  재시도 성공 → 배송 생성 진행 / 최종 실패 → FAILED + PENDING → 재고 복원(차감 여부 모름) → COMPLETED 또는 FAILED
+
+        // TODO ③ 배송 생성 4xx: FAILED + PENDING → 재고 복원 → 보상 COMPLETED, 복원 실패 시 FAILED + 로그 + 수동 처리 알림
+        // TODO ④ 배송 생성 5xx/타임아웃: 2회 재시도 → 성공이면 CONFIRMED / 최종 실패면 FAILED + PENDING → 재고 복원
+        //  타임아웃이었으면 배송 취소(내부 API 9)도 함께 호출. 둘 다 성공해야 보상 COMPLETED
         // 5. 배송 생성
         DeliveryCreateResponse delivery = deliveryClient.createDelivery(new DeliveryCreateRequest(
-                order.getId(), order.getDepartureHubId(), order.getArrivalHubId(), order.getRequestCompanyId(),
-                request.deliveryAddress(), request.recipientName(), null)).data();
+                order.getId(),
+                order.getDepartureHubId(),
+                order.getArrivalHubId(),
+                order.getRequestCompanyId(),
+                request.deliveryAddress(),
+                request.recipientName(),
+                null
+        )).data();
+        log.debug("[주문 생성] 5. 배송 생성 성공 orderId={}, deliveryId={}", order.getId(), delivery.deliveryId());
 
         // 6. 주문 확정 (CONFIRMED + deliveryId)
         Order confirmed = transactionTemplate.execute(status -> {
@@ -116,7 +163,10 @@ public class OrderService {
             saved.confirm(delivery.deliveryId());
             return saved;
         });
+        log.debug("[주문 생성] 6. CONFIRMED 확정 orderId={}, orderNumber={}", confirmed.getId(), confirmed.getOrderNumber());
 
+        // TODO ⑤ 보상 상태가 FAILED가 되면 같은 Webhook으로 [수동 처리 필요] 알림 (주문 ID, 실패 단계)
+        // TODO ⑤ order schema.sql: idempotency_key, order_number 부분 유니크 인덱스 + sql.init.mode always
         // TODO 확인: 커밋 후 Slack 주문 알림 . 주문자 멘션(<@slackId>)도 구현 예정
         //  user 내부 api 8 응답에 slackId 필드가 추가되면 멘션, 그 전엔 멘션 없이 알림
         return OrderCreateResponse.from(confirmed);
@@ -173,6 +223,9 @@ public class OrderService {
      * @return 취소된 주문 정보
      */
     public OrderResponse cancelOrder(UUID orderId, UUID userId, UserRole role) {
+        // TODO 이슈 51 주문 취소: CONFIRMED → CANCELLED + 보상 PENDING → 배송 취소(내부 API 9, 실패 시 CONFIRMED + NOT_REQUIRED로 되돌리고 409/502)
+        //  → 재고 복원(내부 API 4) → 보상 COMPLETED/FAILED. 권한: 주문자, 요청 업체 관리자, MASTER
+        //  DELIVERY_CONFLICT(409) 처리 방식(재시도 또는 그대로 409) 확정 필요
         throw new BusinessException(OrderErrorCode.NOT_IMPLEMENTED);
     }
 
@@ -231,6 +284,11 @@ public class OrderService {
      * @param orderId 존재 여부를 확인할 주문 ID
      * @return 존재하는 주문 객체
      */
+    // 주문 생성 실패 기록 (짧은 트랜잭션)
+    private void failOrder(UUID orderId, CompensationStatus compensationStatus) {
+        transactionTemplate.executeWithoutResult(status -> findOrder(orderId).fail(compensationStatus));
+    }
+
     private Order findOrder(UUID orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,

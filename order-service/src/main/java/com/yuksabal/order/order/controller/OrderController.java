@@ -47,6 +47,7 @@ public class OrderController {
                     
                     같은 Idempotency-Key로 다시 요청하면 새로 만들지 않고 **기존 주문 결과를 응답**합니다.
                     """)
+    // TODO 주문 생성 구현 끝나면 NOT_IMPLEMENTED 제거, 재고 부족 409(hub INSUFFICIENT_STOCK) 응답 설명 추가
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {NOT_IMPLEMENTED})
     @PostMapping
     public ResponseEntity<ApiResponse<OrderCreateResponse>> createOrder(
@@ -110,6 +111,7 @@ public class OrderController {
                     
                     **허브 출발 전에만** 가능하며, 취소하면 재고를 복원합니다.
                     """)
+    // TODO 이슈 51: NOT_IMPLEMENTED 제거, INVALID_STATUS_TRANSITION(409) 추가
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {NOT_IMPLEMENTED})
     @PostMapping("/{orderId}/cancel")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
