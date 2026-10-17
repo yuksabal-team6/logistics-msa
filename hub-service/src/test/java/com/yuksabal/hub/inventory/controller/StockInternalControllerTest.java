@@ -228,6 +228,144 @@ class StockInternalControllerTest {
                 .andExpect(jsonPath("$.error.details[0].field").value("orderId"));
     }
 
+    // ===== 재고 복원 =====
+
+    @Test
+    void 차감_기록이_있으면_차감한_수량만큼_복원하고_RESTORE_로그를_남긴다() throws Exception {
+        givenLocked(97);
+        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
+                .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, seoulInventory(97), 3)));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
+
+        mockMvc.perform(restoreRequest(decreaseBody(3)).header(USER_ID_HEADER, USER_ID.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.hubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.productId").value(PRODUCT_ID.toString()))
+                .andExpect(jsonPath("$.data.restoredQuantity").value(3))
+                .andExpect(jsonPath("$.data.orderId").value(ORDER_ID.toString()));
+
+        then(inventoryRepository).should().increaseQuantity(eq(INVENTORY_ID), eq(3), any(LocalDateTime.class), eq(USER_ID));
+        InventoryLog log = savedLog();
+        assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.RESTORE);
+        assertThat(log.getOrderId()).isEqualTo(ORDER_ID);
+        assertThat(log.getQuantity()).isEqualTo(3);
+    }
+
+    // 요청 quantity가 실제 차감 수량과 달라도 차감한 만큼만 되돌린다
+    @Test
+    void 요청_수량이_아니라_DECREASE_로그의_수량으로_복원한다() throws Exception {
+        givenLocked(97);
+        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
+                .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, seoulInventory(97), 3)));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
+
+        mockMvc.perform(restoreRequest(decreaseBody(5)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.restoredQuantity").value(3));
+
+        then(inventoryRepository).should().increaseQuantity(eq(INVENTORY_ID), eq(3), any(LocalDateTime.class), isNull());
+    }
+
+    // 차감 요청이 타임아웃돼 실제로는 차감되지 않은 경우. 표시용 RESTORE 로그(0)가 늦게 도착한 차감을 막는다
+    @Test
+    void 차감_기록이_없으면_재고는_그대로_두고_수량_0인_RESTORE_로그를_남긴다() throws Exception {
+        givenLocked(100);
+
+        mockMvc.perform(restoreRequest(decreaseBody(3)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.restoredQuantity").value(0));
+
+        then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
+        InventoryLog log = savedLog();
+        assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.RESTORE);
+        assertThat(log.getOrderId()).isEqualTo(ORDER_ID);
+        assertThat(log.getQuantity()).isZero();
+    }
+
+    @Test
+    void 이미_복원한_주문이면_변경_없이_처음_복원한_수량으로_성공한다() throws Exception {
+        givenLocked(100);
+        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
+                .willReturn(Optional.of(orderLog(InventoryChangeType.RESTORE, seoulInventory(100), 3)));
+
+        mockMvc.perform(restoreRequest(decreaseBody(3)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.restoredQuantity").value(3));
+
+        then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
+        then(inventoryLogRepository).should(never()).saveAndFlush(any(InventoryLog.class));
+    }
+
+    // 재고 행이 없으면 RESTORE 로그(inventory_id 필수)도 남길 수 없다. order는 보상 FAILED(수동 처리)로 남긴다
+    @Test
+    void 복원할_재고가_없으면_404를_반환한다() throws Exception {
+        given(inventoryRepository.findByHubIdAndProductIdForUpdate(any(), any())).willReturn(Optional.empty());
+
+        mockMvc.perform(restoreRequest(decreaseBody(3)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("해당 허브에 상품 재고가 없습니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("productId"));
+
+        then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
+        then(inventoryLogRepository).should(never()).saveAndFlush(any(InventoryLog.class));
+    }
+
+    // 로그 확인 전에 재고 행을 잠가야, 차감이 처리 중일 때 온 복원이 그 차감의 DECREASE 로그를 본다
+    @Test
+    void 복원도_로그를_확인하기_전에_재고_행을_잠근다() throws Exception {
+        givenLocked(97);
+        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
+                .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, seoulInventory(97), 3)));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
+
+        mockMvc.perform(restoreRequest(decreaseBody(3)))
+                .andExpect(status().isOk());
+
+        InOrder order = inOrder(inventoryRepository, inventoryLogRepository);
+        order.verify(inventoryRepository).findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID);
+        order.verify(inventoryLogRepository).findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE);
+        order.verify(inventoryLogRepository).findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE);
+        order.verify(inventoryRepository).increaseQuantity(any(), anyInt(), any(), any());
+    }
+
+    // 같은 주문의 동시 복원이 둘 다 로그 확인을 통과한 경우: 늦은 쪽의 RESTORE 로그 INSERT가 유니크 위반 → 복원 롤백
+    @Test
+    void 복원_로그_유니크_위반이면_먼저_처리된_복원_결과로_성공한다() throws Exception {
+        givenLocked(97);
+        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
+                .willReturn(Optional.empty())
+                .willReturn(Optional.of(orderLog(InventoryChangeType.RESTORE, seoulInventory(100), 3)));
+        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
+                .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, seoulInventory(97), 3)));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(103)));
+        given(inventoryLogRepository.saveAndFlush(any(InventoryLog.class)))
+                .willThrow(new DataIntegrityViolationException("uk_inventory_logs_order_id_change_type"));
+
+        mockMvc.perform(restoreRequest(decreaseBody(3)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.restoredQuantity").value(3));
+    }
+
+    @Test
+    void 복원_요청에_주문_ID가_없으면_400을_반환한다() throws Exception {
+        String body = """
+                {"hubId": "%s", "productId": "%s", "quantity": 3}
+                """.formatted(SEOUL_ID, PRODUCT_ID);
+
+        mockMvc.perform(restoreRequest(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("orderId"));
+    }
+
+    private MockHttpServletRequestBuilder restoreRequest(String body) {
+        return post("/internal/stocks/restore")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
     private MockHttpServletRequestBuilder decreaseRequest(String body) {
         return post("/internal/stocks/decrease")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -252,7 +390,11 @@ class StockInternalControllerTest {
     }
 
     private InventoryLog orderLog(InventoryChangeType changeType, Inventory inventory) {
-        return InventoryLog.builder().inventory(inventory).orderId(ORDER_ID).changeType(changeType).quantity(3).build();
+        return orderLog(changeType, inventory, 3);
+    }
+
+    private InventoryLog orderLog(InventoryChangeType changeType, Inventory inventory, int quantity) {
+        return InventoryLog.builder().inventory(inventory).orderId(ORDER_ID).changeType(changeType).quantity(quantity).build();
     }
 
     private Inventory seoulInventory(int quantity) {
