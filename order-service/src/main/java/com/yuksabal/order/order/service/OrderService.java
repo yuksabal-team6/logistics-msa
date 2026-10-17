@@ -4,6 +4,16 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.order.global.exception.OrderErrorCode;
+import com.yuksabal.order.order.client.CompanyClient;
+import com.yuksabal.order.order.client.DeliveryClient;
+import com.yuksabal.order.order.client.HubClient;
+import com.yuksabal.order.order.client.UserClient;
+import com.yuksabal.order.order.client.dto.CompanyResponse;
+import com.yuksabal.order.order.client.dto.DeliveryCreateRequest;
+import com.yuksabal.order.order.client.dto.DeliveryCreateResponse;
+import com.yuksabal.order.order.client.dto.ProductResponse;
+import com.yuksabal.order.order.client.dto.StockRequest;
+import com.yuksabal.order.order.client.dto.UserResponse;
 import com.yuksabal.order.order.dto.request.OrderCreateRequest;
 import com.yuksabal.order.order.dto.request.OrderSearchRequest;
 import com.yuksabal.order.order.dto.response.OrderCompleteResponse;
@@ -17,13 +27,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Set;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
+import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.order.order.repository.OrderSpecification.*;
 
@@ -41,6 +54,12 @@ public class OrderService {
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "totalAmount");
 
     private final OrderRepository orderRepository;
+    private final UserClient userClient;
+    private final CompanyClient companyClient;
+    private final HubClient hubClient;
+    private final DeliveryClient deliveryClient;
+    // 외부 호출을 트랜잭션 밖에 두고, DB 저장만 짧은 트랜잭션으로 묶는다
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * 주문을 생성한다.
@@ -51,8 +70,56 @@ public class OrderService {
      * @param role           요청한 사용자 권한
      * @return 생성된 주문 정보
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OrderCreateResponse createOrder(OrderCreateRequest request, UUID idempotencyKey, UUID userId, UserRole role) {
-        throw new BusinessException(OrderErrorCode.NOT_IMPLEMENTED);
+
+        // 0. 주문자 확인: 탈퇴 회원은 user가 404, 비활성 회원은 403 (주문 저장 없이 끝)
+        UserResponse orderer = userClient.getUser(userId).data();
+        if (!orderer.active()) {
+            throw new BusinessException(FORBIDDEN, "비활성화된 회원은 주문할 수 없습니다.");
+        }
+
+        // 1, 2. 상품, 업체 조회 (실패하면 주문 저장 없이 끝)
+        ProductResponse product = companyClient.getProduct(request.productId()).data();
+        if (!product.companyId().equals(request.supplierCompanyId())) {
+            throw new BusinessException(VALIDATION_ERROR, "공급 업체의 상품이 아닙니다.", "productId");
+        }
+        CompanyResponse supplier = companyClient.getCompany(request.supplierCompanyId()).data();
+        CompanyResponse requester = companyClient.getCompany(request.requestCompanyId()).data();
+
+        // 3. 주문 PENDING 저장 (출발 허브 = 공급 업체 허브, 도착 허브 = 요청 업체 허브)
+        Order order = transactionTemplate.execute(status -> orderRepository.save(Order.builder()
+                .requestCompanyId(request.requestCompanyId())
+                .supplierCompanyId(request.supplierCompanyId())
+                .productId(request.productId())
+                .departureHubId(supplier.hubId())
+                .arrivalHubId(requester.hubId())
+                .ordererId(userId)
+                .quantity(request.quantity())
+                .unitPrice(product.unitPrice())
+                .requestMessage(request.requestMessage())
+                .idempotencyKey(idempotencyKey.toString())
+                .build()));
+
+        // 4. 재고 차감 (출발 허브)
+        hubClient.decreaseStock(new StockRequest(
+                order.getDepartureHubId(), order.getProductId(), order.getQuantity(), order.getId()));
+
+        // 5. 배송 생성
+        DeliveryCreateResponse delivery = deliveryClient.createDelivery(new DeliveryCreateRequest(
+                order.getId(), order.getDepartureHubId(), order.getArrivalHubId(), order.getRequestCompanyId(),
+                request.deliveryAddress(), request.recipientName(), null)).data();
+
+        // 6. 주문 확정 (CONFIRMED + deliveryId)
+        Order confirmed = transactionTemplate.execute(status -> {
+            Order saved = findOrder(order.getId());
+            saved.confirm(delivery.deliveryId());
+            return saved;
+        });
+
+        // TODO 확인: 커밋 후 Slack 주문 알림 . 주문자 멘션(<@slackId>)도 구현 예정
+        //  user 내부 api 8 응답에 slackId 필드가 추가되면 멘션, 그 전엔 멘션 없이 알림
+        return OrderCreateResponse.from(confirmed);
     }
 
 

@@ -9,7 +9,11 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
+import org.springframework.data.domain.Persistable;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Getter
@@ -17,10 +21,13 @@ import java.util.UUID;
 @SQLRestriction("deleted_at IS NULL")
 @Entity
 @Table(name = "p_orders")
-public class Order extends BaseEntity {
+public class Order extends BaseEntity implements Persistable<UUID> {
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final DateTimeFormatter ORDER_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    // 주문번호를 만들려고 애플리케이션에서 생성 (결정 #17 "orderId 앱에서 생성")
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "order_id")
     private UUID id;
 
@@ -83,13 +90,14 @@ public class Order extends BaseEntity {
     public Order(UUID requestCompanyId, UUID supplierCompanyId, UUID productId, UUID departureHubId,
                  UUID arrivalHubId, UUID ordererId, String orderNumber, Integer quantity, Long unitPrice,
                  String requestMessage, String idempotencyKey) {
+        this.id = UUID.randomUUID();
         this.requestCompanyId = requestCompanyId;
         this.supplierCompanyId = supplierCompanyId;
         this.productId = productId;
         this.departureHubId = departureHubId;
         this.arrivalHubId = arrivalHubId;
         this.ordererId = ordererId;
-        this.orderNumber = orderNumber;
+        this.orderNumber = orderNumber != null ? orderNumber : createOrderNumber(this.id, LocalDate.now(KST));
         this.quantity = quantity;
         this.unitPrice = unitPrice;
         this.totalAmount = (long) quantity * unitPrice;
@@ -99,26 +107,81 @@ public class Order extends BaseEntity {
         this.compensationStatus = CompensationStatus.NOT_REQUIRED;
     }
 
-    // 배송 생성 성공 (결정 #17 ④)
+    // 주문번호: ORD-{yyyyMMdd}-{orderId 하이픈 제거 앞 12자리 대문자}, 날짜는 한국 시간
+
+    /**
+     * 주문번호를 생성한다.
+     * ORD-{yyyyMMdd}-{orderId 하이픈 제거 앞 12자리 대문자}
+     *
+     * @param id   order uuid
+     * @param date 한국 기준 시간
+     * @return 생성된 주문번호
+     */
+    static String createOrderNumber(UUID id, LocalDate date) {
+        String idPart = id.toString().replace("-", "").substring(0, 12).toUpperCase();
+        return "ORD-" + date.format(ORDER_DATE) + "-" + idPart;
+    }
+
+    /**
+     * 주문 엔티티가 신규 엔티티인지 판단한다.
+     * Spring Data JPA의 save() 호출 시 ID가 미리 할당된
+     * 신규 엔티티(저장 안된) 기존 엔티티로 판단하지 않도록 한다.
+     * createdAt이 null이면 신규 엔티티로 판단한다.
+     *
+     * @return 신규 엔티티 여부
+     */
+    @Override
+    public boolean isNew() {
+        return getCreatedAt() == null;
+    }
+
+    // 배송 생성 성공 (결정 #17)
     public void confirm(UUID deliveryId) {
         this.deliveryId = deliveryId;
         this.status = OrderStatus.CONFIRMED;
     }
 
-    // 생성 실패. 재고 부족이면 NOT_REQUIRED, 보상이 필요하면 PENDING (결정 #21)
+    /**
+     * 주문 생성 실패
+     * - 재고 부족(409) → fail(NOT_REQUIRED)
+     * - 배송 생성 실패 → fail(PENDING) → 재고 복원
+     * - 재고 차감이 5xx/타임아웃으로 최종 실패 → fail(PENDING) → 재고 복원 (차감이 됐는지 모르니까)
+     *
+     * @param compensationStatus 보상 상태 NOT_REQUIRED 또는 PENDING
+     */
     public void fail(CompensationStatus compensationStatus) {
         this.status = OrderStatus.FAILED;
         this.compensationStatus = compensationStatus;
     }
 
-    // 보상 결과 기록: COMPLETED 또는 FAILED(수동 처리 대상)
-    public void changeCompensationStatus(CompensationStatus compensationStatus) {
-        this.compensationStatus = compensationStatus;
+    // 보상 성공: PENDING → COMPLETED 경우만 가능
+    public void completeCompensation() {
+        validateCompensationPending();
+        this.compensationStatus = CompensationStatus.COMPLETED;
+    }
+
+    // 보상 실패 (재시도 후): PENDING → FAILED 경우만 가능
+    public void failCompensation() {
+        validateCompensationPending();
+        this.compensationStatus = CompensationStatus.FAILED;
+    }
+
+    /**
+     * 보상 처리가 진행 중인지 검증한다.
+     * compensationStatus가 pending일 때만 보상 결과를 기록할 수 있다.
+     */
+    private void validateCompensationPending() {
+        if (compensationStatus != CompensationStatus.PENDING) {
+            throw new BusinessException(
+                    OrderErrorCode.INVALID_STATUS_TRANSITION,
+                    "보상 진행 중인 주문만 보상 결과를 기록할 수 있습니다.",
+                    "orderId");
+        }
     }
 
     /**
      * 주문을 완료한다.(배송 완료 시)
-     * COMPLETED 면 변경 없음, CONFIRMED에서만 COMPLETED로 변경 가능하다.
+     * COMPLETED 면 변경 없음(멱등성), CONFIRMED에서만 COMPLETED로 변경 가능하다.
      */
     public void complete() {
         if (status == OrderStatus.COMPLETED) {
