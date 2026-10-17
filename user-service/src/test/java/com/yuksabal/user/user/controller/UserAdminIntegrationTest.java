@@ -2,9 +2,12 @@ package com.yuksabal.user.user.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.common.auth.UserRole;
+import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.user.support.TestJwt;
 import com.yuksabal.user.user.client.CompanyClient;
+import com.yuksabal.user.user.client.DeliveryClient;
 import com.yuksabal.user.user.client.HubClient;
+import com.yuksabal.user.user.client.dto.DeliveryInProgressResponse;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -28,6 +31,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -65,6 +70,9 @@ class UserAdminIntegrationTest {
     private HubClient hubClient;
     @MockBean
     private CompanyClient companyClient;
+    // 비활성화·DELIVERY 역할 변경 시 진행 중 배송 확인 (기본 동작: 없음). 있을 때는 UserActiveWorkIntegrationTest
+    @MockBean
+    private DeliveryClient deliveryClient;
 
     private User master;
     private User master2;
@@ -73,6 +81,8 @@ class UserAdminIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        given(deliveryClient.getInProgressDelivery(any(UUID.class))).willAnswer(invocation -> ApiResponse.success(
+                new DeliveryInProgressResponse(invocation.getArgument(0), false)));
         userRepository.deleteAllInBatch();
         master = save("master01", UserRole.MASTER);
         master2 = save("master02", UserRole.MASTER);

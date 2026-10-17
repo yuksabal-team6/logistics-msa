@@ -7,8 +7,10 @@ import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.user.support.TestJwt;
 import com.yuksabal.user.user.client.CompanyClient;
+import com.yuksabal.user.user.client.DeliveryClient;
 import com.yuksabal.user.user.client.HubClient;
 import com.yuksabal.user.user.client.dto.CompanyResponse;
+import com.yuksabal.user.user.client.dto.DeliveryInProgressResponse;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import feign.Request;
@@ -68,12 +70,17 @@ class CompanyOwnerProtectionIntegrationTest {
     private HubClient hubClient;
     @MockBean
     private CompanyClient companyClient;
+    // 비활성화 시 진행 중 배송 확인 (없음)
+    @MockBean
+    private DeliveryClient deliveryClient;
 
     private User master;
     private User owner;
 
     @BeforeEach
     void setUp() {
+        given(deliveryClient.getInProgressDelivery(any(UUID.class))).willAnswer(invocation -> ApiResponse.success(
+                new DeliveryInProgressResponse(invocation.getArgument(0), false)));
         userRepository.deleteAllInBatch();
         master = save("master01", UserRole.MASTER, null);
         // 업체 생성 직후 상태: 업체의 관리자로 지정됐지만 아직 company_id는 비어 있다

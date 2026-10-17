@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,9 +34,11 @@ import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
+import static com.yuksabal.common.exception.CommonErrorCode.SERVICE_UNAVAILABLE;
 import static com.yuksabal.common.exception.CommonErrorCode.UNAUTHORIZED;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 import static com.yuksabal.user.global.exception.UserErrorCode.ACCOUNT_DISABLED;
+import static com.yuksabal.user.global.exception.UserErrorCode.USER_HAS_ACTIVE_WORK;
 
 // 인증 필요: 토큰 오류 401은 게이트웨이가 응답하고, X-User-Id·X-User-Role은 게이트웨이가 검증된 JWT 값으로 넣는다
 @Tag(name = "User", description = "회원 관리 API")
@@ -94,9 +97,10 @@ public class UserController {
 
     @Operation(summary = "회원 역할 변경 (MASTER)",
             description = "자기 자신·마지막 MASTER·업체 관리자(COMPANY → 다른 역할)는 변경 불가(422), "
-                    + "같은 역할이면 변경 없이 200. 업체 관리자 확인 실패 502. 대상은 다시 로그인해야 새 역할이 토큰에 반영된다")
+                    + "같은 역할이면 변경 없이 200. DELIVERY → 다른 역할은 진행 중인 배송이 있으면 409. "
+                    + "업체 관리자·배송 확인 실패 502. 대상은 다시 로그인해야 새 역할이 토큰에 반영된다")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION,
-            DEPENDENCY_FAILURE}, value = ACCOUNT_DISABLED)
+            DEPENDENCY_FAILURE}, value = {ACCOUNT_DISABLED, USER_HAS_ACTIVE_WORK})
     @PatchMapping("/{userId}/role")
     public ResponseEntity<ApiResponse<UserResponse>> changeRole(
             @PathVariable UUID userId,
@@ -110,9 +114,10 @@ public class UserController {
 
     @Operation(summary = "계정 활성화·비활성화 (MASTER)",
             description = "자기 자신·마지막 MASTER는 비활성화 불가(422), 같은 상태면 변경 없이 200. "
+                    + "진행 중인 배송이 있으면 비활성화 불가(409), 배송 확인 실패 502. "
                     + "비활성 계정은 로그인과 user-service API가 403 ACCOUNT_DISABLED")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION},
-            value = ACCOUNT_DISABLED)
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION,
+            DEPENDENCY_FAILURE}, value = {ACCOUNT_DISABLED, USER_HAS_ACTIVE_WORK})
     @PatchMapping("/{userId}/status")
     public ResponseEntity<ApiResponse<UserResponse>> changeStatus(
             @PathVariable UUID userId,
@@ -122,5 +127,20 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(
                 userAdminService.changeStatus(requesterId, UserRole.from(role), userId, request),
                 "계정 상태가 변경되었습니다."));
+    }
+
+    // 삭제: 200 + ApiResponse.success(null, message). 소프트 삭제(deleted_at·deleted_by), 응답 data 없음
+    @Operation(summary = "회원 삭제 (MASTER)",
+            description = "소프트 삭제. 자기 자신·마지막 MASTER는 422, 진행 중인 업무가 있으면 409, "
+                    + "업무 관계(업체 관리자·주문·배송)를 확인하지 못하면 502(상대 서비스 오류)·503(확인 기능 미준비)")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION,
+            DEPENDENCY_FAILURE, SERVICE_UNAVAILABLE}, value = {ACCOUNT_DISABLED, USER_HAS_ACTIVE_WORK})
+    @DeleteMapping("/{userId}")
+    public ResponseEntity<ApiResponse<Void>> deleteUser(
+            @PathVariable UUID userId,
+            @RequestHeader("X-User-Id") UUID requesterId,
+            @RequestHeader("X-User-Role") String role) {
+        userAdminService.deleteUser(requesterId, UserRole.from(role), userId);
+        return ResponseEntity.ok(ApiResponse.success(null, "회원이 삭제되었습니다."));
     }
 }
