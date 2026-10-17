@@ -356,6 +356,20 @@ throw new BusinessException(HubErrorCode.INSUFFICIENT_STOCK);
 | 상대가 5xx | `FeignServerException` | 재시도·보상 대상 | 502 `DEPENDENCY_FAILURE` |
 | 타임아웃·연결 실패 | `feign.RetryableException` | 재시도·보상 대상 | 502 `DEPENDENCY_FAILURE` |
 
+> 💡 5xx·타임아웃·연결 실패는 최대 2회 재시도 후 예외 (4xx는 재시도 없이 바로 예외). 재시도 후에도 예외 종류는 위 표와 같음
+
+- 내부 POST API는 같은 요청을 다시 받아도 결과가 같게(멱등) 만든다 (재시도 때문에)
+- 외부 API(Slack 등) Feign 클라이언트는 `configuration`에 `Retryer.NEVER_RETRY`를 지정한다
+
+재시도 설정 (서비스 `application.yml`에서 변경, 없으면 기본값)
+
+| 키 | 기본값 | 설명 |
+| --- | --- | --- |
+| `common.feign.retry.max-retries` | `2` | 재시도 횟수 (처음 호출 제외). `0`이면 재시도 안 함 |
+| `common.feign.retry.interval` | `200` | 첫 재시도 전 대기(ms). 이후 1.5배씩 증가 |
+| `common.feign.retry.max-interval` | `1000` | 대기 상한(ms) |
+| `common.feign.retry.retry-on-read-timeout` | `true` | 응답 지연(read timeout)도 재시도할지 |
+
 ```java
 try {
     hubClient.decreaseStock(request);
