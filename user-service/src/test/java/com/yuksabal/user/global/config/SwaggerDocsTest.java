@@ -35,6 +35,7 @@ class SwaggerDocsTest {
                 .andExpect(jsonPath("$.paths['/api/v1/users'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/users/{userId}'].get").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/users/{userId}'].patch").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/users/{userId}'].delete").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/users/{userId}/role'].patch").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/users/{userId}/status'].patch").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post").exists())

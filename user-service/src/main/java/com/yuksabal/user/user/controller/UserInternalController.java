@@ -32,7 +32,7 @@ public class UserInternalController {
     // 회원 조회: 200 + ApiResponse.success(data). 없거나 탈퇴한 회원은 404 → 호출하는 쪽에서 배정·지정 실패 등으로 처리
     // 비활성 회원도 200(active=false), 역할·소속이 맞는지는 호출 측이 판단한다
     @Operation(summary = "회원 조회 (내부)",
-            description = "delivery·company가 호출. 활성 여부·역할·소속(hubId, companyId)을 반환. 없거나 탈퇴한 회원은 404")
+            description = "delivery·company·order가 호출. 활성 여부·역할·소속(hubId, companyId)을 반환. 없거나 탈퇴한 회원은 404")
     @SecurityRequirements
     @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND})
     @GetMapping("/{userId}")

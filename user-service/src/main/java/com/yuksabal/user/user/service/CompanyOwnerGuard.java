@@ -55,10 +55,19 @@ public class CompanyOwnerGuard {
         }
     }
 
+    // 회원 삭제 (#68, CompanyActiveWorkChecker): 관리 업체 ID 목록. COMPANY가 아니면 조회하지 않고 빈 목록
+    public List<UUID> ownedCompanyIds(User user) {
+        if (user.getRole() != UserRole.COMPANY) {
+            return List.of();
+        }
+        return ownedCompanies(user.getId()).stream().map(CompanyResponse::companyId).toList();
+    }
+
     private List<CompanyResponse> ownedCompanies(UUID userId) {
         ApiResponse<List<CompanyResponse>> response = companyClient.getCompaniesByOwner(userId);
-        if (response == null || response.data() == null) {
-            // 계약상 관리 업체가 없어도 빈 목록이 온다. 비어 있으면 확인하지 못한 것으로 보고 막는다
+        // 계약상 관리 업체가 없어도 빈 목록이 온다. 목록이나 업체 ID가 비어 있으면 확인하지 못한 것으로 보고 막는다
+        if (response == null || response.data() == null
+                || response.data().stream().anyMatch(company -> company == null || company.companyId() == null)) {
             throw new BusinessException(DEPENDENCY_FAILURE);
         }
         return response.data();

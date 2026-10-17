@@ -2,8 +2,12 @@ package com.yuksabal.user.user.repository;
 
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.common.auth.UserRole;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -28,4 +32,9 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
     boolean existsByUsernameAndIdNot(String username, UUID id);
 
     boolean existsByEmailAndIdNot(String email, UUID id);
+
+    // 진행 중 업무 확인 뒤 확정·되돌리기 (#68, UserStateTransition). 같은 회원을 동시에 바꾸지 못하게 행을 잠근다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> findByIdForUpdate(@Param("id") UUID id);
 }
