@@ -13,6 +13,9 @@ public enum HubErrorCode implements ErrorCode {
 
     INVENTORY_CONFLICT(HttpStatus.CONFLICT, "재고 데이터가 중복되어 있습니다."),
 
+    // 주문 재고 차감 시 남은 수량이 주문 수량보다 적은 경우. order는 주문 FAILED + 보상 NOT_REQUIRED로 처리한다
+    INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "재고가 부족합니다."),
+
     // 관리자가 조회한 뒤 주문 차감·입고 등으로 수량이 바뀐 경우
     INVENTORY_QUANTITY_CONFLICT(HttpStatus.CONFLICT, "재고 수량이 변경되었습니다. 현재 수량을 확인한 뒤 다시 조정해 주세요.");
 
