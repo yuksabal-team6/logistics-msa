@@ -33,8 +33,9 @@ public class StockService {
     private final InventoryLogRepository inventoryLogRepository;
     private final TransactionTemplate transactionTemplate;
 
-    // 같은 주문의 차감이 동시에 들어오면 둘 다 로그 확인을 통과할 수 있다.
-    // 늦은 쪽은 DECREASE 로그 INSERT가 유니크 위반으로 실패해 차감까지 롤백되고, 먼저 커밋된 차감 결과로 성공 응답한다
+    // 같은 재고의 요청은 재고 행 잠금으로 줄을 서므로 같은 주문의 동시 차감도 보통 로그 확인에서 걸러진다.
+    // 그래도 둘 다 통과하면 늦은 쪽은 DECREASE 로그 INSERT가 유니크 위반으로 실패해 차감까지 롤백되고,
+    // 먼저 커밋된 차감 결과로 성공 응답한다 (유니크 인덱스 = 마지막 방어선)
     public StockDecreaseResponse decreaseStock(StockRequest request, UUID userId) {
         try {
             return transactionTemplate.execute(status -> decrease(request, userId));
@@ -50,30 +51,32 @@ public class StockService {
     private StockDecreaseResponse decrease(StockRequest request, UUID userId) {
         UUID orderId = request.orderId();
 
-        // 1. 이미 차감한 주문이면 변경 없이 성공
-        Optional<InventoryLog> decreased = findOrderLog(orderId, InventoryChangeType.DECREASE);
-        if (decreased.isPresent()) {
-            // 기존 차감 로그에 연결된 재고를 이용해 성공 응답
-            return StockDecreaseResponse.of(decreased.get().getInventory(), orderId);
+        // 1. 재고 행을 먼저 잠근다 (없으면 404). 로그 확인보다 먼저 잠가야 차감·복원이 동시에 와도
+        // 뒤에 온 요청이 앞 요청의 로그를 본다. 로그 확인 뒤에 잠그면 그 사이에 복원이 끼어들 수 있다
+        Inventory locked = findInventoryForUpdate(request);
+
+        // 2. 이미 차감한 주문이면 변경 없이 성공
+        if (findOrderLog(orderId, InventoryChangeType.DECREASE).isPresent()) {
+            return StockDecreaseResponse.of(locked, orderId);
         }
 
-        // 2. 이미 복원(보상)된 주문이면 차감하지 않는다.
+        // 3. 이미 복원(보상)된 주문이면 차감하지 않는다.
         // 차감 요청이 타임아웃된 뒤 order가 복원을 보냈고, 지연된 차감 요청이 그보다 늦게 도착한 경우
-        Optional<InventoryLog> restored = findOrderLog(orderId, InventoryChangeType.RESTORE);
-        // 이미 복원된 주문이면 늦게 도착한 차감요청이므로 재차감 진행하지 않는다.
-        if (restored.isPresent()) {
-            return StockDecreaseResponse.of(restored.get().getInventory(), orderId);
+        if (findOrderLog(orderId, InventoryChangeType.RESTORE).isPresent()) {
+            return StockDecreaseResponse.of(locked, orderId);
         }
 
-        // 엔티티를 먼저 조회하지 않고 조건부 UPDATE부터 실행해, 1차 캐시에 차감 전 수량이 남지 않게 한다.
+        // 4. 조건부 차감. 잠금을 잡고 있어 0이면 수량 부족뿐이다 (잠금 시점 수량 그대로)
         int updated = inventoryRepository.decreaseQuantityIfEnough(
                 request.hubId(), request.productId(), request.quantity(), LocalDateTime.now(), userId);
-        // 1이면 차감 성공, 0이면 차감 실패
         if (updated == 0) {
-            return handleNotDecreased(request);
+            throw new BusinessException(
+                    HubErrorCode.INSUFFICIENT_STOCK,
+                    HubErrorCode.INSUFFICIENT_STOCK.getMessage(),
+                    List.of(new ApiErrorDetail("quantity", "현재 재고는 " + locked.getQuantity() + "개입니다.")));
         }
 
-        // UPDATE에 성공한 뒤 해당 재고 엔티티를 조회한다.
+        // 5. 차감 후 수량으로 다시 조회한다 (UPDATE가 영속성 컨텍스트를 비워 차감 전 엔티티는 남지 않는다)
         Inventory inventory = findInventory(request);
         // 유니크 위반이 이 트랜잭션 안에서 나도록 바로 flush 한다 (커밋 시점 flush면 위반 원인 파악이 어렵다)
         inventoryLogRepository.saveAndFlush(InventoryLog.builder()
@@ -85,28 +88,23 @@ public class StockService {
         return StockDecreaseResponse.of(inventory, orderId);
     }
 
-    // 차감되지 않은 이유: 재고가 없으면 404, 있으면 수량 부족 409
-    // 단, 같은 주문의 동시 요청이 먼저 커밋해 수량이 줄어든 경우라면 부족이 아니라 이미 차감된 것이라 성공
-    private StockDecreaseResponse handleNotDecreased(StockRequest request) {
-        Optional<InventoryLog> decreased = findOrderLog(request.orderId(), InventoryChangeType.DECREASE);
-        if (decreased.isPresent()) {
-            return StockDecreaseResponse.of(decreased.get().getInventory(), request.orderId());
-        }
-
-        Inventory current = findInventory(request);
-        throw new BusinessException(
-                HubErrorCode.INSUFFICIENT_STOCK,
-                HubErrorCode.INSUFFICIENT_STOCK.getMessage(),
-                List.of(new ApiErrorDetail("quantity", "현재 재고는 " + current.getQuantity() + "개입니다.")));
+    // 재고 잠금 조회 (SELECT ... FOR UPDATE)
+    private Inventory findInventoryForUpdate(StockRequest request) {
+        return inventoryRepository.findByHubIdAndProductIdForUpdate(request.hubId(), request.productId())
+                .orElseThrow(() -> inventoryNotFound());
     }
 
     // 재고 조회
     private Inventory findInventory(StockRequest request) {
         return inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "해당 허브에 상품 재고가 없습니다.",
-                        "productId"));
+                .orElseThrow(() -> inventoryNotFound());
+    }
+
+    private BusinessException inventoryNotFound() {
+        return new BusinessException(
+                CommonErrorCode.RESOURCE_NOT_FOUND,
+                "해당 허브에 상품 재고가 없습니다.",
+                "productId");
     }
 
     // 로그 조회(orderId, changeType)

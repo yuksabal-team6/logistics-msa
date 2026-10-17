@@ -11,6 +11,7 @@ import com.yuksabal.hub.inventory.service.StockService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -80,6 +82,7 @@ class StockInternalControllerTest {
 
     @Test
     void 재고를_차감하고_DECREASE_로그를_남긴다() throws Exception {
+        givenLocked(100);
         given(inventoryRepository.decreaseQuantityIfEnough(eq(SEOUL_ID), eq(PRODUCT_ID), eq(3), any(LocalDateTime.class), eq(USER_ID)))
                 .willReturn(1);
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(97)));
@@ -101,6 +104,7 @@ class StockInternalControllerTest {
     // Feign이 헤더를 전달하지 못한 경우 (스케줄러 등 요청 스레드가 아닌 곳에서 호출)
     @Test
     void 사용자_헤더가_없어도_차감한다() throws Exception {
+        givenLocked(100);
         given(inventoryRepository.decreaseQuantityIfEnough(eq(SEOUL_ID), eq(PRODUCT_ID), eq(3), any(LocalDateTime.class), isNull()))
                 .willReturn(1);
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(97)));
@@ -112,6 +116,7 @@ class StockInternalControllerTest {
 
     @Test
     void 이미_차감한_주문이면_변경_없이_현재_수량으로_성공한다() throws Exception {
+        givenLocked(90);
         given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
                 .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, seoulInventory(90))));
 
@@ -127,6 +132,7 @@ class StockInternalControllerTest {
     // 차감 요청이 타임아웃된 뒤 복원이 먼저 처리되고, 지연된 차감 요청이 늦게 도착한 경우
     @Test
     void 이미_복원된_주문이면_차감하지_않고_성공한다() throws Exception {
+        givenLocked(100);
         given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
                 .willReturn(Optional.of(orderLog(InventoryChangeType.RESTORE, seoulInventory(100))));
 
@@ -140,8 +146,8 @@ class StockInternalControllerTest {
 
     @Test
     void 재고가_부족하면_409와_현재_수량을_반환한다() throws Exception {
+        givenLocked(2);
         given(inventoryRepository.decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any())).willReturn(0);
-        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(2)));
 
         mockMvc.perform(decreaseRequest(decreaseBody(3)))
                 .andExpect(status().isConflict())
@@ -154,34 +160,41 @@ class StockInternalControllerTest {
         then(inventoryLogRepository).should(never()).saveAndFlush(any(InventoryLog.class));
     }
 
+    // 잠금 조회 단계에서 재고가 없으면 로그 확인·차감까지 가지 않는다
     @Test
     void 재고가_없으면_404를_반환한다() throws Exception {
-        given(inventoryRepository.decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any())).willReturn(0);
-        given(inventoryRepository.findByHubIdAndProductId(any(), any())).willReturn(Optional.empty());
+        given(inventoryRepository.findByHubIdAndProductIdForUpdate(any(), any())).willReturn(Optional.empty());
 
         mockMvc.perform(decreaseRequest(decreaseBody(3)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
                 .andExpect(jsonPath("$.error.message").value("해당 허브에 상품 재고가 없습니다."))
                 .andExpect(jsonPath("$.error.details[0].field").value("productId"));
+
+        then(inventoryRepository).should(never()).decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any());
     }
 
-    // 같은 주문의 동시 요청이 먼저 차감해 남은 수량이 부족해진 경우: 부족이 아니라 이미 처리된 주문
+    // 로그 확인 전에 재고 행을 잠가야 차감·복원이 동시에 와도 뒤에 온 요청이 앞 요청의 로그를 본다
     @Test
-    void 차감되지_않았어도_같은_주문의_차감_기록이_생겼으면_성공한다() throws Exception {
-        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
-                .willReturn(Optional.empty())
-                .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, seoulInventory(2))));
-        given(inventoryRepository.decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any())).willReturn(0);
+    void 로그를_확인하기_전에_재고_행을_잠근다() throws Exception {
+        givenLocked(100);
+        given(inventoryRepository.decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any())).willReturn(1);
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(97)));
 
         mockMvc.perform(decreaseRequest(decreaseBody(3)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.remainingQuantity").value(2));
+                .andExpect(status().isOk());
+
+        InOrder order = inOrder(inventoryRepository, inventoryLogRepository);
+        order.verify(inventoryRepository).findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID);
+        order.verify(inventoryLogRepository).findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE);
+        order.verify(inventoryLogRepository).findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE);
+        order.verify(inventoryRepository).decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any());
     }
 
     // 같은 주문의 동시 요청이 둘 다 로그 확인을 통과한 경우: 늦은 쪽의 로그 INSERT가 유니크 위반 → 차감 롤백
     @Test
     void 로그_유니크_위반이면_먼저_처리된_차감_결과로_성공한다() throws Exception {
+        givenLocked(100);
         given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
                 .willReturn(Optional.empty())
                 .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, seoulInventory(97))));
@@ -225,6 +238,11 @@ class StockInternalControllerTest {
         return """
                 {"hubId": "%s", "productId": "%s", "quantity": %d, "orderId": "%s"}
                 """.formatted(SEOUL_ID, PRODUCT_ID, quantity, ORDER_ID);
+    }
+
+    private void givenLocked(int quantity) {
+        given(inventoryRepository.findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID))
+                .willReturn(Optional.of(seoulInventory(quantity)));
     }
 
     private InventoryLog savedLog() {
