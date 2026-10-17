@@ -124,11 +124,26 @@ public class StockService {
             return StockRestoreResponse.of(locked, 0, orderId);
         }
 
-        // 4. 요청 수량이 아니라 실제로 차감한 수량(DECREASE 로그)만큼 되돌린다
+        // 4. 차감한 재고와 복원 요청의 재고(허브 + 상품)가 같은지 확인한다. 다르면 아무것도 쓰지 않고 422로 끝낸다
+        // 그대로 진행하면 차감된 적 없는 재고가 늘어나고, 그 재고에 RESTORE 로그가 남아
+        // 올바른 허브·상품으로 다시 복원해도 "이미 복원됨"으로 처리돼 원래 재고는 영영 복원되지 않는다
+        // 같은 orderId는 허브·상품이 같다는 전제(주문 = 단일 상품, 수정 불가)라 order 버그나 잘못된 직접 호출일 때만 생긴다
+        // 로그에 적힌 재고를 대신 복원하지 않는 이유: 잠근 건 요청한 재고 행이라, 로그의 재고 행을 건드리는
+        // 다른 요청과는 줄을 서지 않는다. 그 행까지 잠그면 행 두 개를 잠가 데드락 위험이 생기고, order 버그도 묻힌다
+        Inventory decreasedInventory = decreased.get().getInventory();
+        if (!decreasedInventory.getId().equals(locked.getId())) {
+            throw new BusinessException(
+                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
+                    "차감한 재고와 복원 요청의 허브·상품이 다릅니다.",
+                    List.of(new ApiErrorDetail("hubId", "차감한 허브는 " + decreasedInventory.getHub().getId() + "입니다."),
+                            new ApiErrorDetail("productId", "차감한 상품은 " + decreasedInventory.getProductId() + "입니다.")));
+        }
+
+        // 5. 요청 수량이 아니라 실제로 차감한 수량(DECREASE 로그)만큼 되돌린다
         int quantity = decreased.get().getQuantity();
         inventoryRepository.increaseQuantity(locked.getId(), quantity, LocalDateTime.now(), userId);
 
-        // 5. 복원 후 수량으로 다시 조회한다 (UPDATE가 영속성 컨텍스트를 비워 복원 전 엔티티는 남지 않는다)
+        // 6. 복원 후 수량으로 다시 조회한다 (UPDATE가 영속성 컨텍스트를 비워 복원 전 엔티티는 남지 않는다)
         Inventory inventory = findInventory(request);
         saveRestoreLog(inventory, orderId, quantity);
         return StockRestoreResponse.of(inventory, quantity, orderId);

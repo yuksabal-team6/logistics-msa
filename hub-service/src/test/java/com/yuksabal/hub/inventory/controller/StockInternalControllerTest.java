@@ -50,6 +50,8 @@ class StockInternalControllerTest {
     private static final UUID SEOUL_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID PRODUCT_ID = UUID.fromString("40000000-0000-4000-8000-000000000001");
     private static final UUID INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000001");
+    private static final UUID BUSAN_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
+    private static final UUID BUSAN_INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000004");
     private static final UUID COMPANY_ID = UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID ORDER_ID = UUID.fromString("60000000-0000-4000-8000-000000000001");
     private static final UUID USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000001");
@@ -297,6 +299,27 @@ class StockInternalControllerTest {
         then(inventoryLogRepository).should(never()).saveAndFlush(any(InventoryLog.class));
     }
 
+    // 차감은 부산 허브 재고에서 했는데 복원 요청은 서울 허브로 온 경우 (order 버그나 잘못된 직접 호출)
+    // 그대로 복원하면 서울 재고가 늘고 RESTORE 로그가 남아, 부산으로 다시 복원해도 "이미 복원됨"이 된다
+    @Test
+    void 차감한_재고와_복원_요청의_재고가_다르면_422를_반환하고_아무것도_쓰지_않는다() throws Exception {
+        givenLocked(100);
+        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
+                .willReturn(Optional.of(orderLog(InventoryChangeType.DECREASE, busanInventory(97), 3)));
+
+        mockMvc.perform(restoreRequest(decreaseBody(3)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.message").value("차감한 재고와 복원 요청의 허브·상품이 다릅니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("hubId"))
+                .andExpect(jsonPath("$.error.details[0].reason").value("차감한 허브는 " + BUSAN_ID + "입니다."))
+                .andExpect(jsonPath("$.error.details[1].field").value("productId"));
+
+        then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
+        then(inventoryLogRepository).should(never()).saveAndFlush(any(InventoryLog.class));
+    }
+
     // 재고 행이 없으면 RESTORE 로그(inventory_id 필수)도 남길 수 없다. order는 보상 FAILED(수동 처리)로 남긴다
     @Test
     void 복원할_재고가_없으면_404를_반환한다() throws Exception {
@@ -395,6 +418,15 @@ class StockInternalControllerTest {
 
     private InventoryLog orderLog(InventoryChangeType changeType, Inventory inventory, int quantity) {
         return InventoryLog.builder().inventory(inventory).orderId(ORDER_ID).changeType(changeType).quantity(quantity).build();
+    }
+
+    // 서울 재고와 같은 상품이지만 다른 허브(부산)의 재고 행
+    private Inventory busanInventory(int quantity) {
+        Hub busan = Hub.builder().hubName("부산광역시 센터").address("주소").build();
+        ReflectionTestUtils.setField(busan, "id", BUSAN_ID);
+        Inventory inventory = Inventory.builder().hub(busan).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        ReflectionTestUtils.setField(inventory, "id", BUSAN_INVENTORY_ID);
+        return inventory;
     }
 
     private Inventory seoulInventory(int quantity) {

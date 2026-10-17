@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 import static com.yuksabal.hub.global.exception.HubErrorCode.INSUFFICIENT_STOCK;
@@ -50,8 +51,9 @@ public class StockInternalController {
     // 배송 생성 실패 보상, 주문 취소 시 호출된다. 복원 수량은 요청 quantity가 아니라 실제로 차감한 수량이다
     @Operation(summary = "주문 재고 복원",
             description = "같은 orderId로 차감한 수량만큼 재고를 되돌린다. 이미 복원한 주문이면 변경 없이 200 (처음 복원한 수량). "
-                    + "차감 기록이 없으면 재고는 그대로 두고 200 (restoredQuantity 0). 해당 허브에 상품 재고가 없으면 404")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND})
+                    + "차감 기록이 없으면 재고는 그대로 두고 200 (restoredQuantity 0). 해당 허브에 상품 재고가 없으면 404, "
+                    + "차감한 재고와 요청의 허브·상품이 다르면 422 BUSINESS_RULE_VIOLATION (details에 차감한 허브·상품)")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION})
     @PostMapping("/restore")
     public ResponseEntity<ApiResponse<StockRestoreResponse>> restoreStock(
             @Valid @RequestBody StockRequest request,
