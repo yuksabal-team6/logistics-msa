@@ -76,7 +76,9 @@ class GatewayRoleRulesIntegrationTest {
             new Rule(HttpMethod.GET, "/api/v1/inventories", Set.of("MASTER")),
             new Rule(HttpMethod.GET, "/api/v1/inventories/" + ID, Set.of("MASTER")),
             new Rule(HttpMethod.GET, "/api/v1/inventories/hubs/" + ID, Set.of("MASTER")),
-            new Rule(HttpMethod.GET, "/api/v1/inventories/products/" + ID, Set.of("MASTER", "COMPANY")));
+            new Rule(HttpMethod.GET, "/api/v1/inventories/products/" + ID, Set.of("MASTER", "COMPANY")),
+            new Rule(HttpMethod.POST, "/api/v1/inventories/inbound", Set.of("MASTER")),
+            new Rule(HttpMethod.PATCH, "/api/v1/inventories/" + ID, Set.of("MASTER")));
 
     @AfterAll
     static void stopStub() {
@@ -139,7 +141,7 @@ class GatewayRoleRulesIntegrationTest {
 
     @Test
     void 규칙이_없는_조회와_생성은_모든_역할이_서비스로_전달된다() {
-        // 조회는 로그인만, 주문 생성·허브 조회 등은 규칙 없음. 재고 수정(#97)은 경로 확정 전이라 아직 규칙 없음
+        // 조회는 로그인만, 주문 생성·허브 조회 등은 규칙 없음
         List<Rule> open = List.of(
                 new Rule(HttpMethod.GET, "/api/v1/companies", Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/companies/" + ID, Set.of()),
@@ -147,8 +149,7 @@ class GatewayRoleRulesIntegrationTest {
                 new Rule(HttpMethod.POST, "/api/v1/orders", Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/orders/" + ID, Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/deliveries/" + ID, Set.of()),
-                new Rule(HttpMethod.GET, "/api/v1/hubs", Set.of()),
-                new Rule(HttpMethod.PATCH, "/api/v1/inventories/" + ID, Set.of()));
+                new Rule(HttpMethod.GET, "/api/v1/hubs", Set.of()));
         for (Rule rule : open) {
             for (String role : ALL_ROLES) {
                 request(rule.method(), rule.uri(), role).expectStatus().isOk();
