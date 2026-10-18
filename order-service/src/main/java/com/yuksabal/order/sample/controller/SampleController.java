@@ -22,6 +22,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 
 // 참고용 API: 응답 형식, 검증, 에러, 목록 조회, Swagger 작성법 예시. 실제 기능 개발 후 sample 패키지째 삭제한다.
+// TODO 주문 기능 완료 후 sample 패키지 전체와 OrderErrorCode.SAMPLE_NOT_FOUND 삭제
 @Tag(name = "Sample", description = "참고용 샘플 API (삭제 예정)")
 @RestController
 @RequiredArgsConstructor

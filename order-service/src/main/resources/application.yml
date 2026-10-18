@@ -11,11 +11,14 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
-  # SQL 파일을 OS 기본 인코딩이 아닌 UTF-8로 읽는다. SQL 파일을 추가하면 mode: always도 함께 설정
+  # schema.sql: 엔티티로 표현할 수 없는 부분 유니크 인덱스 (결정 15, 18)
   sql:
     init:
-      encoding: UTF-8
+      mode: always
+      encoding: UTF-8  # SQL 파일을 OS 기본 인코딩이 아닌 UTF-8로 읽는다
   jpa:
+    # Hibernate가 테이블을 만든 뒤 schema.sql 실행
+    defer-datasource-initialization: true
     open-in-view: false
     hibernate:
       ddl-auto: ${DDL_AUTO:update}

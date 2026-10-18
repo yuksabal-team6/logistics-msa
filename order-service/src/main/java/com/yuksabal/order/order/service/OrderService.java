@@ -4,10 +4,8 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.order.global.exception.OrderErrorCode;
-import com.yuksabal.order.order.dto.request.OrderCreateRequest;
 import com.yuksabal.order.order.dto.request.OrderSearchRequest;
 import com.yuksabal.order.order.dto.response.OrderCompleteResponse;
-import com.yuksabal.order.order.dto.response.OrderCreateResponse;
 import com.yuksabal.order.order.dto.response.OrderInProgressResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.Order;
@@ -41,20 +39,6 @@ public class OrderService {
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "totalAmount");
 
     private final OrderRepository orderRepository;
-
-    /**
-     * 주문을 생성한다.
-     *
-     * @param request        생성 요청 dto
-     * @param idempotencyKey 멱등성 확인 키
-     * @param userId         요청한 사용자 ID
-     * @param role           요청한 사용자 권한
-     * @return 생성된 주문 정보
-     */
-    public OrderCreateResponse createOrder(OrderCreateRequest request, UUID idempotencyKey, UUID userId, UserRole role) {
-        throw new BusinessException(OrderErrorCode.NOT_IMPLEMENTED);
-    }
-
 
     /**
      * 주문 목록을 조회한다.
@@ -106,11 +90,15 @@ public class OrderService {
      * @return 취소된 주문 정보
      */
     public OrderResponse cancelOrder(UUID orderId, UUID userId, UserRole role) {
+        // TODO 이슈 51 주문 취소: CONFIRMED → CANCELLED + 보상 PENDING → 배송 취소(내부 API 9, 실패 시 CONFIRMED + NOT_REQUIRED로 되돌리고 409/502)
+        //  → 재고 복원(내부 API 4) → 보상 COMPLETED/FAILED. 권한: 주문자, 요청 업체 관리자, MASTER
+        //  DELIVERY_CONFLICT(409) 처리 방식(재시도 또는 그대로 409) 확정 필요
         throw new BusinessException(OrderErrorCode.NOT_IMPLEMENTED);
     }
 
     /**
      * 주문을 삭제한다. (soft delete)
+     * <p>
      * MASTER만 삭제 가능, 완료된 주문 또는 보상 처리가
      * 완료되었거나 필요 없는 실패/취소 주문만 삭제할 수 있다.
      *

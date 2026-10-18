@@ -1,10 +1,14 @@
 # 통합 테스트 전용: 인메모리 H2(PostgreSQL 모드), Eureka 미사용
 spring:
   datasource:
-    url: jdbc:h2:mem:order_service_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:mem:order_service_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS order_service
     username: sa
     password:
     driver-class-name: org.h2.Driver
+  # schema.sql의 부분 유니크 인덱스(WHERE 조건)는 H2가 지원하지 않아 실행하지 않는다
+  sql:
+    init:
+      mode: never
   jpa:
     hibernate:
       ddl-auto: create-drop
@@ -12,3 +16,8 @@ spring:
 eureka:
   client:
     enabled: false
+
+# 주문 서비스 흐름 디버그 로그 (테스트 실행 시 확인용)
+logging:
+  level:
+    com.yuksabal.order.order.service: DEBUG
