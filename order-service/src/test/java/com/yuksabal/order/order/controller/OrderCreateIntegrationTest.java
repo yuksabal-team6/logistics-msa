@@ -216,6 +216,41 @@ class OrderCreateIntegrationTest {
         verify(deliveryClient, never()).createDelivery(any());
     }
 
+    @Test
+    void 저장_후_재확인에서_비활성이면_403이고_FAILED_NOT_REQUIRED() throws Exception {
+        // 첫 확인은 활성, 저장 뒤 두 번째 확인 사이에 user가 비활성화한 상황
+        given(userClient.getUser(userId)).willReturn(
+                ApiResponse.success(new UserResponse(userId, true)),
+                ApiResponse.success(new UserResponse(userId, false)));
+
+        create(validBody())
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+        verify(hubClient, never()).decreaseStock(any());
+        verify(deliveryClient, never()).createDelivery(any());
+    }
+
+    @Test
+    void 저장_후_재확인에서_탈퇴면_404이고_FAILED_NOT_REQUIRED() throws Exception {
+        // 첫 확인은 활성, 저장 뒤 두 번째 확인 사이에 user가 삭제한 상황
+        given(userClient.getUser(userId))
+                .willReturn(ApiResponse.success(new UserResponse(userId, true)))
+                .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "존재하지 않거나 삭제된 회원입니다.", List.of()));
+
+        create(validBody())
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+        verify(hubClient, never()).decreaseStock(any());
+    }
+
     private Map<String, Object> validBody() {
         Map<String, Object> body = new HashMap<>();
         body.put("requestCompanyId", requesterId.toString());

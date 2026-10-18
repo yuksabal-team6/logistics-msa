@@ -83,13 +83,8 @@ public class OrderService {
         // TODO ⑤ 멱등성: 같은 Idempotency-Key 주문이 있으면 기존 결과 응답 (CONFIRMED면 그 결과, FAILED면 실패 결과, PENDING이면 409 처리 중)
         //  동시에 같은 키가 들어오면 idempotency_key 부분 유니크 위반 → 기존 주문 응답 (schema.sql 필요, 결정 18)
 
-        // 0. 주문자 확인: 탈퇴 회원은 user가 404, 비활성 회원은 403 (주문 저장 없이 끝)
-        UserResponse orderer = userClient.getUser(userId).data();
-        log.debug("[주문 생성] 0. 주문자 확인 userId={}, active={}", userId, orderer.active());
-        if (!orderer.active()) {
-            // TODO common에 ACCOUNT_DISABLED(403)가 추가되면 그 코드로 교체 (user 명세 변경 공지)
-            throw new BusinessException(FORBIDDEN, "비활성화된 회원은 주문할 수 없습니다.");
-        }
+        // 0. 주문자 확인: 탈퇴 회원은 user에서 404, 비활성 회원은 403 (주문 저장 없이 끝)
+        verifyOrdererActive(userId, "0. 주문자 확인");
 
         // 1, 2. 상품, 업체 조회 (실패하면 주문 저장 없이 끝)
         ProductResponse product = companyClient.getProduct(request.productId()).data();
@@ -102,7 +97,6 @@ public class OrderService {
                 product.unitPrice(), supplier.hubId(), requester.hubId());
 
         // 3. 주문 PENDING 저장 (출발 허브 = 공급 업체 허브, 도착 허브 = 요청 업체 허브)
-        // TODO [선택] 저장 후 user 내부 API 8로 회원 재확인, 비활성이면 FAILED (회원 삭제와 동시 요청 경합 방지, PR 68 리뷰)
         Order order = transactionTemplate.execute(status -> orderRepository.save(Order.builder()
                 .requestCompanyId(request.requestCompanyId())
                 .supplierCompanyId(request.supplierCompanyId())
@@ -116,6 +110,17 @@ public class OrderService {
                 .idempotencyKey(idempotencyKey.toString())
                 .build()));
         log.debug("[주문 생성] 3. PENDING 저장 orderId={}, orderNumber={}", order.getId(), order.getOrderNumber());
+
+        // 3-1. 저장 후 주문자 재확인 (회원 삭제와 동시 요청 경합 방지)
+        // user 삭제는 비활성화 → 진행 중 주문 확인 순서라, PENDING 저장 뒤 다시 확인하면 어느 순서로 겹쳐도 한쪽에서 걸림
+        // 재고 차감 전이라 되돌릴 것 없음 → 실패(비활성 403, 탈퇴 404, 호출 실패)면 FAILED + NOT_REQUIRED
+        try {
+            verifyOrdererActive(userId, "3-1. 주문자 재확인");
+        } catch (RuntimeException e) {
+            log.debug("[주문 생성] 3-1. 주문자 재확인 실패 orderId={} → FAILED + NOT_REQUIRED", order.getId());
+            failOrder(order.getId(), CompensationStatus.NOT_REQUIRED);
+            throw e;
+        }
 
         // 4. 출발 허브의 재고 차감
         try {
@@ -139,12 +144,14 @@ public class OrderService {
             failOrder(order.getId(), CompensationStatus.NOT_REQUIRED);
             throw e;
         }
-        // TODO ④ 재고 차감 5xx/타임아웃(FeignServerException 등): 같은 orderId로 2회 재시도
-        //  재시도 성공 → 배송 생성 진행 / 최종 실패 → FAILED + PENDING → 재고 복원(차감 여부 모름) → COMPLETED 또는 FAILED
+        // TODO ④ 재고 차감 5xx/타임아웃: 재시도는 common Feign이 자동으로 함 (order에서 재시도 직접 구현 x, 겹치면 최대 9번 호출)
+        //  재시도까지 실패하면 FeignServerException(5xx), RetryableException(타임아웃)이 옴 → 이 둘만 잡아서
+        //  FAILED + PENDING → 재고 복원(차감 여부 모름) → COMPLETED 또는 FAILED
 
         // TODO ③ 배송 생성 4xx: FAILED + PENDING → 재고 복원 → 보상 COMPLETED, 복원 실패 시 FAILED + 로그 + 수동 처리 알림
-        // TODO ④ 배송 생성 5xx/타임아웃: 2회 재시도 → 성공이면 CONFIRMED / 최종 실패면 FAILED + PENDING → 재고 복원
-        //  타임아웃이었으면 배송 취소(내부 API 9)도 함께 호출. 둘 다 성공해야 보상 COMPLETED
+        // TODO ④ 배송 생성 5xx/타임아웃: 재시도는 common Feign이 자동으로 함 (order에서 재시도 직접 구현 금지)
+        //  최종 예외 FeignServerException(5xx), RetryableException(타임아웃)을 잡아서 FAILED + PENDING → 재고 복원
+        //  타임아웃(RetryableException)이었으면 배송 취소(내부 API 9)도 함께 호출. 둘 다 성공해야 보상 COMPLETED
         // 5. 배송 생성
         DeliveryCreateResponse delivery = deliveryClient.createDelivery(new DeliveryCreateRequest(
                 order.getId(),
@@ -277,6 +284,34 @@ public class OrderService {
         return new OrderInProgressResponse(ordererId, exists);
     }
 
+    // 주문자 확인 (user 내부 API 8). 탈퇴 회원은 user가 404 → FeignClientException 그대로, 비활성 회원은 403
+
+    /**
+     * 회원 ID로 주문자가 활성화된 계정인지 확인한다.
+     *
+     * @param userId 주문을 요청한 회원의 ID
+     * @param step 로그용 문자열
+     */
+    private void verifyOrdererActive(UUID userId, String step) {
+        UserResponse orderer = userClient.getUser(userId).data();
+        log.debug("[주문 생성] {} userId={}, active={}", step, userId, orderer.active());
+        if (!orderer.active()) {
+            // TODO common에 ACCOUNT_DISABLED(403)가 추가되면 그 코드로 교체 (user 명세 변경 공지)
+            throw new BusinessException(FORBIDDEN, "비활성화된 회원은 주문할 수 없습니다.");
+        }
+    }
+
+    /**
+     * 주문 실패 시 주문 상태/보상 상태를 변경, 저장한다.
+     * 별도의 짧은 트랜잭션에서 처리한다.
+     *
+     * @param orderId 상태를 변경할 주문 ID
+     * @param compensationStatus 변경할 보상 상태
+     */
+    private void failOrder(UUID orderId, CompensationStatus compensationStatus) {
+        transactionTemplate.executeWithoutResult(status -> findOrder(orderId).fail(compensationStatus));
+    }
+
     /**
      * 주문 ID로 주문을 조회한다.
      * 없거나 삭제된 주문이면 예외를 발생한다.
@@ -284,11 +319,6 @@ public class OrderService {
      * @param orderId 존재 여부를 확인할 주문 ID
      * @return 존재하는 주문 객체
      */
-    // 주문 생성 실패 기록 (짧은 트랜잭션)
-    private void failOrder(UUID orderId, CompensationStatus compensationStatus) {
-        transactionTemplate.executeWithoutResult(status -> findOrder(orderId).fail(compensationStatus));
-    }
-
     private Order findOrder(UUID orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,
