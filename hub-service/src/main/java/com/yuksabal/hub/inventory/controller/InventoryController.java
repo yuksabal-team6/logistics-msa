@@ -5,8 +5,10 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
 import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
+import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
+import com.yuksabal.hub.inventory.dto.response.InventoryLogResponse;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
 import com.yuksabal.hub.inventory.service.InventoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,6 +18,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -58,6 +62,23 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.success(
                 inventoryService.getInventories(request, pageable, UserRole.from(role)),
                 "목록을 조회했습니다."));
+    }
+
+    // ?inventoryId=&hubId=&orderId=&changeType=&page=0&size=20&sort=createdAt,desc (조건은 모두 선택)
+    // /{inventoryId}보다 고정 경로가 먼저 매칭된다
+    @Operation(summary = "재고 변경 이력 조건부 조회 (MASTER)",
+            description = "재고 ID·허브 ID·주문 ID·변경 유형으로 조회한다. 조건은 함께 쓰면 AND, 없는 ID면 빈 목록. "
+                    + "기본 정렬은 최신순(createdAt,desc), 정렬 가능: createdAt")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN})
+    @GetMapping("/logs")
+    public ResponseEntity<ApiResponse<PageResponse<InventoryLogResponse>>> getInventoryLogs(
+            @ParameterObject InventoryLogSearchRequest request,
+            @ParameterObject @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
+            @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(ApiResponse.success(
+                inventoryService.getInventoryLogs(request, pageable, UserRole.from(role)),
+                "재고 변경 이력을 조회했습니다."));
     }
 
     @Operation(summary = "재고 상세 조회 (MASTER 또는 허용된 사용자)",
