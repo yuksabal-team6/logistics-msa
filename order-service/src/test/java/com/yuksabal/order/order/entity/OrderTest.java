@@ -87,6 +87,17 @@ class OrderTest {
         assertThat(order.getStatus()).isEqualTo(status);
     }
 
+    @Test
+    void 취소_CONFIRMED면_CANCELLED_보상_PENDING() {
+        Order order = order();
+        order.confirm(UUID.randomUUID());
+
+        order.cancel();
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.PENDING);
+    }
+
     private Order order() {
         return Order.builder()
                 .requestCompanyId(UUID.randomUUID())

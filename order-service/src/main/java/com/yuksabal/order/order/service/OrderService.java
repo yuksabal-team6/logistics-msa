@@ -82,21 +82,6 @@ public class OrderService {
     }
 
     /**
-     * 주문을 취소한다.
-     *
-     * @param orderId 취소할 주문 ID
-     * @param userId  요청한 사용자 ID
-     * @param role    요청한 사용자 권한
-     * @return 취소된 주문 정보
-     */
-    public OrderResponse cancelOrder(UUID orderId, UUID userId, UserRole role) {
-        // TODO 이슈 51 주문 취소: CONFIRMED → CANCELLED + 보상 PENDING → 배송 취소(내부 API 9, 실패 시 CONFIRMED + NOT_REQUIRED로 되돌리고 409/502)
-        //  → 재고 복원(내부 API 4) → 보상 COMPLETED/FAILED. 권한: 주문자, 요청 업체 관리자, MASTER
-        //  DELIVERY_CONFLICT(409) 처리 방식(재시도 또는 그대로 409) 확정 필요
-        throw new BusinessException(OrderErrorCode.NOT_IMPLEMENTED);
-    }
-
-    /**
      * 주문을 삭제한다. (soft delete)
      * <p>
      * MASTER만 삭제 가능, 완료된 주문 또는 보상 처리가

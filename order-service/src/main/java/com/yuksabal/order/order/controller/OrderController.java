@@ -8,6 +8,7 @@ import com.yuksabal.order.order.dto.request.OrderCreateRequest;
 import com.yuksabal.order.order.dto.request.OrderSearchRequest;
 import com.yuksabal.order.order.dto.response.OrderCreateResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
+import com.yuksabal.order.order.service.OrderCancelService;
 import com.yuksabal.order.order.service.OrderCreateService;
 import com.yuksabal.order.order.service.OrderService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +41,7 @@ public class OrderController {
 
     private final OrderService orderService;
     private final OrderCreateService orderCreateService;
+    private final OrderCancelService orderCancelService;
 
     // 게이트웨이가 JWT 검증 후 넣어주는 헤더. 서비스 포트(8084)로 직접 호출할 때만 직접 입력
     private static final String USER_ID_DESCRIPTION = "로그인한 사용자 ID입니다. 게이트웨이를 거치면 자동으로 들어갑니다.";
@@ -130,7 +132,7 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role) {
 
         return ResponseEntity.ok(ApiResponse.success(
-                orderService.cancelOrder(orderId, userId, UserRole.from(role)),
+                orderCancelService.cancelOrder(orderId, userId, UserRole.from(role)),
                 "주문이 취소되었습니다."));
     }
 
