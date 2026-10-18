@@ -4,6 +4,7 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
+import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
@@ -19,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,6 +30,7 @@ import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.*;
 import static com.yuksabal.hub.global.exception.HubErrorCode.INVENTORY_CONFLICT;
+import static com.yuksabal.hub.global.exception.HubErrorCode.INVENTORY_CREATE_CONFLICT;
 import static com.yuksabal.hub.global.exception.HubErrorCode.INVENTORY_QUANTITY_CONFLICT;
 
 // 인증은 게이트웨이가 JWT로 처리하고, 역할은 게이트웨이가 넣어 준 X-User-Role로 서비스에서 확인한다.
@@ -83,6 +86,23 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.success(
                 inventoryService.getInventoriesByHub(hubId, pageable, UserRole.from(role)),
                 "허브별 재고를 조회했습니다."));
+    }
+
+    @Operation(summary = "재고 입고 (MASTER)",
+            description = "허브에 상품을 입고한다. 재고가 있으면 수량을 늘리고, 없으면 새로 만든다. 수량이 1 미만이면 400, 허브·상품이 없으면 404, "
+                    + "상품 업체의 관리 허브가 아니면 422, 같은 재고를 동시에 처음 입고하면 409 (다시 시도하면 수량이 늘어난다)")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION},
+            value = {INVENTORY_CREATE_CONFLICT})
+    @PostMapping("/inbound")
+    public ResponseEntity<ApiResponse<InventoryResponse>> inbound(
+            @Valid @RequestBody InventoryInboundRequest request,
+            @Parameter(description = USER_ID_DESCRIPTION, example = "10000000-0000-4000-8000-000000000001")
+            @RequestHeader("X-User-Id") UUID userId,
+            @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
+            @RequestHeader("X-User-Role") String role) {
+        return ResponseEntity.ok(ApiResponse.success(
+                inventoryService.inbound(request, userId, UserRole.from(role)),
+                "재고를 입고했습니다."));
     }
 
     @Operation(summary = "재고 수량 조정 (MASTER)",
