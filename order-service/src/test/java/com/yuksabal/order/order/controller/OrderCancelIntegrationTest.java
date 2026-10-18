@@ -38,6 +38,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -297,6 +298,42 @@ class OrderCancelIntegrationTest {
                 .andExpect(status().isInternalServerError());
 
         assertCancelledAndCompensationFailed(order);
+    }
+
+    // ---------- ⑤ 재고 복원 실패 (결정 19: 취소 유지, 수동 처리) ----------
+
+    @Test
+    void 재고_복원_5xx면_취소_유지_보상_FAILED_Slack_200() throws Exception {
+        assertRestoreFailure(new FeignServerException(500, "INTERNAL_SERVER_ERROR", "hub 오류", "restoreStock"));
+    }
+
+    @Test
+    void 재고_복원_타임아웃이면_취소_유지_보상_FAILED_Slack_200() throws Exception {
+        assertRestoreFailure(timeout());
+    }
+
+    @Test
+    void 재고_복원_4xx면_취소_유지_보상_FAILED_Slack_200() throws Exception {
+        assertRestoreFailure(new FeignClientException(404, "RESOURCE_NOT_FOUND", "재고가 없습니다.", List.of()));
+    }
+
+    private void assertRestoreFailure(RuntimeException restoreError) throws Exception {
+        Order order = saveConfirmed();
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+        given(hubClient.restoreStock(any())).willThrow(restoreError);
+
+        cancel(order.getId(), ordererId, "USER")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.data.compensationStatus").value("FAILED"));
+
+        Order saved = orderRepository.findById(order.getId()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.FAILED);
+        InOrder sequence = inOrder(deliveryClient, hubClient);
+        sequence.verify(deliveryClient).cancelDelivery(any());
+        sequence.verify(hubClient).restoreStock(any());
+        verify(slackNotifier).notifyManualAction(any(), eq("주문 취소 보상 실패 (재고 복원)"));
     }
 
     @Test
