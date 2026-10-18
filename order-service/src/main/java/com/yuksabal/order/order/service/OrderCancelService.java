@@ -57,13 +57,20 @@ public class OrderCancelService {
         // 0. 권한: 주문자 본인, 요청 업체 관리자, MASTER (아니면 403)
         Order target = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(orderId));
         verifyCancelPermission(target, userId, role);
+        log.debug("[주문 취소] 0. 권한 확인 통과 orderId={}", orderId);
 
         // 1. 주문 CANCELLED + 보상 PENDING (CONFIRMED가 아니면 409)
-        Order order = transactionTemplate.execute(status -> {
-            Order found = orderRepository.findByIdOrThrow(orderId);
-            found.cancel();
-            return found;
-        });
+        Order order;
+        try {
+            order = transactionTemplate.execute(status -> {
+                Order found = orderRepository.findByIdOrThrow(orderId);
+                found.cancel();
+                return found;
+            });
+        } catch (BusinessException e) {
+            log.warn("[주문 취소] 1. 취소 불가 orderId={}, status={}, code={}", orderId, target.getStatus(), e.getErrorCode());
+            throw e;
+        }
         log.debug("[주문 취소] 1. CANCELLED 저장 orderId={}", orderId);
 
         // 2. 배송, 경로 기록 취소 (내부 API 9). 실패하면 D-28대로 처리하고 예외를 그대로 던짐 (재고 복원 안 함)
@@ -83,15 +90,25 @@ public class OrderCancelService {
         try {
             deliveryClient.cancelDelivery(new DeliveryCancelRequest(order.getId()));
             log.debug("[주문 취소] 2. 배송 취소 성공 orderId={}", order.getId());
-        } catch (FeignClientException | FeignServerException e) {
-            transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(order.getId()).revertCancel());
-            log.warn("[주문 취소] 배송 취소 실패로 CONFIRMED 되돌림 orderId={}, error={}", order.getId(), e.getMessage());
+        } catch (FeignClientException e) {
+            revertCancel(order);
+            log.warn("[주문 취소] 2. 배송 취소 거절 orderId={}, status={}, code={} → CONFIRMED + NOT_REQUIRED",
+                    order.getId(), e.getStatus(), e.getCode());
+            throw e;
+        } catch (FeignServerException e) {
+            revertCancel(order);
+            log.warn("[주문 취소] 2. 배송 취소 5xx orderId={}, status={} → CONFIRMED + NOT_REQUIRED",
+                    order.getId(), e.getStatus());
             throw e;
         } catch (RuntimeException e) {
-            log.error("[수동 처리 필요] 배송 취소 결과 확인 불가 orderId={}", order.getId(), e);
+            log.error("[수동 처리 필요] 2. 배송 취소 결과 확인 불가 orderId={} → CANCELLED 유지 + 보상 FAILED", order.getId(), e);
             orderCompensator.failCompensation(order, DELIVERY_UNKNOWN_REASON);
             throw e;
         }
+    }
+
+    private void revertCancel(Order order) {
+        transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(order.getId()).revertCancel());
     }
 
     /**
