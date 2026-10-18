@@ -2,6 +2,7 @@ package com.yuksabal.order.order.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.common.feign.FeignClientException;
+import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.order.order.client.CompanyClient;
@@ -9,6 +10,7 @@ import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.HubClient;
 import com.yuksabal.order.order.client.UserClient;
 import com.yuksabal.order.order.client.dto.CompanyResponse;
+import com.yuksabal.order.order.client.dto.DeliveryCancelRequest;
 import com.yuksabal.order.order.client.dto.DeliveryCreateRequest;
 import com.yuksabal.order.order.client.dto.DeliveryCreateResponse;
 import com.yuksabal.order.order.client.dto.ProductResponse;
@@ -20,6 +22,8 @@ import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
 import com.yuksabal.order.order.repository.OrderRepository;
+import feign.Request;
+import feign.RetryableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +36,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -287,6 +292,91 @@ class OrderCreateIntegrationTest {
         Order saved = orderRepository.findAll().get(0);
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.FAILED);
+    }
+
+    @Test
+    void 재고_차감_5xx면_502이고_재고_복원_보상_COMPLETED() throws Exception {
+        given(hubClient.decreaseStock(any())).willThrow(new FeignServerException(500, "INTERNAL_SERVER_ERROR", "hub 오류", "decreaseStock"));
+        givenRestoreSucceeds();
+
+        create(validBody())
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("DEPENDENCY_FAILURE"));
+
+        assertFailed(CompensationStatus.COMPLETED);
+        verify(hubClient).restoreStock(any());
+        verify(deliveryClient, never()).createDelivery(any());
+    }
+
+    @Test
+    void 재고_차감_타임아웃이면_502이고_재고_복원_보상_COMPLETED() throws Exception {
+        given(hubClient.decreaseStock(any())).willThrow(timeout());
+        givenRestoreSucceeds();
+
+        create(validBody()).andExpect(status().isBadGateway());
+
+        assertFailed(CompensationStatus.COMPLETED);
+        verify(hubClient).restoreStock(any());
+        verify(deliveryClient, never()).createDelivery(any());
+    }
+
+    @Test
+    void 배송_생성_5xx면_재고만_복원하고_배송_취소는_안함() throws Exception {
+        given(deliveryClient.createDelivery(any())).willThrow(new FeignServerException(503, "SERVICE_UNAVAILABLE", "delivery 오류", "createDelivery"));
+        givenRestoreSucceeds();
+
+        create(validBody()).andExpect(status().isBadGateway());
+
+        assertFailed(CompensationStatus.COMPLETED);
+        verify(hubClient).restoreStock(any());
+        verify(deliveryClient, never()).cancelDelivery(any());
+    }
+
+    @Test
+    void 배송_생성_타임아웃이면_재고_복원과_배송_취소_둘_다() throws Exception {
+        given(deliveryClient.createDelivery(any())).willThrow(timeout());
+        givenRestoreSucceeds();
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+
+        create(validBody()).andExpect(status().isBadGateway());
+
+        Order saved = assertFailed(CompensationStatus.COMPLETED);
+        verify(hubClient).restoreStock(any());
+        ArgumentCaptor<DeliveryCancelRequest> cancel = ArgumentCaptor.forClass(DeliveryCancelRequest.class);
+        verify(deliveryClient).cancelDelivery(cancel.capture());
+        assertThat(cancel.getValue().orderId()).isEqualTo(saved.getId());
+    }
+
+    @Test
+    void 배송_생성_타임아웃이고_배송_취소_실패하면_보상_FAILED() throws Exception {
+        given(deliveryClient.createDelivery(any())).willThrow(timeout());
+        givenRestoreSucceeds();
+        given(deliveryClient.cancelDelivery(any())).willThrow(
+                new FeignClientException(409, "INVALID_STATUS_TRANSITION", "허브 출발 후에는 배송을 취소할 수 없습니다.", List.of()));
+
+        create(validBody()).andExpect(status().isBadGateway());
+
+        assertFailed(CompensationStatus.FAILED);
+        verify(hubClient).restoreStock(any());
+    }
+
+    private void givenRestoreSucceeds() {
+        given(hubClient.restoreStock(any())).willReturn(
+                ApiResponse.success(new StockRestoreResponse(supplierHubId, productId, 5, null)));
+    }
+
+    private Order assertFailed(CompensationStatus expected) {
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(expected);
+        assertThat(saved.getDeliveryId()).isNull();
+        return saved;
+    }
+
+    // Feign 타임아웃과 같은 예외 (status -1 = 응답 없음)
+    private RetryableException timeout() {
+        Request request = Request.create(Request.HttpMethod.POST, "http://test", Map.of(), null, StandardCharsets.UTF_8, null);
+        return new RetryableException(-1, "Read timed out", Request.HttpMethod.POST, (Long) null, request);
     }
 
     private Map<String, Object> validBody() {
