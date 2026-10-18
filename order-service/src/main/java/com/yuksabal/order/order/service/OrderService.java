@@ -117,7 +117,7 @@ public class OrderService {
         try {
             verifyOrdererActive(userId, "3-1. 주문자 재확인");
         } catch (RuntimeException e) {
-            log.debug("[주문 생성] 3-1. 주문자 재확인 실패 orderId={} → FAILED + NOT_REQUIRED", order.getId());
+            log.warn("[주문 생성] 3-1. 주문자 재확인 실패 orderId={} → FAILED + NOT_REQUIRED", order.getId());
             failOrder(order.getId(), CompensationStatus.NOT_REQUIRED);
             throw e;
         }
@@ -137,7 +137,7 @@ public class OrderService {
             // 재고 차감 요청 오류
 
             // 4xx(재고 부족 409 등)는 재고가 안 빠짐 → 되돌릴 것 없음. hub 오류를 그대로 응답
-            log.debug("[주문 생성] 4. 재고 차감 실패 orderId={}, status={}, code={} → FAILED + NOT_REQUIRED",
+            log.warn("[주문 생성] 4. 재고 차감 실패 orderId={}, status={}, code={} → FAILED + NOT_REQUIRED",
                     order.getId(), e.getStatus(), e.getCode());
 
             // 주문 상태 FAILED, 보상 상태 NOT_REQUIRED 처리
@@ -148,20 +148,31 @@ public class OrderService {
         //  재시도까지 실패하면 FeignServerException(5xx), RetryableException(타임아웃)이 옴 → 이 둘만 잡아서
         //  FAILED + PENDING → 재고 복원(차감 여부 모름) → COMPLETED 또는 FAILED
 
-        // TODO ③ 배송 생성 4xx: FAILED + PENDING → 재고 복원 → 보상 COMPLETED, 복원 실패 시 FAILED + 로그 + 수동 처리 알림
         // TODO ④ 배송 생성 5xx/타임아웃: 재시도는 common Feign이 자동으로 함 (order에서 재시도 직접 구현 금지)
         //  최종 예외 FeignServerException(5xx), RetryableException(타임아웃)을 잡아서 FAILED + PENDING → 재고 복원
         //  타임아웃(RetryableException)이었으면 배송 취소(내부 API 9)도 함께 호출. 둘 다 성공해야 보상 COMPLETED
+
         // 5. 배송 생성
-        DeliveryCreateResponse delivery = deliveryClient.createDelivery(new DeliveryCreateRequest(
-                order.getId(),
-                order.getDepartureHubId(),
-                order.getArrivalHubId(),
-                order.getRequestCompanyId(),
-                request.deliveryAddress(),
-                request.recipientName(),
-                null
-        )).data();
+        DeliveryCreateResponse delivery;
+        try {
+            delivery = deliveryClient.createDelivery(new DeliveryCreateRequest(
+                    order.getId(),
+                    order.getDepartureHubId(),
+                    order.getArrivalHubId(),
+                    order.getRequestCompanyId(),
+                    request.deliveryAddress(),
+                    request.recipientName(),
+                    null
+            )).data();
+        } catch (FeignClientException e) {
+            log.warn("[주문 생성] 5. 배송 생성 실패 orderId={}, status={}, code={} → FAILED + PENDING, 재고 복원",
+                    order.getId(), e.getStatus(), e.getCode());
+
+            // 4xx(허브 경로 없음 등)는 배송 생성 실패를 의미 -> 재고 차감된 상태이므로 재고 복원 후 delivery 오류 그대로 응답
+            failOrder(order.getId(), CompensationStatus.PENDING);
+            restoreStock(order);
+            throw e;
+        }
         log.debug("[주문 생성] 5. 배송 생성 성공 orderId={}, deliveryId={}", order.getId(), delivery.deliveryId());
 
         // 6. 주문 확정 (CONFIRMED + deliveryId)
@@ -298,6 +309,27 @@ public class OrderService {
         if (!orderer.active()) {
             // TODO common에 ACCOUNT_DISABLED(403)가 추가되면 그 코드로 교체 (user 명세 변경 공지)
             throw new BusinessException(FORBIDDEN, "비활성화된 회원은 주문할 수 없습니다.");
+        }
+    }
+
+    /**
+     * Hub에 재고 복원을 요청한다.
+     * Hub에서 orderId 기준 중복 복원 방지, 차감 기록이 없으면 복원 없이 성공 처리
+     * 성공 시 보상 상태 COMPLETED, 실패 시 보상 상태 FAILED + 수동 처리
+     *
+     * @param order 재고 복원 대상 주문 엔티티
+     */
+    private void restoreStock(Order order) {
+        try {
+            hubClient.restoreStock(new StockRequest(
+                    order.getDepartureHubId(), order.getProductId(), order.getQuantity(), order.getId()));
+            transactionTemplate.executeWithoutResult(status -> findOrder(order.getId()).completeCompensation());
+            log.debug("[주문 생성] 보상 재고 복원 성공 orderId={} → 보상 COMPLETED", order.getId());
+        } catch (RuntimeException e) {
+            // TODO ⑤ 여기서 Slack [수동 처리 필요] 알림
+            log.error("[수동 처리 필요] 재고 복원 실패 orderId={}, hubId={}, productId={}, quantity={} → 보상 FAILED",
+                    order.getId(), order.getDepartureHubId(), order.getProductId(), order.getQuantity(), e);
+            transactionTemplate.executeWithoutResult(status -> findOrder(order.getId()).failCompensation());
         }
     }
 

@@ -14,6 +14,7 @@ import com.yuksabal.order.order.client.dto.DeliveryCreateResponse;
 import com.yuksabal.order.order.client.dto.ProductResponse;
 import com.yuksabal.order.order.client.dto.StockDecreaseResponse;
 import com.yuksabal.order.order.client.dto.StockRequest;
+import com.yuksabal.order.order.client.dto.StockRestoreResponse;
 import com.yuksabal.order.order.client.dto.UserResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
@@ -45,7 +46,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// 주문 생성 ① 정상 흐름. company, hub, delivery Feign 클라이언트는 가짜(MockBean)로 대체
+// 주문 생성 테스트: company, hub, delivery Feign 클라이언트는 가짜(MockBean)로 대체
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -249,6 +250,43 @@ class OrderCreateIntegrationTest {
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
         verify(hubClient, never()).decreaseStock(any());
+    }
+
+    @Test
+    void 배송_생성_4xx면_재고_복원하고_FAILED_보상_COMPLETED() throws Exception {
+        given(deliveryClient.createDelivery(any())).willThrow(
+                new FeignClientException(404, "RESOURCE_NOT_FOUND", "허브 경로가 없습니다.", List.of()));
+        given(hubClient.restoreStock(any())).willReturn(
+                ApiResponse.success(new StockRestoreResponse(supplierHubId, productId, 5, null)));
+
+        create(validBody())
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.COMPLETED);
+        assertThat(saved.getDeliveryId()).isNull();
+
+        ArgumentCaptor<StockRequest> restore = ArgumentCaptor.forClass(StockRequest.class);
+        verify(hubClient).restoreStock(restore.capture());
+        assertThat(restore.getValue()).isEqualTo(new StockRequest(supplierHubId, productId, 5, saved.getId()));
+    }
+
+    @Test
+    void 배송_생성_4xx이고_재고_복원도_실패하면_보상_FAILED() throws Exception {
+        given(deliveryClient.createDelivery(any())).willThrow(
+                new FeignClientException(404, "RESOURCE_NOT_FOUND", "허브 경로가 없습니다.", List.of()));
+        given(hubClient.restoreStock(any())).willThrow(
+                new FeignClientException(422, "BUSINESS_RULE_VIOLATION", "차감한 재고와 다릅니다.", List.of()));
+
+        create(validBody())
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.FAILED);
     }
 
     private Map<String, Object> validBody() {
