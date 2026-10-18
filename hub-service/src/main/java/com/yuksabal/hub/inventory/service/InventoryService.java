@@ -13,13 +13,16 @@ import com.yuksabal.hub.inventory.client.CompanyClient;
 import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
 import com.yuksabal.hub.inventory.client.dto.ProductResponse;
 import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
+import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
+import com.yuksabal.hub.inventory.dto.response.InventoryLogResponse;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
 import com.yuksabal.hub.inventory.entity.InventoryChangeType;
 import com.yuksabal.hub.inventory.entity.InventoryLog;
 import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
+import com.yuksabal.hub.inventory.repository.InventoryLogSpecification;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
@@ -47,6 +50,9 @@ public class InventoryService {
     // 목록 정렬 허용 필드 (API 명세 0.4: 정렬 필드는 API별로 제한)
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "quantity");
 
+    // 로그 목록 정렬 허용 필드 (변경 순서로만 본다)
+    private static final Set<String> LOG_SORTABLE_FIELDS = Set.of("createdAt");
+
     // data.sql의 (hub_id, product_id) 부분 유니크 인덱스
     private static final String INVENTORY_UNIQUE_INDEX = "uk_inventories_hub_id_product_id";
 
@@ -65,6 +71,18 @@ public class InventoryService {
                 search(request.hubId(), request.productId()),
                 toStablePageable(pageable, SORTABLE_FIELDS));
         return PageResponse.from(inventories, InventoryResponse::from);
+    }
+
+    // 재고 변경 이력은 MASTER만 조회할 수 있다. 없는 재고·허브·주문 ID는 에러 없이 빈 목록
+    public PageResponse<InventoryLogResponse> getInventoryLogs(InventoryLogSearchRequest request, Pageable pageable, UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+
+        Page<InventoryLog> logs = inventoryLogRepository.findAll(
+                InventoryLogSpecification.search(request.inventoryId(), request.hubId(), request.orderId(), request.changeType()),
+                toStablePageable(pageable, LOG_SORTABLE_FIELDS));
+        return PageResponse.from(logs, InventoryLogResponse::from);
     }
 
     // 재고 상세는 "MASTER 또는 허용된 사용자"가 조회할 수 있다.

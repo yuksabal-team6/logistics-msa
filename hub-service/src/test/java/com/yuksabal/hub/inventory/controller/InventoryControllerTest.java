@@ -64,6 +64,8 @@ class InventoryControllerTest {
     private static final UUID INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000001");
     private static final UUID COMPANY_ID = UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000001");
+    private static final UUID ORDER_ID = UUID.fromString("60000000-0000-4000-8000-000000000001");
+    private static final UUID LOG_ID = UUID.fromString("70000000-0000-4000-8000-000000000001");
     private static final String ROLE_HEADER = "X-User-Role";
     private static final String USER_ID_HEADER = "X-User-Id";
 
@@ -534,6 +536,70 @@ class InventoryControllerTest {
     }
 
     @Test
+    void 재고_변경_이력을_PageResponse로_반환한다() throws Exception {
+        given(inventoryLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation -> new PageImpl<>(List.of(decreaseLog()), invocation.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER")
+                        .param("hubId", SEOUL_ID.toString())
+                        .param("changeType", "DECREASE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("재고 변경 이력을 조회했습니다."))
+                .andExpect(jsonPath("$.data.items[0].logId").value(LOG_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].inventoryId").value(INVENTORY_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].hubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].productId").value(PRODUCT_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].changeType").value("DECREASE"))
+                .andExpect(jsonPath("$.data.items[0].quantity").value(3))
+                .andExpect(jsonPath("$.data.items[0].orderId").value(ORDER_ID.toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    void 정렬을_주지_않으면_최신순에_id를_붙여_조회한다() throws Exception {
+        given(inventoryLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation -> Page.empty(invocation.getArgument(1)));
+
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        then(inventoryLogRepository).should().findAll(any(Specification.class), pageable.capture());
+        assertThat(pageable.getValue().getSort())
+                .isEqualTo(Sort.by(Sort.Order.desc("createdAt"), Sort.Order.asc("id")));
+    }
+
+    @Test
+    void 이력에서_허용하지_않은_정렬_필드는_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER").param("sort", "quantity,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("sort"));
+
+        then(inventoryLogRepository).should(never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void 없는_변경_유형이면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER").param("changeType", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("changeType"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "COMPANY", "DELIVERY"})
+    void 이력_조회_권한이_없으면_403을_반환한다(String role) throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, role))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        then(inventoryLogRepository).should(never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
     void 재고가_있으면_company_호출_없이_수량을_늘리고_INBOUND_로그를_남긴다() throws Exception {
         given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
@@ -708,6 +774,17 @@ class InventoryControllerTest {
 
     private Inventory seoulInventory() {
         return seoulInventory(100);
+    }
+
+    private InventoryLog decreaseLog() {
+        InventoryLog log = InventoryLog.builder()
+                .inventory(seoulInventory())
+                .orderId(ORDER_ID)
+                .changeType(InventoryChangeType.DECREASE)
+                .quantity(3)
+                .build();
+        ReflectionTestUtils.setField(log, "id", LOG_ID);
+        return log;
     }
 
     private Hub seoulHub() {
