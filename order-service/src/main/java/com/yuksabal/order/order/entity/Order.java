@@ -214,6 +214,22 @@ public class Order extends BaseEntity implements Persistable<UUID> {
         return (status == OrderStatus.FAILED || status == OrderStatus.CANCELLED) && compensationDone;
     }
 
+    /**
+     * 동일 멱등성 키 재요청 시 기존 주문과 같은 내용인지 확인한다.
+     *
+     * @param requestCompanyId  현재 요청의 요청 업체
+     * @param supplierCompanyId 현재 요청의 공급 업체
+     * @param productId         현재 요청의 상품
+     * @param quantity          현재 요청의 수량
+     * @return 주문 내용이 일치하면 true, 다르면 false
+     */
+    public boolean isSameRequest(UUID requestCompanyId, UUID supplierCompanyId, UUID productId, Integer quantity) {
+        return this.requestCompanyId.equals(requestCompanyId)
+                && this.supplierCompanyId.equals(supplierCompanyId)
+                && this.productId.equals(productId)
+                && this.quantity.equals(quantity);
+    }
+
     public boolean isOrderedBy(UUID userId) {
         return ordererId.equals(userId);
     }

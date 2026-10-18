@@ -23,6 +23,9 @@ public enum OrderErrorCode implements ErrorCode {
     // 멱등성: 다른 회원이 이미 사용한 Idempotency-Key (남의 주문 정보는 내려주지 않음)
     IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "다른 요청에서 사용한 Idempotency-Key입니다."),
 
+    // 멱등성: 같은 Idempotency-Key로 다른 주문 내용(상품, 업체, 수량)을 보냄
+    IDEMPOTENCY_KEY_MISMATCH(HttpStatus.UNPROCESSABLE_ENTITY, "같은 Idempotency-Key로 다른 주문 내용을 보냈습니다."),
+
     // 삭제: 진행 중이거나 보상이 끝나지 않은 주문
     ORDER_NOT_DELETABLE(HttpStatus.CONFLICT, "삭제할 수 없는 주문 상태입니다."),
 

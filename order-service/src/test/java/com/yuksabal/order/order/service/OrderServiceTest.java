@@ -12,6 +12,7 @@ import com.yuksabal.order.order.dto.request.OrderSearchRequest;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
+import com.yuksabal.order.order.notification.SlackNotifier;
 import com.yuksabal.order.order.entity.OrderStatus;
 import com.yuksabal.order.order.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,8 @@ class OrderServiceTest {
     private final OrderRepository orderRepository = mock(OrderRepository.class);
     // 조회/삭제 테스트라 외부 호출과 트랜잭션은 쓰지 않음
     private final OrderService orderService = new OrderService(orderRepository,
-            mock(UserClient.class), mock(CompanyClient.class), mock(HubClient.class), mock(DeliveryClient.class), mock(TransactionTemplate.class));
+            mock(UserClient.class), mock(CompanyClient.class), mock(HubClient.class), mock(DeliveryClient.class),
+            mock(SlackNotifier.class), mock(TransactionTemplate.class));
 
     private final UUID ordererId = UUID.randomUUID();
     private final UUID otherUserId = UUID.randomUUID();

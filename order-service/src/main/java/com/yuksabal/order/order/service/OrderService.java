@@ -25,6 +25,7 @@ import com.yuksabal.order.order.dto.response.OrderInProgressResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
+import com.yuksabal.order.order.notification.SlackNotifier;
 import com.yuksabal.order.order.entity.OrderStatus;
 import com.yuksabal.order.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -68,6 +69,7 @@ public class OrderService {
     private final CompanyClient companyClient;
     private final HubClient hubClient;
     private final DeliveryClient deliveryClient;
+    private final SlackNotifier slackNotifier;
     // 외부 호출을 트랜잭션 밖에 두고, DB 저장만 짧은 트랜잭션으로 묶는다
     private final TransactionTemplate transactionTemplate;
 
@@ -89,7 +91,7 @@ public class OrderService {
         // 멱등성: 같은 Idempotency-Key로 만든 주문이 있으면 새로 만들지 않고 기존 결과로 응답
         Optional<Order> existing = orderRepository.findByIdempotencyKey(idempotencyKey.toString());
         if (existing.isPresent()) {
-            return replayExisting(existing.get(), userId);
+            return replayExisting(existing.get(), request, userId);
         }
 
         // 0. 주문자 확인: 탈퇴 회원은 user에서 404, 비활성 회원은 403 (주문 저장 없이 끝)
@@ -127,7 +129,7 @@ public class OrderService {
             Order first = orderRepository.findByIdempotencyKey(idempotencyKey.toString()).orElseThrow(() -> e);
 
             log.debug("[주문 생성] 3. 같은 Idempotency-Key 동시 요청 orderId={} → 먼저 저장된 주문으로 응답", first.getId());
-            return replayExisting(first, userId);
+            return replayExisting(first, request, userId);
         }
         log.debug("[주문 생성] 3. PENDING 저장 orderId={}, orderNumber={}", order.getId(), order.getOrderNumber());
 
@@ -218,9 +220,8 @@ public class OrderService {
         });
         log.debug("[주문 생성] 6. CONFIRMED 확정 orderId={}, orderNumber={}", confirmed.getId(), confirmed.getOrderNumber());
 
-        // TODO ⑤ 보상 상태가 FAILED가 되면 같은 Webhook으로 [수동 처리 필요] 알림 (주문 ID, 실패 단계)
-        // TODO 확인: 커밋 후 Slack 주문 알림 . 주문자 멘션(<@slackId>)도 구현 예정
-        //  user 내부 api 8 응답에 slackId 필드가 추가되면 멘션, 그 전엔 멘션 없이 알림
+        // 7. Slack 주문 알림 (확정 커밋 후). 실패해도 주문은 유지 (SlackNotifier가 예외를 삼킴)
+        slackNotifier.notifyOrderCreated(confirmed, product.productName(), supplier.companyName(), requester.companyName());
         return OrderCreateResponse.from(confirmed);
     }
 
@@ -331,23 +332,26 @@ public class OrderService {
     }
 
     /**
-     * 동일한 Idempotency-Key로 재요청 시 응답한다.
-     * <p>
-     * 다른 회원의 키: 409
-     * 처리 중: 409
-     * 실패: 409(재주문은 새 키)
-     * 그 외(CONFIRMED 이후): 기존 주문 결과 그대로 유지한다.
+     * 동일한 Idempotency-Key로 재요청 시 기존 주문 상태에 따라 처리한다.
+     * 다른 회원의 요청, 처리 중이거나 실패한 주문은 409 예외를 발생시킨다.
+     * 그 외 상태는 기존 주문 정보를 반환한다.
      *
-     * @param existing
-     * @param userId
-     * @return
+     * @param existing 동일한 키로 저장된 기존 주문 엔티티
+     * @param userId   재요청한 회원 ID
+     * @return 기존 주문 생성 응답
      */
-    private OrderCreateResponse replayExisting(Order existing, UUID userId) {
+    private OrderCreateResponse replayExisting(Order existing, OrderCreateRequest request, UUID userId) {
         log.debug("[주문 생성] 같은 Idempotency-Key 재요청 orderId={}, status={}", existing.getId(), existing.getStatus());
         if (!existing.isOrderedBy(userId)) {
             // UUID라 우연히 겹칠 일은 거의 없음 → 다른 회원 키 재사용은 비정상 요청
             log.warn("[주문 생성] 다른 회원의 Idempotency-Key 사용 orderId={}, 요청 userId={}", existing.getId(), userId);
             throw new BusinessException(OrderErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+        if (!existing.isSameRequest(request.requestCompanyId(), request.supplierCompanyId(),
+                request.productId(), request.quantity())) {
+            // 같은 키로 다른 주문 내용 → 기존 결과를 돌려주면 사용자가 다른 주문으로 착각함
+            log.warn("[주문 생성] 같은 Idempotency-Key로 다른 주문 내용 orderId={}", existing.getId());
+            throw new BusinessException(OrderErrorCode.IDEMPOTENCY_KEY_MISMATCH);
         }
         if (existing.getStatus() == OrderStatus.PENDING) {
             throw new BusinessException(OrderErrorCode.ORDER_IN_PROGRESS);
@@ -449,9 +453,13 @@ public class OrderService {
             log.debug("[주문 생성] 보상 완료 orderId={} → 보상 COMPLETED", order.getId());
             return;
         }
-        // TODO ⑤ 여기서 Slack [수동 처리 필요] 알림
-        transactionTemplate.executeWithoutResult(status -> findOrder(order.getId()).failCompensation());
+        Order failed = transactionTemplate.execute(status -> {
+            Order saved = findOrder(order.getId());
+            saved.failCompensation();
+            return saved;
+        });
         log.error("[수동 처리 필요] 보상 실패 orderId={} → 보상 FAILED", order.getId());
+        slackNotifier.notifyManualAction(failed, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
     }
 
     /**

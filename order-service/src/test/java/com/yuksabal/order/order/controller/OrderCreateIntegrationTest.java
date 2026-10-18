@@ -21,6 +21,7 @@ import com.yuksabal.order.order.client.dto.UserResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
+import com.yuksabal.order.order.notification.SlackNotifier;
 import com.yuksabal.order.order.repository.OrderRepository;
 import feign.Request;
 import feign.RetryableException;
@@ -45,6 +46,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -74,6 +77,8 @@ class OrderCreateIntegrationTest {
     private HubClient hubClient;
     @MockBean
     private DeliveryClient deliveryClient;
+    @MockBean
+    private SlackNotifier slackNotifier;
 
     private final UUID userId = UUID.randomUUID();
     private final UUID supplierId = UUID.randomUUID();
@@ -378,6 +383,20 @@ class OrderCreateIntegrationTest {
     }
 
     @Test
+    void 같은_키로_다른_주문_내용을_보내면_422_IDEMPOTENCY_KEY_MISMATCH() throws Exception {
+        create(validBody()).andExpect(status().isCreated());
+
+        Map<String, Object> changed = validBody();
+        changed.put("quantity", 99);
+        create(changed)
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_MISMATCH"));
+
+        assertThat(orderRepository.count()).isEqualTo(1);
+        verify(hubClient, times(1)).decreaseStock(any());
+    }
+
+    @Test
     void 같은_키_주문이_처리_중이면_409_ORDER_IN_PROGRESS() throws Exception {
         saveExisting(userId, OrderStatus.PENDING);
 
@@ -428,6 +447,35 @@ class OrderCreateIntegrationTest {
                 .build();
         ReflectionTestUtils.setField(order, "status", status);
         orderRepository.saveAndFlush(order);
+    }
+
+    @Test
+    void 정상_흐름이면_Slack_주문_알림을_보냄() throws Exception {
+        create(validBody()).andExpect(status().isCreated());
+
+        verify(slackNotifier).notifyOrderCreated(any(Order.class), eq("생물 고등어"), eq("공급 업체"), eq("요청 업체"));
+        verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+    }
+
+    @Test
+    void 실패한_주문은_Slack_주문_알림을_안_보냄() throws Exception {
+        given(hubClient.decreaseStock(any())).willThrow(new FeignClientException(409, "INSUFFICIENT_STOCK", "재고 부족", List.of()));
+
+        create(validBody()).andExpect(status().isConflict());
+
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 보상이_실패하면_Slack_수동_처리_알림을_보냄() throws Exception {
+        given(deliveryClient.createDelivery(any())).willThrow(
+                new FeignClientException(404, "RESOURCE_NOT_FOUND", "허브 경로가 없습니다.", List.of()));
+        given(hubClient.restoreStock(any())).willThrow(new FeignServerException(500, "INTERNAL_SERVER_ERROR", "hub 오류", "restoreStock"));
+
+        create(validBody()).andExpect(status().isNotFound());
+
+        verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
     }
 
     private void givenRestoreSucceeds() {
