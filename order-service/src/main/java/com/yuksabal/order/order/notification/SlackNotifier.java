@@ -66,7 +66,7 @@ public class SlackNotifier {
                 "*주문번호*\n" + order.getOrderNumber(),
                 "*주문 상태*\n`" + order.getStatus() + "` / 보상 `" + order.getCompensationStatus() + "`"));
         blocks.add(divider());
-        blocks.add(context("주문 ID `" + order.getId() + "`  |  재고 복원, 배송 취소 여부를 확인한 뒤 처리해 주세요  |  " + now()));
+        blocks.add(context("주문 ID `" + order.getId() + "`  |  재고 복원 및 배송 취소 상태를 확인한 후 수동 처리해 주세요  |  " + now()));
         send(summary, blocks, order);
     }
 

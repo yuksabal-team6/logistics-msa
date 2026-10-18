@@ -4,22 +4,16 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.order.global.exception.OrderErrorCode;
-import com.yuksabal.order.order.client.CompanyClient;
-import com.yuksabal.order.order.client.DeliveryClient;
-import com.yuksabal.order.order.client.HubClient;
-import com.yuksabal.order.order.client.UserClient;
 import com.yuksabal.order.order.dto.request.OrderSearchRequest;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
-import com.yuksabal.order.order.notification.SlackNotifier;
 import com.yuksabal.order.order.entity.OrderStatus;
 import com.yuksabal.order.order.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -35,10 +29,7 @@ import static org.mockito.Mockito.verify;
 class OrderServiceTest {
 
     private final OrderRepository orderRepository = mock(OrderRepository.class);
-    // 조회/삭제 테스트라 외부 호출과 트랜잭션은 쓰지 않음
-    private final OrderService orderService = new OrderService(orderRepository,
-            mock(UserClient.class), mock(CompanyClient.class), mock(HubClient.class), mock(DeliveryClient.class),
-            mock(SlackNotifier.class), mock(TransactionTemplate.class));
+    private final OrderService orderService = new OrderService(orderRepository);
 
     private final UUID ordererId = UUID.randomUUID();
     private final UUID otherUserId = UUID.randomUUID();

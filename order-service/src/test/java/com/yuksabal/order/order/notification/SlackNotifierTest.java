@@ -75,6 +75,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.text", allOf(containsString("[수동 처리 필요]"), containsString("재고 복원 실패"))))
                 .andExpect(jsonPath("$.blocks[0].text.text").value("🚨 수동 처리 필요"))
                 .andExpect(jsonPath("$.blocks[1].text.text", containsString("재고 복원 실패")))
+                .andExpect(jsonPath("$.blocks[4].elements[0].text", containsString("재고 복원 및 배송 취소 상태를 확인한 후 수동 처리해 주세요")))
                 .andRespond(withSuccess());
 
         new SlackNotifier(restClient, WEBHOOK).notifyManualAction(order, "재고 복원 실패");
