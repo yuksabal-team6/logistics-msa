@@ -2,6 +2,8 @@ package com.yuksabal.order.order.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.common.feign.FeignClientException;
+import com.yuksabal.order.order.client.CompanyClient;
 import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.dto.DeliveryCancelRequest;
 import com.yuksabal.order.order.dto.response.OrderResponse;
@@ -16,10 +18,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 
-// 주문 취소 (결정 19). 주문 CANCELLED → 배송 취소 → 재고 복원 순서
-// 외부 호출은 트랜잭션 밖, DB 저장만 짧은 트랜잭션 (TransactionTemplate)
+/**
+ * 주문을 취소한다.
+ * <ul>
+ *     <li>주문 CANCELLED → 배송 취소 → 재고 복원 순서</li>
+ *     <li>외부 호출은 트랜잭션 밖, DB 저장만 짧은 트랜잭션 (TransactionTemplate)</li>
+ * </ul>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -28,6 +36,7 @@ public class OrderCancelService {
     private static final String CANCEL_REASON = "주문 취소 보상 실패 (재고 복원)";
 
     private final OrderRepository orderRepository;
+    private final CompanyClient companyClient;
     private final DeliveryClient deliveryClient;
     private final OrderCompensator orderCompensator;
     private final TransactionTemplate transactionTemplate;
@@ -43,7 +52,10 @@ public class OrderCancelService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public OrderResponse cancelOrder(UUID orderId, UUID userId, UserRole role) {
         log.debug("[주문 취소] 시작 orderId={}, userId={}, role={}", orderId, userId, role);
-        // TODO ② 권한: 주문자 본인, 요청 업체 관리자(company 내부 API 2 ownerId), MASTER. 그 외 403
+
+        // 0. 권한: 주문자 본인, 요청 업체 관리자, MASTER (아니면 403)
+        Order target = transactionTemplate.execute(status -> findOrder(orderId));
+        verifyCancelPermission(target, userId, role);
 
         // 1. 주문 CANCELLED + 보상 PENDING (CONFIRMED가 아니면 409)
         Order order = transactionTemplate.execute(status -> {
@@ -65,6 +77,50 @@ public class OrderCancelService {
         Order cancelled = transactionTemplate.execute(status -> findOrder(orderId));
         log.debug("[주문 취소] 완료 orderId={}, 보상={}", orderId, cancelled.getCompensationStatus());
         return OrderResponse.from(cancelled);
+    }
+
+    /**
+     * 주문 취소 가능한 권한인지 확인한다.
+     * <ul>
+     * <li>주문자 본인, MASTER는 company 호출 없이 통과,
+     * COMPANY 만 요청 업체 관리자(ownerId)인지 확인한다.</li>
+     * <li>USER, DELIVERY 는 company 호출 없이 403 응답이다.</li>
+     * <li>company OwnerPermission과 동일하게 업체 소유권 검증 (결정 19 역할 + 소유권)</li>
+     * </ul>
+     *
+     * @param order  확인 대상 주문 엔티티
+     * @param userId 확인할 사용자 ID
+     * @param role   확인할 사용자의 권한
+     */
+    private void verifyCancelPermission(Order order, UUID userId, UserRole role) {
+        if (role == UserRole.MASTER || order.isOrderedBy(userId)
+                || (role == UserRole.COMPANY && isRequestCompanyOwner(order, userId))) {
+            return;
+        }
+        log.warn("[주문 취소] 권한 없음 orderId={}, userId={}, role={}", order.getId(), userId, role);
+        throw new BusinessException(FORBIDDEN, "주문자, 요청 업체 관리자, MASTER만 주문을 취소할 수 있습니다.");
+    }
+
+    /**
+     * 요청 업체의 관리자인지 확인한다.
+     * <ul>
+     *   <li>업체 조회 404: 관리자 확인 불가로 false 반환</li>
+     *   <li>그 외 오류(5xx, 타임아웃): 예외 전파</li>
+     * </ul>
+     *
+     * @param order  확인 대상 주문 엔티티
+     * @param userId 확인할 사용자 ID
+     * @return 요청 업체 관리자이면 true, 아니면 false
+     */
+    private boolean isRequestCompanyOwner(Order order, UUID userId) {
+        try {
+            return userId.equals(companyClient.getCompany(order.getRequestCompanyId()).data().ownerId());
+        } catch (FeignClientException e) {
+            if (e.getStatus() == 404) {
+                return false;
+            }
+            throw e;
+        }
     }
 
     /**

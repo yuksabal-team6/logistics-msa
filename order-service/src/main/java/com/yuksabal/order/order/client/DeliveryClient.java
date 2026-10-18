@@ -16,7 +16,7 @@ public interface DeliveryClient {
     @PostMapping("/internal/deliveries")
     ApiResponse<DeliveryCreateResponse> createDelivery(@RequestBody DeliveryCreateRequest request);
 
-    // #9 배송, 경로 기록 취소 (결정 #19). 주문 생성 보상(타임아웃)과 주문 취소에서 호출
+    // #9 배송, 경로 기록 취소 (결정 19). 주문 생성 보상(타임아웃)과 주문 취소에서 호출
     @PostMapping("/internal/deliveries/cancel")
     ApiResponse<Void> cancelDelivery(@RequestBody DeliveryCancelRequest request);
 }

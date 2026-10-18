@@ -1,10 +1,12 @@
 package com.yuksabal.order.order.controller;
 
+import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.order.order.client.CompanyClient;
 import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.HubClient;
 import com.yuksabal.order.order.client.UserClient;
+import com.yuksabal.order.order.client.dto.CompanyResponse;
 import com.yuksabal.order.order.client.dto.DeliveryCancelRequest;
 import com.yuksabal.order.order.client.dto.StockRequest;
 import com.yuksabal.order.order.client.dto.StockRestoreResponse;
@@ -25,6 +27,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,6 +37,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -92,6 +96,114 @@ class OrderCancelIntegrationTest {
         sequence.verify(deliveryClient).cancelDelivery(new DeliveryCancelRequest(order.getId()));
         sequence.verify(hubClient).restoreStock(new StockRequest(departureHubId, productId, 5, order.getId()));
         verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+        // 주문자 본인은 company 호출 없이 통과
+        verifyNoInteractions(companyClient);
+    }
+
+    // ---------- ② 권한 ----------
+
+    @Test
+    void 요청_업체_관리자는_취소할_수_있다() throws Exception {
+        Order order = saveConfirmed();
+        UUID ownerId = UUID.randomUUID();
+        givenRequestCompanyOwner(order, ownerId);
+        givenCancelSucceeds(order);
+
+        cancel(order.getId(), ownerId, "COMPANY")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+    }
+
+    @Test
+    void MASTER는_company_호출_없이_취소할_수_있다() throws Exception {
+        Order order = saveConfirmed();
+        givenCancelSucceeds(order);
+
+        cancel(order.getId(), UUID.randomUUID(), "MASTER")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+
+        verifyNoInteractions(companyClient);
+    }
+
+    @Test
+    void 주문자도_요청_업체_관리자도_아니면_403이고_주문은_그대로() throws Exception {
+        Order order = saveConfirmed();
+
+        cancel(order.getId(), UUID.randomUUID(), "USER")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        assertUnchanged(order);
+        // COMPANY가 아니면 company 호출 없이 403
+        verifyNoInteractions(companyClient);
+    }
+
+    @Test
+    void ownerId가_같아도_COMPANY가_아니면_403() throws Exception {
+        Order order = saveConfirmed();
+        UUID ownerId = UUID.randomUUID();
+        givenRequestCompanyOwner(order, ownerId);
+
+        // 업체 관리자였다가 역할이 바뀐 경우
+        cancel(order.getId(), ownerId, "USER")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        assertUnchanged(order);
+    }
+
+    @Test
+    void 다른_업체_관리자는_403() throws Exception {
+        Order order = saveConfirmed();
+        givenRequestCompanyOwner(order, UUID.randomUUID());
+
+        cancel(order.getId(), UUID.randomUUID(), "COMPANY")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        assertUnchanged(order);
+    }
+
+    @Test
+    void 요청_업체가_삭제돼_404면_403() throws Exception {
+        Order order = saveConfirmed();
+        given(companyClient.getCompany(order.getRequestCompanyId())).willThrow(
+                new FeignClientException(404, "RESOURCE_NOT_FOUND", "존재하지 않거나 삭제된 업체입니다.", List.of()));
+
+        cancel(order.getId(), UUID.randomUUID(), "COMPANY")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        assertUnchanged(order);
+    }
+
+    @Test
+    void 없는_주문은_404() throws Exception {
+        cancel(UUID.randomUUID(), ordererId, "USER")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+
+        verifyNoInteractions(companyClient, deliveryClient, hubClient);
+    }
+
+    private void givenRequestCompanyOwner(Order order, UUID ownerId) {
+        given(companyClient.getCompany(order.getRequestCompanyId())).willReturn(ApiResponse.success(
+                new CompanyResponse(order.getRequestCompanyId(), "요청 업체", order.getArrivalHubId(), "부산", ownerId)));
+    }
+
+    private void givenCancelSucceeds(Order order) {
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+        given(hubClient.restoreStock(any())).willReturn(
+                ApiResponse.success(new StockRestoreResponse(departureHubId, productId, 5, order.getId())));
+    }
+
+    // 권한 없으면 배송 취소, 재고 복원 호출 없이 CONFIRMED 그대로
+    private void assertUnchanged(Order order) {
+        verifyNoInteractions(deliveryClient, hubClient);
+        Order saved = orderRepository.findById(order.getId()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
     }
 
     private Order saveConfirmed() {
