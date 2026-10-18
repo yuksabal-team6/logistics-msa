@@ -110,12 +110,23 @@ class GatewayRoleRulesIntegrationTest {
     }
 
     @Test
+    void 회원_삭제는_MASTER가_아니면_403이고_서비스로_전달하지_않는다() {
+        for (String role : NON_MASTER) {
+            expectForbidden(HttpMethod.DELETE, "/api/v1/users/" + targetId, role);
+            // 자기 자신 삭제 요청도 Gateway에서 막는다 (자기 자신 422는 MASTER 요청일 때 user-service가 판단)
+            expectForbidden(HttpMethod.DELETE, "/api/v1/users/" + userId, role);
+        }
+        assertThat(STUB_HITS.get()).isZero();
+    }
+
+    @Test
     void MASTER는_회원_관리_API를_서비스로_전달한다() {
         request(HttpMethod.GET, "/api/v1/users", "MASTER").expectStatus().isOk();
         request(HttpMethod.PATCH, "/api/v1/users/" + targetId, "MASTER").expectStatus().isOk();
         request(HttpMethod.PATCH, "/api/v1/users/" + targetId + "/role", "MASTER").expectStatus().isOk();
         request(HttpMethod.PATCH, "/api/v1/users/" + targetId + "/status", "MASTER").expectStatus().isOk();
-        assertThat(STUB_HITS.get()).isEqualTo(4);
+        request(HttpMethod.DELETE, "/api/v1/users/" + targetId, "MASTER").expectStatus().isOk();
+        assertThat(STUB_HITS.get()).isEqualTo(5);
     }
 
     // ---------- company·order·delivery·hub (담당자별 권한 표) ----------

@@ -122,6 +122,9 @@ auth:
     - method: PATCH
       path: /api/v1/users/*/status
       roles: [MASTER]
+    - method: DELETE
+      path: /api/v1/users/*
+      roles: [MASTER]
 
     # company-service 업체·상품. 조회(GET)는 로그인만, 본인 업체인지는 서비스가 확인한다
     - method: POST
