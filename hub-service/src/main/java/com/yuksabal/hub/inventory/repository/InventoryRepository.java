@@ -65,4 +65,18 @@ public interface InventoryRepository extends
                                  @Param("quantity") int quantity,
                                  @Param("now") LocalDateTime now,
                                  @Param("userId") UUID userId);
+
+    // 주문 복원: 차감했던 수량만큼 되돌린다. 호출 전에 재고 행을 잠그므로 상한·하한 조건은 두지 않는다
+    // 차감과 같이 updatedAt·updatedBy를 직접 넣고, 잠금 조회로 불러온 엔티티가 남지 않도록 영속성 컨텍스트를 비운다
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            UPDATE Inventory i
+            SET i.quantity = i.quantity + :quantity, i.updatedAt = :now, i.updatedBy = :userId
+            WHERE i.id = :inventoryId
+              AND i.deletedAt IS NULL
+            """)
+    int increaseQuantity(@Param("inventoryId") UUID inventoryId,
+                         @Param("quantity") int quantity,
+                         @Param("now") LocalDateTime now,
+                         @Param("userId") UUID userId);
 }
