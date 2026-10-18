@@ -20,7 +20,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
-import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 
 /**
  * 주문을 취소한다.
@@ -56,12 +55,12 @@ public class OrderCancelService {
         log.debug("[주문 취소] 시작 orderId={}, userId={}, role={}", orderId, userId, role);
 
         // 0. 권한: 주문자 본인, 요청 업체 관리자, MASTER (아니면 403)
-        Order target = transactionTemplate.execute(status -> findOrder(orderId));
+        Order target = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(orderId));
         verifyCancelPermission(target, userId, role);
 
         // 1. 주문 CANCELLED + 보상 PENDING (CONFIRMED가 아니면 409)
         Order order = transactionTemplate.execute(status -> {
-            Order found = findOrder(orderId);
+            Order found = orderRepository.findByIdOrThrow(orderId);
             found.cancel();
             return found;
         });
@@ -73,7 +72,7 @@ public class OrderCancelService {
         // 3. 재고 복원 (내부 API 4) → 보상 COMPLETED, 실패면 보상 FAILED + Slack 수동 처리 (취소는 유지)
         orderCompensator.restoreStock(order, CANCEL_REASON);
 
-        Order cancelled = transactionTemplate.execute(status -> findOrder(orderId));
+        Order cancelled = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(orderId));
         log.debug("[주문 취소] 완료 orderId={}, 보상={}", orderId, cancelled.getCompensationStatus());
         return OrderResponse.from(cancelled);
     }
@@ -85,7 +84,7 @@ public class OrderCancelService {
             deliveryClient.cancelDelivery(new DeliveryCancelRequest(order.getId()));
             log.debug("[주문 취소] 2. 배송 취소 성공 orderId={}", order.getId());
         } catch (FeignClientException | FeignServerException e) {
-            transactionTemplate.executeWithoutResult(status -> findOrder(order.getId()).revertCancel());
+            transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(order.getId()).revertCancel());
             log.warn("[주문 취소] 배송 취소 실패로 CONFIRMED 되돌림 orderId={}, error={}", order.getId(), e.getMessage());
             throw e;
         } catch (RuntimeException e) {
@@ -137,18 +136,5 @@ public class OrderCancelService {
             }
             throw e;
         }
-    }
-
-    /**
-     * 주문 ID로 주문을 조회한다.
-     * 존재하지 않거나 삭제된 주문이면 예외를 발생시킨다.
-     *
-     * @param orderId 조회할 주문 ID
-     * @return 해당 주문 엔티티
-     */
-    private Order findOrder(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 주문입니다.", "orderId"));
     }
 }

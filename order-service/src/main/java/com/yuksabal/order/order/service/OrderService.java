@@ -21,7 +21,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
-import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.order.order.repository.OrderSpecification.*;
 
@@ -74,7 +73,7 @@ public class OrderService {
      * @return 조회된 주문 정보
      */
     public OrderResponse getOrder(UUID orderId, UUID userId, UserRole role) {
-        Order order = findOrder(orderId);
+        Order order = orderRepository.findByIdOrThrow(orderId);
         if (role != UserRole.MASTER && !order.isOrderedBy(userId)) {
             throw new BusinessException(FORBIDDEN, "본인 주문만 조회할 수 있습니다.");
         }
@@ -96,7 +95,7 @@ public class OrderService {
         if (role != UserRole.MASTER) {
             throw new BusinessException(FORBIDDEN, "주문은 MASTER만 삭제할 수 있습니다.");
         }
-        Order order = findOrder(orderId);
+        Order order = orderRepository.findByIdOrThrow(orderId);
         if (!order.isDeletable()) {
             throw new BusinessException(OrderErrorCode.ORDER_NOT_DELETABLE,
                     "완료된 주문 또는 보상이 끝난 실패/취소 주문만 삭제할 수 있습니다.", "orderId");
@@ -113,7 +112,7 @@ public class OrderService {
      */
     @Transactional
     public OrderCompleteResponse completeOrder(UUID orderId) {
-        Order order = findOrder(orderId);
+        Order order = orderRepository.findByIdOrThrow(orderId);
         order.complete();
         return OrderCompleteResponse.from(order);
     }
@@ -128,18 +127,5 @@ public class OrderService {
     public OrderInProgressResponse hasInProgressOrder(UUID ordererId) {
         boolean exists = orderRepository.exists(ordererIdEquals(ordererId).and(inProgress()));
         return new OrderInProgressResponse(ordererId, exists);
-    }
-
-    /**
-     * 주문 ID로 주문을 조회한다.
-     * 없거나 삭제된 주문이면 예외를 발생한다.
-     *
-     * @param orderId 존재 여부를 확인할 주문 ID
-     * @return 존재하는 주문 객체
-     */
-    private Order findOrder(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 주문입니다.", "orderId"));
     }
 }

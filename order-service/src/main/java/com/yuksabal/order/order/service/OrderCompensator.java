@@ -1,6 +1,5 @@
 package com.yuksabal.order.order.service;
 
-import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.HubClient;
 import com.yuksabal.order.order.client.dto.DeliveryCancelRequest;
@@ -14,8 +13,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
-
-import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 
 /**
  * 주문 보상 처리를 담당한다.
@@ -119,22 +116,16 @@ public class OrderCompensator {
      */
     private void finishCompensation(Order order, boolean success, String reason) {
         if (success) {
-            transactionTemplate.executeWithoutResult(status -> findOrder(order.getId()).completeCompensation());
+            transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(order.getId()).completeCompensation());
             log.debug("[보상] 완료 orderId={} → 보상 COMPLETED", order.getId());
             return;
         }
         Order failed = transactionTemplate.execute(status -> {
-            Order saved = findOrder(order.getId());
+            Order saved = orderRepository.findByIdOrThrow(order.getId());
             saved.failCompensation();
             return saved;
         });
         log.error("[수동 처리 필요] 보상 실패 orderId={} → 보상 FAILED", order.getId());
         slackNotifier.notifyManualAction(failed, reason);
-    }
-
-    private Order findOrder(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 주문입니다.", "orderId"));
     }
 }

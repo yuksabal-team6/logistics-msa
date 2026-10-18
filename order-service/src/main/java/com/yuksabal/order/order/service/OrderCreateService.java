@@ -34,7 +34,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
-import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 
 // 주문 생성 Saga (결정 17, 18, 21). order가 user, company, hub, delivery를 차례로 호출하고 실패하면 보상
@@ -258,7 +257,7 @@ public class OrderCreateService {
         Order confirmed;
         try {
             confirmed = transactionTemplate.execute(status -> {
-                Order saved = findOrder(order.getId());
+                Order saved = orderRepository.findByIdOrThrow(order.getId());
                 saved.confirm(deliveryId);
                 return saved;
             });
@@ -283,7 +282,7 @@ public class OrderCreateService {
      * @param reason 오류 사유
      */
     private void notifyUnexpectedError(Order order, String reason) {
-        Order current = transactionTemplate.execute(status -> findOrder(order.getId()));
+        Order current = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(order.getId()));
         if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
             slackNotifier.notifyCheckNeeded(current, reason);
         }
@@ -346,20 +345,7 @@ public class OrderCreateService {
      * @param compensationStatus 변경할 보상 상태
      */
     private void failOrder(UUID orderId, CompensationStatus compensationStatus) {
-        transactionTemplate.executeWithoutResult(status -> findOrder(orderId).fail(compensationStatus));
-    }
-
-    /**
-     * 주문 ID로 주문을 조회한다.
-     * 없거나 삭제된 주문이면 예외를 발생한다.
-     *
-     * @param orderId 존재 여부를 확인할 주문 ID
-     * @return 존재하는 주문 객체
-     */
-    private Order findOrder(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 주문입니다.", "orderId"));
+        transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(orderId).fail(compensationStatus));
     }
 
     // 1, 2단계 조회 결과 (상품, 공급 업체, 요청 업체)
