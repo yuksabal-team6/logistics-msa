@@ -28,7 +28,7 @@ public class ProductInternalController {
     private final ProductService productService;
 
     // #1 상품 조회: 200 + ApiResponse.success(data). 없거나 삭제된 상품은 404 → order에서 주문 실패로 처리
-    @Operation(summary = "상품 조회 (#1)", description = "order가 주문 생성 시 호출. 없거나 삭제된 상품은 404")
+    @Operation(summary = "상품 조회 (#1)", description = "order가 주문 생성 시, hub가 재고 행을 만들 때 호출. 없거나 삭제된 상품은 404")
     @ApiErrorCodes(common = {VALIDATION_ERROR, RESOURCE_NOT_FOUND})
     @GetMapping("/{productId}")
     public ResponseEntity<ApiResponse<ProductInternalResponse>> getProductForInternal(@PathVariable UUID productId) {
