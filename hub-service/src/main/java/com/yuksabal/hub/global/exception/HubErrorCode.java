@@ -17,7 +17,10 @@ public enum HubErrorCode implements ErrorCode {
     INSUFFICIENT_STOCK(HttpStatus.CONFLICT, "재고가 부족합니다."),
 
     // 관리자가 조회한 뒤 주문 차감·입고 등으로 수량이 바뀐 경우
-    INVENTORY_QUANTITY_CONFLICT(HttpStatus.CONFLICT, "재고 수량이 변경되었습니다. 현재 수량을 확인한 뒤 다시 조정해 주세요.");
+    INVENTORY_QUANTITY_CONFLICT(HttpStatus.CONFLICT, "재고 수량이 변경되었습니다. 현재 수량을 확인한 뒤 다시 조정해 주세요."),
+
+    // 같은 허브·상품의 재고를 처음 입고하는 요청이 동시에 와서 다른 요청이 먼저 재고를 만든 경우
+    INVENTORY_CREATE_CONFLICT(HttpStatus.CONFLICT, "같은 재고가 동시에 생성되었습니다. 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;
