@@ -18,11 +18,11 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 
 /**
- * - 주문 보상 처리를 담당한다.
- * <p>
- * - 주문 생성 실패 / 주문 취소 시 재고 복원과 배송 취소를 수행한다.
- * <p>
- * - 보상 결과: 성공 → 보상 COMPLETED / 실패 → 보상 FAILED + Slack 수동 처리 알림
+ * 주문 보상 처리를 담당한다.
+ * <ul>
+ *     <li>주문 생성 실패 / 주문 취소 시 재고 복원과 배송 취소를 수행한다.</li>
+ *     <li>보상 결과: 성공 → 보상 COMPLETED / 실패 → 보상 FAILED + Slack 수동 처리 알림</li>
+ * </ul>
  */
 @Slf4j
 @Component
@@ -57,6 +57,17 @@ public class OrderCompensator {
         boolean restored = callRestoreStock(order);
         boolean cancelled = callCancelDelivery(order);
         finishCompensation(order, restored && cancelled, reason);
+    }
+
+    /**
+     * 배송 취소 타임아웃 등 결과를 확인할 수 없거나 예상하지 못한 예외가 발생하는 경우,
+     * 보상 상태를 FAILED로 변경하고 Slack 수동 처리 알림을 전송한다.
+     *
+     * @param order  보상 실패 처리할 주문 엔티티
+     * @param reason 수동 처리 알림에 포함할 사유
+     */
+    public void failCompensation(Order order, String reason) {
+        finishCompensation(order, false, reason);
     }
 
     /**
@@ -121,13 +132,6 @@ public class OrderCompensator {
         slackNotifier.notifyManualAction(failed, reason);
     }
 
-    // 주문 조회 (없거나 삭제된 주문이면 404)
-
-    /**
-     *
-     * @param orderId
-     * @return
-     */
     private Order findOrder(UUID orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,

@@ -3,6 +3,7 @@ package com.yuksabal.order.order.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.feign.FeignClientException;
+import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.order.order.client.CompanyClient;
 import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.dto.DeliveryCancelRequest;
@@ -34,6 +35,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 public class OrderCancelService {
 
     private static final String CANCEL_REASON = "주문 취소 보상 실패 (재고 복원)";
+    private static final String DELIVERY_UNKNOWN_REASON = "주문 취소 중 배송 취소 결과 확인 불가 (타임아웃 등)";
 
     private final OrderRepository orderRepository;
     private final CompanyClient companyClient;
@@ -65,11 +67,8 @@ public class OrderCancelService {
         });
         log.debug("[주문 취소] 1. CANCELLED 저장 orderId={}", orderId);
 
-        // 2. 배송, 경로 기록 취소 (내부 API 9)
-        // TODO ④ 배송 취소 실패(불가) 처리: 4xx/5xx면 CONFIRMED + NOT_REQUIRED로 되돌림,
-        //  타임아웃이면 CANCELLED 유지 + 보상 FAILED + Slack
-        deliveryClient.cancelDelivery(new DeliveryCancelRequest(orderId));
-        log.debug("[주문 취소] 2. 배송 취소 성공 orderId={}", orderId);
+        // 2. 배송, 경로 기록 취소 (내부 API 9). 실패하면 D-28대로 처리하고 예외를 그대로 던짐 (재고 복원 안 함)
+        cancelDelivery(order);
 
         // 3. 재고 복원 (내부 API 4) → 보상 COMPLETED, 실패면 보상 FAILED + Slack 수동 처리 (취소는 유지)
         orderCompensator.restoreStock(order, CANCEL_REASON);
@@ -77,6 +76,23 @@ public class OrderCancelService {
         Order cancelled = transactionTemplate.execute(status -> findOrder(orderId));
         log.debug("[주문 취소] 완료 orderId={}, 보상={}", orderId, cancelled.getCompensationStatus());
         return OrderResponse.from(cancelled);
+    }
+
+    // delivery가 거절(4xx)하거나 실패로 응답(5xx) → 배송이 안 취소된 게 확실하니 CONFIRMED + NOT_REQUIRED로 되돌림 (4xx는 그대로, 5xx는 502)
+    // 타임아웃, 예상 못 한 예외 → 배송 취소 여부를 모름. CANCELLED 유지 + 보상 FAILED + Slack 수동 처리 (D-28)
+    private void cancelDelivery(Order order) {
+        try {
+            deliveryClient.cancelDelivery(new DeliveryCancelRequest(order.getId()));
+            log.debug("[주문 취소] 2. 배송 취소 성공 orderId={}", order.getId());
+        } catch (FeignClientException | FeignServerException e) {
+            transactionTemplate.executeWithoutResult(status -> findOrder(order.getId()).revertCancel());
+            log.warn("[주문 취소] 배송 취소 실패로 CONFIRMED 되돌림 orderId={}, error={}", order.getId(), e.getMessage());
+            throw e;
+        } catch (RuntimeException e) {
+            log.error("[수동 처리 필요] 배송 취소 결과 확인 불가 orderId={}", order.getId(), e);
+            orderCompensator.failCompensation(order, DELIVERY_UNKNOWN_REASON);
+            throw e;
+        }
     }
 
     /**

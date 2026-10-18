@@ -98,6 +98,36 @@ class OrderTest {
         assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.PENDING);
     }
 
+    @Test
+    void 취소_되돌림_CANCELLED_보상_PENDING이면_CONFIRMED_NOT_REQUIRED() {
+        Order order = order();
+        order.confirm(UUID.randomUUID());
+        order.cancel();
+
+        order.revertCancel();
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+    }
+
+    @ParameterizedTest(name = "{0} + {1} → 409")
+    @CsvSource({
+            "CONFIRMED, NOT_REQUIRED",
+            "CANCELLED, COMPLETED",
+            "CANCELLED, FAILED",
+            "FAILED, PENDING"
+    })
+    void 취소_되돌림_취소_진행_중이_아니면_409(OrderStatus status, CompensationStatus compensationStatus) {
+        Order order = order();
+        ReflectionTestUtils.setField(order, "status", status);
+        ReflectionTestUtils.setField(order, "compensationStatus", compensationStatus);
+
+        assertThatThrownBy(order::revertCancel)
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(OrderErrorCode.INVALID_STATUS_TRANSITION);
+        assertThat(order.getStatus()).isEqualTo(status);
+    }
+
     @ParameterizedTest(name = "{0} → 409")
     @CsvSource({"PENDING", "FAILED", "CANCELLED", "COMPLETED"})
     void 취소_CONFIRMED가_아니면_409_상태_그대로(OrderStatus status) {

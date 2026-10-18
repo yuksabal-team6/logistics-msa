@@ -217,6 +217,19 @@ public class Order extends BaseEntity implements Persistable<UUID> {
     }
 
     /**
+     * 배송 취소 실패 시 상태를 되돌린다.
+     * CANCELLED + 보상 PENDING 상태에서만 CONFIRMED + NOT_REQUIRED 로 변경할 수 있다.
+     */
+    public void revertCancel() {
+        if (status != OrderStatus.CANCELLED || compensationStatus != CompensationStatus.PENDING) {
+            throw new BusinessException(OrderErrorCode.INVALID_STATUS_TRANSITION,
+                    "취소 진행 중인 주문만 되돌릴 수 있습니다.", "orderId");
+        }
+        this.status = OrderStatus.CONFIRMED;
+        this.compensationStatus = CompensationStatus.NOT_REQUIRED;
+    }
+
+    /**
      * 주문의 삭제 가능 여부를 판단한다.
      *
      * 완료된 주문 또는 보상 처리가 끝난 실패/취소 주문만 삭제할 수 있다.
