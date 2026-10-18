@@ -7,9 +7,12 @@ import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubErrorCode;
+import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
 import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
+import com.yuksabal.hub.inventory.client.dto.ProductResponse;
+import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
@@ -19,6 +22,8 @@ import com.yuksabal.hub.inventory.entity.InventoryLog;
 import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -41,6 +46,9 @@ public class InventoryService {
 
     // 목록 정렬 허용 필드 (API 명세 0.4: 정렬 필드는 API별로 제한)
     private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "quantity");
+
+    // data.sql의 (hub_id, product_id) 부분 유니크 인덱스
+    private static final String INVENTORY_UNIQUE_INDEX = "uk_inventories_hub_id_product_id";
 
     private final InventoryRepository inventoryRepository;
     private final InventoryLogRepository inventoryLogRepository;
@@ -143,6 +151,81 @@ public class InventoryService {
                 .quantity(Math.abs(quantity - expectedQuantity))
                 .build());
         return InventoryResponse.from(inventory);
+    }
+
+    // 허브에 상품을 입고한다 (MASTER). 재고가 있으면 수량을 늘리고, 없으면 새로 만든다
+    // 재고가 있으면 처음 만들 때 상품·허브를 확인했으므로 company-service를 호출하지 않는다
+    @Transactional
+    public InventoryResponse inbound(InventoryInboundRequest request, UUID userId, UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(CommonErrorCode.FORBIDDEN);
+        }
+        Hub hub = hubRepository.findById(request.hubId())
+                .orElseThrow(() -> new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않는 허브입니다.",
+                        "hubId"));
+
+        Inventory inventory = inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
+                .map(existing -> increaseInventory(existing, request.quantity(), userId))
+                .orElseGet(() -> createInventory(hub, request));
+
+        inventoryLogRepository.save(InventoryLog.builder()
+                .inventory(inventory)
+                .changeType(InventoryChangeType.INBOUND)
+                .quantity(request.quantity())
+                .build());
+        return InventoryResponse.from(inventory);
+    }
+
+    // 현재 수량에 더하는 원자 UPDATE라 동시 입고·주문 차감과 덮어쓰지 않는다. UPDATE 후 늘어난 수량으로 다시 조회한다
+    private Inventory increaseInventory(Inventory inventory, int quantity, UUID userId) {
+        inventoryRepository.increaseQuantity(inventory.getId(), quantity, LocalDateTime.now(), userId);
+        return findInventory(inventory.getId());
+    }
+
+    // 상품 업체의 관리 허브에만 재고를 만든다 (상품 재고는 업체 관리 허브 한 곳에만 둔다)
+    // 같은 허브·상품을 동시에 처음 입고하면 늦은 쪽이 (hub_id, product_id) 유니크 인덱스 위반으로 실패해 409로 응답한다
+    private Inventory createInventory(Hub hub, InventoryInboundRequest request) {
+        ProductResponse product = findProduct(request.productId());
+        if (!hub.getId().equals(product.hubId())) {
+            throw new BusinessException(
+                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
+                    "상품 업체의 관리 허브에만 입고할 수 있습니다.",
+                    List.of(new ApiErrorDetail("hubId", "상품 업체의 관리 허브는 " + product.hubId() + "입니다.")));
+        }
+
+        try {
+            // 유니크 위반이 여기서 나도록 바로 flush 한다
+            return inventoryRepository.saveAndFlush(Inventory.builder()
+                    .hub(hub)
+                    .productId(request.productId())
+                    .companyId(product.companyId())
+                    .quantity(request.quantity())
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            // 다른 무결성 위반이면 원래 예외를 그대로 던진다
+            if (e.getCause() instanceof ConstraintViolationException cause
+                    && INVENTORY_UNIQUE_INDEX.equals(cause.getConstraintName())) {
+                throw new BusinessException(HubErrorCode.INVENTORY_CREATE_CONFLICT);
+            }
+            throw e;
+        }
+    }
+
+    // 없거나 삭제된 상품이면 company-service가 404로 응답한다
+    private ProductResponse findProduct(UUID productId) {
+        try {
+            return companyClient.getProduct(productId).data();
+        } catch (FeignClientException e) {
+            if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
+                throw new BusinessException(
+                        CommonErrorCode.RESOURCE_NOT_FOUND,
+                        "존재하지 않는 상품입니다.",
+                        "productId");
+            }
+            throw e;
+        }
     }
 
     private Inventory findInventory(UUID inventoryId) {
