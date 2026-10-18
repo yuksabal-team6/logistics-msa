@@ -33,6 +33,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -46,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -358,6 +360,74 @@ class OrderCreateIntegrationTest {
 
         assertFailed(CompensationStatus.FAILED);
         verify(hubClient).restoreStock(any());
+    }
+
+    @Test
+    void 같은_키로_다시_보내면_새로_안_만들고_기존_주문으로_응답() throws Exception {
+        String first = create(validBody()).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String orderId = objectMapper.readTree(first).path("data").path("orderId").asText();
+
+        create(validBody())
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.orderId").value(orderId))
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"));
+
+        assertThat(orderRepository.count()).isEqualTo(1);
+        verify(hubClient, times(1)).decreaseStock(any());
+        verify(deliveryClient, times(1)).createDelivery(any());
+    }
+
+    @Test
+    void 같은_키_주문이_처리_중이면_409_ORDER_IN_PROGRESS() throws Exception {
+        saveExisting(userId, OrderStatus.PENDING);
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ORDER_IN_PROGRESS"));
+
+        verify(companyClient, never()).getProduct(any());
+    }
+
+    @Test
+    void 같은_키_주문이_실패했으면_409_ORDER_ALREADY_FAILED() throws Exception {
+        saveExisting(userId, OrderStatus.FAILED);
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ORDER_ALREADY_FAILED"))
+                .andExpect(jsonPath("$.error.details[0].field").value("orderId"));
+
+        assertThat(orderRepository.count()).isEqualTo(1);
+        verify(hubClient, never()).decreaseStock(any());
+    }
+
+    @Test
+    void 다른_회원이_같은_키를_보내면_409_IDEMPOTENCY_KEY_CONFLICT() throws Exception {
+        saveExisting(UUID.randomUUID(), OrderStatus.CONFIRMED);
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_CONFLICT"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        verify(companyClient, never()).getProduct(any());
+    }
+
+    // 같은 Idempotency-Key로 이미 저장된 주문 (상태 지정)
+    private void saveExisting(UUID ordererId, OrderStatus status) {
+        Order order = Order.builder()
+                .requestCompanyId(requesterId)
+                .supplierCompanyId(supplierId)
+                .productId(productId)
+                .departureHubId(supplierHubId)
+                .arrivalHubId(requesterHubId)
+                .ordererId(ordererId)
+                .quantity(5)
+                .unitPrice(12_000L)
+                .idempotencyKey(idempotencyKey.toString())
+                .build();
+        ReflectionTestUtils.setField(order, "status", status);
+        orderRepository.saveAndFlush(order);
     }
 
     private void givenRestoreSucceeds() {

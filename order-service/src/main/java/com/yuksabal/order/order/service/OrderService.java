@@ -25,10 +25,12 @@ import com.yuksabal.order.order.dto.response.OrderInProgressResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
+import com.yuksabal.order.order.entity.OrderStatus;
 import com.yuksabal.order.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import feign.RetryableException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -37,6 +39,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -83,8 +86,11 @@ public class OrderService {
         log.debug("[주문 생성] 시작 userId={}, productId={}, quantity={}, idempotencyKey={}",
                 userId, request.productId(), request.quantity(), idempotencyKey);
 
-        // TODO ⑤ 멱등성: 같은 Idempotency-Key 주문이 있으면 기존 결과 응답 (CONFIRMED면 그 결과, FAILED면 실패 결과, PENDING이면 409 처리 중)
-        //  동시에 같은 키가 들어오면 idempotency_key 부분 유니크 위반 → 기존 주문 응답 (schema.sql 필요, 결정 18)
+        // 멱등성: 같은 Idempotency-Key로 만든 주문이 있으면 새로 만들지 않고 기존 결과로 응답
+        Optional<Order> existing = orderRepository.findByIdempotencyKey(idempotencyKey.toString());
+        if (existing.isPresent()) {
+            return replayExisting(existing.get(), userId);
+        }
 
         // 0. 주문자 확인: 탈퇴 회원은 user에서 404, 비활성 회원은 403 (주문 저장 없이 끝)
         verifyOrdererActive(userId, "0. 주문자 확인");
@@ -100,23 +106,34 @@ public class OrderService {
                 product.unitPrice(), supplier.hubId(), requester.hubId());
 
         // 3. 주문 PENDING 저장 (출발 허브 = 공급 업체 허브, 도착 허브 = 요청 업체 허브)
-        Order order = transactionTemplate.execute(status -> orderRepository.save(Order.builder()
-                .requestCompanyId(request.requestCompanyId())
-                .supplierCompanyId(request.supplierCompanyId())
-                .productId(request.productId())
-                .departureHubId(supplier.hubId())
-                .arrivalHubId(requester.hubId())
-                .ordererId(userId)
-                .quantity(request.quantity())
-                .unitPrice(product.unitPrice())
-                .requestMessage(request.requestMessage())
-                .idempotencyKey(idempotencyKey.toString())
-                .build()));
+        Order order;
+        try {
+            order = transactionTemplate.execute(status -> orderRepository.saveAndFlush(Order.builder()
+                    .requestCompanyId(request.requestCompanyId())
+                    .supplierCompanyId(request.supplierCompanyId())
+                    .productId(request.productId())
+                    .departureHubId(supplier.hubId())
+                    .arrivalHubId(requester.hubId())
+                    .ordererId(userId)
+                    .quantity(request.quantity())
+                    .unitPrice(product.unitPrice())
+                    .requestMessage(request.requestMessage())
+                    .idempotencyKey(idempotencyKey.toString())
+                    .build()));
+        } catch (DataIntegrityViolationException e) {
+
+            // 같은 키 요청이 동시에 들어와 먼저 저장된 데이터가 있다면 (idempotency_key 부분 유니크 인덱스)
+            //  → 해당 주문 기준으로 응답
+            Order first = orderRepository.findByIdempotencyKey(idempotencyKey.toString()).orElseThrow(() -> e);
+
+            log.debug("[주문 생성] 3. 같은 Idempotency-Key 동시 요청 orderId={} → 먼저 저장된 주문으로 응답", first.getId());
+            return replayExisting(first, userId);
+        }
         log.debug("[주문 생성] 3. PENDING 저장 orderId={}, orderNumber={}", order.getId(), order.getOrderNumber());
 
         // 3-1. 저장 후 주문자 재확인 (회원 삭제와 동시 요청 경합 방지)
-        // user 삭제는 비활성화 → 진행 중 주문 확인 순서라, PENDING 저장 뒤 다시 확인하면 어느 순서로 겹쳐도 한쪽에서 걸림
-        // 재고 차감 전이라 되돌릴 것 없음 → 실패(비활성 403, 탈퇴 404, 호출 실패)면 FAILED + NOT_REQUIRED
+        //  user 삭제는 비활성화 → 진행 중 주문 확인 순서이므로, PENDING 저장 후 재확인하면 어느 순서로 겹쳐도 한쪽에서 걸린다.
+        //  재고 차감 전이라 되돌릴 것 없음 → 실패(비활성 403, 탈퇴 404, 호출 실패)면 FAILED + NOT_REQUIRED
         try {
             verifyOrdererActive(userId, "3-1. 주문자 재확인");
         } catch (RuntimeException e) {
@@ -202,7 +219,6 @@ public class OrderService {
         log.debug("[주문 생성] 6. CONFIRMED 확정 orderId={}, orderNumber={}", confirmed.getId(), confirmed.getOrderNumber());
 
         // TODO ⑤ 보상 상태가 FAILED가 되면 같은 Webhook으로 [수동 처리 필요] 알림 (주문 ID, 실패 단계)
-        // TODO ⑤ order schema.sql: idempotency_key, order_number 부분 유니크 인덱스 + sql.init.mode always
         // TODO 확인: 커밋 후 Slack 주문 알림 . 주문자 멘션(<@slackId>)도 구현 예정
         //  user 내부 api 8 응답에 slackId 필드가 추가되면 멘션, 그 전엔 멘션 없이 알림
         return OrderCreateResponse.from(confirmed);
@@ -314,10 +330,38 @@ public class OrderService {
         return new OrderInProgressResponse(ordererId, exists);
     }
 
-    // 주문자 확인 (user 내부 API 8). 탈퇴 회원은 user가 404 → FeignClientException 그대로, 비활성 회원은 403
+    /**
+     * 동일한 Idempotency-Key로 재요청 시 응답한다.
+     * <p>
+     * 다른 회원의 키: 409
+     * 처리 중: 409
+     * 실패: 409(재주문은 새 키)
+     * 그 외(CONFIRMED 이후): 기존 주문 결과 그대로 유지한다.
+     *
+     * @param existing
+     * @param userId
+     * @return
+     */
+    private OrderCreateResponse replayExisting(Order existing, UUID userId) {
+        log.debug("[주문 생성] 같은 Idempotency-Key 재요청 orderId={}, status={}", existing.getId(), existing.getStatus());
+        if (!existing.isOrderedBy(userId)) {
+            // UUID라 우연히 겹칠 일은 거의 없음 → 다른 회원 키 재사용은 비정상 요청
+            log.warn("[주문 생성] 다른 회원의 Idempotency-Key 사용 orderId={}, 요청 userId={}", existing.getId(), userId);
+            throw new BusinessException(OrderErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+        if (existing.getStatus() == OrderStatus.PENDING) {
+            throw new BusinessException(OrderErrorCode.ORDER_IN_PROGRESS);
+        }
+        if (existing.getStatus() == OrderStatus.FAILED) {
+            throw new BusinessException(OrderErrorCode.ORDER_ALREADY_FAILED,
+                    OrderErrorCode.ORDER_ALREADY_FAILED.getMessage(), "orderId");
+        }
+        return OrderCreateResponse.from(existing);
+    }
 
     /**
      * 회원 ID로 주문자가 활성화된 계정인지 확인한다.
+     * 탈퇴 회원은 user가 404 → FeignClientException 그대로, 비활성 회원은 403
      *
      * @param userId 주문을 요청한 회원의 ID
      * @param step   로그용 문자열
