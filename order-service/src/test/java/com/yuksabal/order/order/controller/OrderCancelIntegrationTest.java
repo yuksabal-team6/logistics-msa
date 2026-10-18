@@ -178,6 +178,40 @@ class OrderCancelIntegrationTest {
         assertUnchanged(order);
     }
 
+    // ---------- ③ 상태 ----------
+
+    @Test
+    void 이미_취소된_주문을_다시_취소하면_409이고_배송_취소_재고_복원_안_함() throws Exception {
+        Order order = saveConfirmed();
+        givenCancelSucceeds(order);
+        cancel(order.getId(), ordererId, "USER").andExpect(status().isOk());
+
+        cancel(order.getId(), ordererId, "USER")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_TRANSITION"));
+
+        // 첫 취소 때 1번씩만 호출
+        verify(deliveryClient).cancelDelivery(any());
+        verify(hubClient).restoreStock(any());
+        Order saved = orderRepository.findById(order.getId()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.COMPLETED);
+    }
+
+    @Test
+    void 확정_전_PENDING_주문은_409() throws Exception {
+        Order order = saveConfirmed();
+        ReflectionTestUtils.setField(order, "status", OrderStatus.PENDING);
+        orderRepository.saveAndFlush(order);
+
+        cancel(order.getId(), ordererId, "USER")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_TRANSITION"));
+
+        verifyNoInteractions(deliveryClient, hubClient);
+        assertThat(orderRepository.findById(order.getId()).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING);
+    }
+
     @Test
     void 없는_주문은_404() throws Exception {
         cancel(UUID.randomUUID(), ordererId, "USER")

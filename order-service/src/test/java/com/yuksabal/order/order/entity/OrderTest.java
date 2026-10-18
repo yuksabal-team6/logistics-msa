@@ -98,6 +98,19 @@ class OrderTest {
         assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.PENDING);
     }
 
+    @ParameterizedTest(name = "{0} → 409")
+    @CsvSource({"PENDING", "FAILED", "CANCELLED", "COMPLETED"})
+    void 취소_CONFIRMED가_아니면_409_상태_그대로(OrderStatus status) {
+        Order order = order();
+        ReflectionTestUtils.setField(order, "status", status);
+
+        assertThatThrownBy(order::cancel)
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(OrderErrorCode.INVALID_STATUS_TRANSITION);
+        assertThat(order.getStatus()).isEqualTo(status);
+        assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+    }
+
     private Order order() {
         return Order.builder()
                 .requestCompanyId(UUID.randomUUID())
