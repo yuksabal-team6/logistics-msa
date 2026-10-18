@@ -168,7 +168,7 @@ auth:
       path: /api/v1/deliveries/*
       roles: [MASTER]
 
-    # hub-service 재고. 허브·경로 조회는 로그인만. 재고 수정(#97)·생성·입고는 경로 확정 후 추가
+    # hub-service 재고. 허브·경로 조회는 로그인만. 재고 생성은 입고(inbound)가 같이 처리한다 (재고가 없으면 새로 만든다)
     - method: GET
       path: /api/v1/inventories
       roles: [MASTER]
@@ -181,3 +181,9 @@ auth:
     - method: GET
       path: /api/v1/inventories/products/*
       roles: [MASTER, COMPANY]
+    - method: POST
+      path: /api/v1/inventories/inbound
+      roles: [MASTER]
+    - method: PATCH
+      path: /api/v1/inventories/*
+      roles: [MASTER]
