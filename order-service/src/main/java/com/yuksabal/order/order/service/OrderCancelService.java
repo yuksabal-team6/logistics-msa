@@ -60,10 +60,11 @@ public class OrderCancelService {
         log.debug("[주문 취소] 0. 권한 확인 통과 orderId={}", orderId);
 
         // 1. 주문 CANCELLED + 보상 PENDING (CONFIRMED가 아니면 409)
+        // 행 잠금: 같은 주문 동시 취소 시 뒤 요청은 앞 요청 커밋 후 CANCELLED를 읽고 409 (배송 취소, 재고 복원 중복 호출 방지)
         Order order;
         try {
             order = transactionTemplate.execute(status -> {
-                Order found = orderRepository.findByIdOrThrow(orderId);
+                Order found = orderRepository.findByIdForUpdateOrThrow(orderId);
                 found.cancel();
                 return found;
             });
