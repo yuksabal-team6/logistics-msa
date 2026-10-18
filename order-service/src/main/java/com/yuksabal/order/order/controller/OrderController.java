@@ -24,7 +24,11 @@ import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.*;
+import static com.yuksabal.order.global.exception.OrderErrorCode.IDEMPOTENCY_KEY_CONFLICT;
+import static com.yuksabal.order.global.exception.OrderErrorCode.IDEMPOTENCY_KEY_MISMATCH;
 import static com.yuksabal.order.global.exception.OrderErrorCode.NOT_IMPLEMENTED;
+import static com.yuksabal.order.global.exception.OrderErrorCode.ORDER_ALREADY_FAILED;
+import static com.yuksabal.order.global.exception.OrderErrorCode.ORDER_IN_PROGRESS;
 import static com.yuksabal.order.global.exception.OrderErrorCode.ORDER_NOT_DELETABLE;
 
 // 주문 API. 상태는 생성,취소,배송 완료 흐름으로만 변경, 상태 변경 API 없음
@@ -48,9 +52,11 @@ public class OrderController {
                     **로그인한 사용자 모두** 주문할 수 있습니다.
                     
                     같은 Idempotency-Key로 다시 요청하면 새로 만들지 않고 **기존 주문 결과를 응답**합니다.
+
+                    재고가 부족하면 hub의 **409 INSUFFICIENT_STOCK**을 그대로 응답합니다.
                     """)
-    // TODO 주문 생성 구현 끝나면 NOT_IMPLEMENTED 제거, 재고 부족 409(hub INSUFFICIENT_STOCK) 응답 설명 추가
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {NOT_IMPLEMENTED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE},
+            value = {ORDER_IN_PROGRESS, ORDER_ALREADY_FAILED, IDEMPOTENCY_KEY_CONFLICT, IDEMPOTENCY_KEY_MISMATCH})
     @PostMapping
     public ResponseEntity<ApiResponse<OrderCreateResponse>> createOrder(
             @Valid @RequestBody OrderCreateRequest request,

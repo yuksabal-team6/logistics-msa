@@ -543,6 +543,41 @@ class OrderCreateIntegrationTest {
         verify(slackNotifier, never()).notifyCheckNeeded(any(), anyString());
     }
 
+    @Test
+    void 요청사항이_500자를_넘으면_400이고_아무것도_안_함() throws Exception {
+        Map<String, Object> body = validBody();
+        body.put("requestMessage", "가".repeat(501));
+
+        create(body)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("requestMessage"))
+                .andExpect(jsonPath("$.error.details[0].reason").value("요청사항은 500자 이하로 입력해 주세요."));
+
+        assertThat(orderRepository.count()).isZero();
+        verify(userClient, never()).getUser(any());
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 요청사항이_딱_500자면_통과() throws Exception {
+        Map<String, Object> body = validBody();
+        body.put("requestMessage", "가".repeat(500));
+
+        create(body).andExpect(status().isCreated());
+    }
+
+    @Test
+    void 수령인_100자_배송지_500자를_넘으면_400() throws Exception {
+        Map<String, Object> body = validBody();
+        body.put("recipientName", "가".repeat(101));
+        body.put("deliveryAddress", "가".repeat(501));
+
+        create(body)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.details[*].field", org.hamcrest.Matchers.containsInAnyOrder("recipientName", "deliveryAddress")));
+    }
+
     private void givenRestoreSucceeds() {
         given(hubClient.restoreStock(any())).willReturn(
                 ApiResponse.success(new StockRestoreResponse(supplierHubId, productId, 5, null)));

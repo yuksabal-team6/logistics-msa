@@ -24,6 +24,8 @@ public class SlackNotifier {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    // 요청사항이 너무 길면 Slack이 블록을 거절해 알림이 안 감 (section 텍스트 최대 3000자) → 잘라서 보냄
+    private static final int MAX_REQUEST_MESSAGE = 500;
 
     private final RestClient slackRestClient;
     private final String webhookUrl;
@@ -36,6 +38,10 @@ public class SlackNotifier {
     // 주문 생성 알림 (주문 확정 커밋 후 호출)
     // TODO user 내부 API 8 응답에 slackId가 추가되면 주문자 멘션(<@slackId>) 붙이기
     public void notifyOrderCreated(Order order, String productName, String supplierName, String requesterName) {
+        // 사용자 입력이 Slack 명령(<!channel> 전체 알림, 링크)으로 해석되지 않게 escape
+        productName = escape(productName);
+        supplierName = escape(supplierName);
+        requesterName = escape(requesterName);
         String summary = "새 주문 " + order.getOrderNumber() + " " + productName + " x " + order.getQuantity();
 
         List<Map<String, Object>> blocks = new ArrayList<>();
@@ -48,7 +54,7 @@ public class SlackNotifier {
                 "*공급 업체*\n" + supplierName,
                 "*요청 업체*\n" + requesterName));
         if (order.getRequestMessage() != null && !order.getRequestMessage().isBlank()) {
-            blocks.add(section("*요청사항*\n> " + order.getRequestMessage()));
+            blocks.add(section("*요청사항*\n> " + escape(truncate(order.getRequestMessage()))));
         }
         blocks.add(divider());
         blocks.add(context("주문 ID `" + order.getId() + "`  |  " + now()));
@@ -127,6 +133,18 @@ public class SlackNotifier {
 
     private static Map<String, Object> mrkdwn(String text) {
         return Map.of("type", "mrkdwn", "text", text);
+    }
+
+    // Slack mrkdwn 특수문자 escape (https://api.slack.com/reference/surfaces/formatting#escaping)
+    private static String escape(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static String truncate(String text) {
+        return text.length() <= MAX_REQUEST_MESSAGE ? text : text.substring(0, MAX_REQUEST_MESSAGE) + "...";
     }
 
     private static String now() {

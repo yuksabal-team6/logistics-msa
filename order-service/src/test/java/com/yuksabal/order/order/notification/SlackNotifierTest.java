@@ -97,6 +97,43 @@ class SlackNotifierTest {
     }
 
     @Test
+    void 사용자_입력의_Slack_특수문자를_escape() {
+        Order injected = Order.builder()
+                .requestCompanyId(UUID.randomUUID()).supplierCompanyId(UUID.randomUUID()).productId(UUID.randomUUID())
+                .departureHubId(UUID.randomUUID()).arrivalHubId(UUID.randomUUID()).ordererId(UUID.randomUUID())
+                .orderNumber("ORD-20261018-ABCDEF123456").quantity(1).unitPrice(1_000L)
+                .requestMessage("<!channel> 급해요 <https://evil.example|여기> & 확인")
+                .build();
+        server.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.blocks[2].text.text",
+                        containsString("&lt;!channel&gt; 급해요 &lt;https://evil.example|여기&gt; &amp; 확인")))
+                .andExpect(jsonPath("$.blocks[1].fields[2].text", containsString("&lt;b&gt;고등어 x 1")))
+                .andExpect(jsonPath("$.blocks[1].fields[4].text", containsString("A&amp;B 수산")))
+                .andRespond(withSuccess());
+
+        new SlackNotifier(restClient, WEBHOOK).notifyOrderCreated(injected, "<b>고등어", "A&B 수산", "요청 업체");
+
+        server.verify();
+    }
+
+    @Test
+    void 긴_요청사항은_500자로_잘라서_보냄() {
+        Order longMessage = Order.builder()
+                .requestCompanyId(UUID.randomUUID()).supplierCompanyId(UUID.randomUUID()).productId(UUID.randomUUID())
+                .departureHubId(UUID.randomUUID()).arrivalHubId(UUID.randomUUID()).ordererId(UUID.randomUUID())
+                .orderNumber("ORD-20261018-ABCDEF123456").quantity(1).unitPrice(1_000L)
+                .requestMessage("가".repeat(4000))
+                .build();
+        server.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.blocks[2].text.text").value("*요청사항*\n> " + "가".repeat(500) + "..."))
+                .andRespond(withSuccess());
+
+        new SlackNotifier(restClient, WEBHOOK).notifyOrderCreated(longMessage, "고등어", "공급 업체", "요청 업체");
+
+        server.verify();
+    }
+
+    @Test
     void Webhook_URL이_없으면_보내지_않음() {
         new SlackNotifier(restClient, "").notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체");
 
