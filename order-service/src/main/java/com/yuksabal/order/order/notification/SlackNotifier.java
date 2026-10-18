@@ -18,6 +18,7 @@ import java.util.Map;
 // Slack Incoming Webhook 알림 (요구사항: 메시지 저장 엔티티 없이 Webhook 호출만)
 // Block Kit 형식(제목, 2열 필드, 하단 보조 정보). text는 모바일 푸시, 알림 미리보기에 쓰이는 요약
 // 실패해도 예외를 던지지 않음 → 알림 실패가 주문 결과에 영향 없음. URL, slackId는 로그에 남기지 않음
+// 주문 접수는 webhook-url, 관리자용(수동 처리, 확인 필요)은 묻히지 않게 admin-webhook-url 채널로. 비어 있으면 webhook-url로 폴백
 @Slf4j
 @Component
 public class SlackNotifier {
@@ -29,10 +30,14 @@ public class SlackNotifier {
 
     private final RestClient slackRestClient;
     private final String webhookUrl;
+    private final String adminWebhookUrl;
 
-    public SlackNotifier(RestClient slackRestClient, @Value("${slack.webhook-url:}") String webhookUrl) {
+    public SlackNotifier(RestClient slackRestClient,
+                         @Value("${slack.webhook-url:}") String webhookUrl,
+                         @Value("${slack.admin-webhook-url:}") String adminWebhookUrl) {
         this.slackRestClient = slackRestClient;
         this.webhookUrl = webhookUrl;
+        this.adminWebhookUrl = (adminWebhookUrl == null || adminWebhookUrl.isBlank()) ? webhookUrl : adminWebhookUrl;
     }
 
     // 주문 생성 알림 (주문 확정 커밋 후 호출)
@@ -58,7 +63,7 @@ public class SlackNotifier {
         }
         blocks.add(divider());
         blocks.add(context("주문 ID `" + order.getId() + "`  |  " + now()));
-        send(summary, blocks, order);
+        send(webhookUrl, summary, blocks, order);
     }
 
     // 수동 처리 필요 알림 (보상 실패 등)
@@ -73,7 +78,7 @@ public class SlackNotifier {
                 "*주문 상태*\n`" + order.getStatus() + "` / 보상 `" + order.getCompensationStatus() + "`"));
         blocks.add(divider());
         blocks.add(context("주문 ID `" + order.getId() + "`  |  재고 복원 및 배송 취소 상태를 확인한 후 수동 처리해 주세요  |  " + now()));
-        send(summary, blocks, order);
+        send(adminWebhookUrl, summary, blocks, order);
     }
 
     // 확인 필요 알림 (예상하지 못한 오류. 보상은 끝났지만 원인 확인이 필요)
@@ -88,17 +93,17 @@ public class SlackNotifier {
                 "*주문 상태*\n`" + order.getStatus() + "` / 보상 `" + order.getCompensationStatus() + "`"));
         blocks.add(divider());
         blocks.add(context("주문 ID `" + order.getId() + "`  |  보상은 완료됐습니다. 로그에서 오류 원인을 확인해 주세요  |  " + now()));
-        send(summary, blocks, order);
+        send(adminWebhookUrl, summary, blocks, order);
     }
 
-    private void send(String summary, List<Map<String, Object>> blocks, Order order) {
-        if (webhookUrl == null || webhookUrl.isBlank()) {
+    private void send(String url, String summary, List<Map<String, Object>> blocks, Order order) {
+        if (url == null || url.isBlank()) {
             log.debug("[Slack] Webhook URL 미설정이라 전송 생략 orderId={}", order.getId());
             return;
         }
         try {
             slackRestClient.post()
-                    .uri(webhookUrl)
+                    .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("text", summary, "blocks", blocks))
                     .retrieve()
