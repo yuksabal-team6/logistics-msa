@@ -70,6 +70,21 @@ public class SlackNotifier {
         send(summary, blocks, order);
     }
 
+    // 확인 필요 알림 (예상하지 못한 오류. 보상은 끝났지만 원인 확인이 필요)
+    public void notifyCheckNeeded(Order order, String reason) {
+        String summary = "[확인 필요] " + order.getOrderNumber() + " " + reason;
+
+        List<Map<String, Object>> blocks = new ArrayList<>();
+        blocks.add(header("⚠️ 확인 필요"));
+        blocks.add(section("*사유*\n" + reason));
+        blocks.add(fields(
+                "*주문번호*\n" + order.getOrderNumber(),
+                "*주문 상태*\n`" + order.getStatus() + "` / 보상 `" + order.getCompensationStatus() + "`"));
+        blocks.add(divider());
+        blocks.add(context("주문 ID `" + order.getId() + "`  |  보상은 완료됐습니다. 로그에서 오류 원인을 확인해 주세요  |  " + now()));
+        send(summary, blocks, order);
+    }
+
     private void send(String summary, List<Map<String, Object>> blocks, Order order) {
         if (webhookUrl == null || webhookUrl.isBlank()) {
             log.debug("[Slack] Webhook URL 미설정이라 전송 생략 orderId={}", order.getId());

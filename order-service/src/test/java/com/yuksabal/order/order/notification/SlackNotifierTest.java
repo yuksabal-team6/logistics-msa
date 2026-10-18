@@ -84,6 +84,19 @@ class SlackNotifierTest {
     }
 
     @Test
+    void 확인_필요_알림을_Webhook으로_보냄() {
+        server.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.text", allOf(containsString("[확인 필요]"), containsString("배송 생성 중 예상하지 못한 오류"))))
+                .andExpect(jsonPath("$.blocks[0].text.text").value("⚠️ 확인 필요"))
+                .andExpect(jsonPath("$.blocks[4].elements[0].text", containsString("보상은 완료됐습니다. 로그에서 오류 원인을 확인해 주세요")))
+                .andRespond(withSuccess());
+
+        new SlackNotifier(restClient, WEBHOOK).notifyCheckNeeded(order, "배송 생성 중 예상하지 못한 오류");
+
+        server.verify();
+    }
+
+    @Test
     void Webhook_URL이_없으면_보내지_않음() {
         new SlackNotifier(restClient, "").notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체");
 

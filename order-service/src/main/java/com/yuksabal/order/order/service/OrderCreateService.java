@@ -180,11 +180,17 @@ public class OrderCreateService {
             failOrder(order.getId(), CompensationStatus.PENDING);
             restoreStock(order);
             throw e;
+        } catch (RuntimeException e) {
+            // 예상하지 못한 예외(응답 해석 실패 등): 차감됐는지 모름 → 5xx/타임아웃과 같이 재고 복원
+            log.error("[주문 생성] 4. 재고 차감 중 예상하지 못한 예외 orderId={} → FAILED + PENDING, 재고 복원", order.getId(), e);
+            failOrder(order.getId(), CompensationStatus.PENDING);
+            restoreStock(order);
+            notifyUnexpectedError(order, "재고 차감 중 예상하지 못한 오류");
+            throw e;
         }
     }
 
     // 5. 배송 생성
-    // 성공
     private UUID createDelivery(Order order, OrderCreateRequest request) {
         UUID deliveryId;
         try {
@@ -219,6 +225,13 @@ public class OrderCreateService {
             failOrder(order.getId(), CompensationStatus.PENDING);
             restoreStockAndCancelDelivery(order);
             throw e;
+        } catch (RuntimeException e) {
+            // 예상하지 못한 예외(응답 해석 실패, 응답 data 없음 등): 배송이 만들어졌는지 모름 → 타임아웃과 같이 재고 복원 + 배송 취소
+            log.error("[주문 생성] 5. 배송 생성 중 예상하지 못한 예외 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
+            failOrder(order.getId(), CompensationStatus.PENDING);
+            restoreStockAndCancelDelivery(order);
+            notifyUnexpectedError(order, "배송 생성 중 예상하지 못한 오류");
+            throw e;
         }
         log.debug("[주문 생성] 5. 배송 생성 성공 orderId={}, deliveryId={}", order.getId(), deliveryId);
         return deliveryId;
@@ -226,13 +239,32 @@ public class OrderCreateService {
 
     // 6. 주문 확정 (CONFIRMED + deliveryId)
     private Order confirmOrder(Order order, UUID deliveryId) {
-        Order confirmed = transactionTemplate.execute(status -> {
-            Order saved = findOrder(order.getId());
-            saved.confirm(deliveryId);
-            return saved;
-        });
+        Order confirmed;
+        try {
+            confirmed = transactionTemplate.execute(status -> {
+                Order saved = findOrder(order.getId());
+                saved.confirm(deliveryId);
+                return saved;
+            });
+        } catch (RuntimeException e) {
+            // 확정 저장 실패(DB 오류 등): 재고 차감, 배송 생성까지 끝난 상태라 PENDING으로 남으면 아무도 모름
+            //  → FAILED + 재고 복원 + 배송 취소 (보상까지 실패하면 Slack 수동 처리)
+            log.error("[주문 생성] 6. 주문 확정 저장 실패 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
+            failOrder(order.getId(), CompensationStatus.PENDING);
+            restoreStockAndCancelDelivery(order);
+            notifyUnexpectedError(order, "주문 확정 저장 중 예상하지 못한 오류");
+            throw e;
+        }
         log.debug("[주문 생성] 6. CONFIRMED 확정 orderId={}, orderNumber={}", confirmed.getId(), confirmed.getOrderNumber());
         return confirmed;
+    }
+
+    // 예상하지 못한 오류 알림. 보상이 실패했으면 이미 수동 처리 알림이 갔으므로 보상 완료일 때만 확인 필요 알림
+    private void notifyUnexpectedError(Order order, String reason) {
+        Order current = transactionTemplate.execute(status -> findOrder(order.getId()));
+        if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
+            slackNotifier.notifyCheckNeeded(current, reason);
+        }
     }
 
     /**

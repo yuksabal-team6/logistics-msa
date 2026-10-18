@@ -32,10 +32,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.nio.charset.StandardCharsets;
@@ -49,6 +51,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -68,6 +71,9 @@ class OrderCreateIntegrationTest {
     private ObjectMapper objectMapper;
     @Autowired
     private OrderRepository orderRepository;
+    // 확정 저장 실패를 재현하려고 SpyBean (평소에는 실제 TransactionTemplate과 같음)
+    @SpyBean
+    private TransactionTemplate transactionTemplate;
 
     @MockBean
     private UserClient userClient;
@@ -476,6 +482,65 @@ class OrderCreateIntegrationTest {
 
         verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
         verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 재고_차감_중_예상하지_못한_예외면_재고_복원하고_PENDING으로_안_남음() throws Exception {
+        given(hubClient.decreaseStock(any())).willThrow(new IllegalStateException("응답 해석 실패"));
+        givenRestoreSucceeds();
+
+        create(validBody()).andExpect(status().isInternalServerError());
+
+        assertFailed(CompensationStatus.COMPLETED);
+        verify(hubClient).restoreStock(any());
+        verify(deliveryClient, never()).createDelivery(any());
+        verify(slackNotifier).notifyCheckNeeded(any(Order.class), eq("재고 차감 중 예상하지 못한 오류"));
+        verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+    }
+
+    @Test
+    void 배송_생성_응답에_data가_없으면_재고_복원과_배송_취소() throws Exception {
+        given(deliveryClient.createDelivery(any())).willReturn(ApiResponse.success(null));
+        givenRestoreSucceeds();
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+
+        create(validBody()).andExpect(status().isInternalServerError());
+
+        assertFailed(CompensationStatus.COMPLETED);
+        verify(hubClient).restoreStock(any());
+        verify(deliveryClient).cancelDelivery(any());
+        verify(slackNotifier).notifyCheckNeeded(any(Order.class), eq("배송 생성 중 예상하지 못한 오류"));
+    }
+
+    @Test
+    void 주문_확정_저장이_실패하면_재고_복원과_배송_취소() throws Exception {
+        givenRestoreSucceeds();
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+        // 트랜잭션 순서: 1 PENDING 저장, 2 확정 저장, 3 실패 기록, 4 보상 기록 → 2번(확정)만 실패시킴
+        doCallRealMethod().doThrow(new IllegalStateException("DB 오류")).doCallRealMethod()
+                .when(transactionTemplate).execute(any());
+
+        create(validBody()).andExpect(status().isInternalServerError());
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.COMPLETED);
+        verify(hubClient).restoreStock(any());
+        verify(deliveryClient).cancelDelivery(any());
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+        verify(slackNotifier).notifyCheckNeeded(any(Order.class), eq("주문 확정 저장 중 예상하지 못한 오류"));
+    }
+
+    @Test
+    void 예상하지_못한_예외에_보상도_실패하면_수동_처리_알림만() throws Exception {
+        given(hubClient.decreaseStock(any())).willThrow(new IllegalStateException("응답 해석 실패"));
+        given(hubClient.restoreStock(any())).willThrow(new FeignServerException(500, "INTERNAL_SERVER_ERROR", "hub 오류", "restoreStock"));
+
+        create(validBody()).andExpect(status().isInternalServerError());
+
+        assertFailed(CompensationStatus.FAILED);
+        verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
+        verify(slackNotifier, never()).notifyCheckNeeded(any(), anyString());
     }
 
     private void givenRestoreSucceeds() {
