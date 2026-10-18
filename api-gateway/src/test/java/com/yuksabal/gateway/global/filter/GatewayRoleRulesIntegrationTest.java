@@ -76,7 +76,9 @@ class GatewayRoleRulesIntegrationTest {
             new Rule(HttpMethod.GET, "/api/v1/inventories", Set.of("MASTER")),
             new Rule(HttpMethod.GET, "/api/v1/inventories/" + ID, Set.of("MASTER")),
             new Rule(HttpMethod.GET, "/api/v1/inventories/hubs/" + ID, Set.of("MASTER")),
-            new Rule(HttpMethod.GET, "/api/v1/inventories/products/" + ID, Set.of("MASTER", "COMPANY")));
+            new Rule(HttpMethod.GET, "/api/v1/inventories/products/" + ID, Set.of("MASTER", "COMPANY")),
+            new Rule(HttpMethod.POST, "/api/v1/inventories/inbound", Set.of("MASTER")),
+            new Rule(HttpMethod.PATCH, "/api/v1/inventories/" + ID, Set.of("MASTER")));
 
     @AfterAll
     static void stopStub() {
@@ -110,12 +112,23 @@ class GatewayRoleRulesIntegrationTest {
     }
 
     @Test
+    void 회원_삭제는_MASTER가_아니면_403이고_서비스로_전달하지_않는다() {
+        for (String role : NON_MASTER) {
+            expectForbidden(HttpMethod.DELETE, "/api/v1/users/" + targetId, role);
+            // 자기 자신 삭제 요청도 Gateway에서 막는다 (자기 자신 422는 MASTER 요청일 때 user-service가 판단)
+            expectForbidden(HttpMethod.DELETE, "/api/v1/users/" + userId, role);
+        }
+        assertThat(STUB_HITS.get()).isZero();
+    }
+
+    @Test
     void MASTER는_회원_관리_API를_서비스로_전달한다() {
         request(HttpMethod.GET, "/api/v1/users", "MASTER").expectStatus().isOk();
         request(HttpMethod.PATCH, "/api/v1/users/" + targetId, "MASTER").expectStatus().isOk();
         request(HttpMethod.PATCH, "/api/v1/users/" + targetId + "/role", "MASTER").expectStatus().isOk();
         request(HttpMethod.PATCH, "/api/v1/users/" + targetId + "/status", "MASTER").expectStatus().isOk();
-        assertThat(STUB_HITS.get()).isEqualTo(4);
+        request(HttpMethod.DELETE, "/api/v1/users/" + targetId, "MASTER").expectStatus().isOk();
+        assertThat(STUB_HITS.get()).isEqualTo(5);
     }
 
     // ---------- company·order·delivery·hub (담당자별 권한 표) ----------
@@ -139,7 +152,7 @@ class GatewayRoleRulesIntegrationTest {
 
     @Test
     void 규칙이_없는_조회와_생성은_모든_역할이_서비스로_전달된다() {
-        // 조회는 로그인만, 주문 생성·허브 조회 등은 규칙 없음. 재고 수정(#97)은 경로 확정 전이라 아직 규칙 없음
+        // 조회는 로그인만, 주문 생성·허브 조회 등은 규칙 없음
         List<Rule> open = List.of(
                 new Rule(HttpMethod.GET, "/api/v1/companies", Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/companies/" + ID, Set.of()),
@@ -147,8 +160,7 @@ class GatewayRoleRulesIntegrationTest {
                 new Rule(HttpMethod.POST, "/api/v1/orders", Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/orders/" + ID, Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/deliveries/" + ID, Set.of()),
-                new Rule(HttpMethod.GET, "/api/v1/hubs", Set.of()),
-                new Rule(HttpMethod.PATCH, "/api/v1/inventories/" + ID, Set.of()));
+                new Rule(HttpMethod.GET, "/api/v1/hubs", Set.of()));
         for (Rule rule : open) {
             for (String role : ALL_ROLES) {
                 request(rule.method(), rule.uri(), role).expectStatus().isOk();

@@ -7,12 +7,14 @@ import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
 import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
+import com.yuksabal.hub.inventory.client.dto.ProductResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
 import com.yuksabal.hub.inventory.entity.InventoryChangeType;
 import com.yuksabal.hub.inventory.entity.InventoryLog;
 import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import com.yuksabal.hub.inventory.service.InventoryService;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -21,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +35,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -46,6 +50,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -59,6 +64,8 @@ class InventoryControllerTest {
     private static final UUID INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000001");
     private static final UUID COMPANY_ID = UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000001");
+    private static final UUID ORDER_ID = UUID.fromString("60000000-0000-4000-8000-000000000001");
+    private static final UUID LOG_ID = UUID.fromString("70000000-0000-4000-8000-000000000001");
     private static final String ROLE_HEADER = "X-User-Role";
     private static final String USER_ID_HEADER = "X-User-Id";
 
@@ -528,6 +535,217 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.error.details[0].field").value(USER_ID_HEADER));
     }
 
+    @Test
+    void 재고_변경_이력을_PageResponse로_반환한다() throws Exception {
+        given(inventoryLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation -> new PageImpl<>(List.of(decreaseLog()), invocation.getArgument(1), 1));
+
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER")
+                        .param("hubId", SEOUL_ID.toString())
+                        .param("changeType", "DECREASE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("재고 변경 이력을 조회했습니다."))
+                .andExpect(jsonPath("$.data.items[0].logId").value(LOG_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].inventoryId").value(INVENTORY_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].hubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].productId").value(PRODUCT_ID.toString()))
+                .andExpect(jsonPath("$.data.items[0].changeType").value("DECREASE"))
+                .andExpect(jsonPath("$.data.items[0].quantity").value(3))
+                .andExpect(jsonPath("$.data.items[0].orderId").value(ORDER_ID.toString()))
+                .andExpect(jsonPath("$.data.totalElements").value(1));
+    }
+
+    @Test
+    void 정렬을_주지_않으면_최신순에_id를_붙여_조회한다() throws Exception {
+        given(inventoryLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .willAnswer(invocation -> Page.empty(invocation.getArgument(1)));
+
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty());
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        then(inventoryLogRepository).should().findAll(any(Specification.class), pageable.capture());
+        assertThat(pageable.getValue().getSort())
+                .isEqualTo(Sort.by(Sort.Order.desc("createdAt"), Sort.Order.asc("id")));
+    }
+
+    @Test
+    void 이력에서_허용하지_않은_정렬_필드는_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER").param("sort", "quantity,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("sort"));
+
+        then(inventoryLogRepository).should(never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void 없는_변경_유형이면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, "MASTER").param("changeType", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("changeType"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "COMPANY", "DELIVERY"})
+    void 이력_조회_권한이_없으면_403을_반환한다(String role) throws Exception {
+        mockMvc.perform(get("/api/v1/inventories/logs").header(ROLE_HEADER, role))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        then(inventoryLogRepository).should(never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void 재고가_있으면_company_호출_없이_수량을_늘리고_INBOUND_로그를_남긴다() throws Exception {
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
+        given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(seoulInventory(150)));
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("재고를 입고했습니다."))
+                .andExpect(jsonPath("$.data.inventoryId").value(INVENTORY_ID.toString()))
+                .andExpect(jsonPath("$.data.quantity").value(150));
+
+        then(inventoryRepository).should().increaseQuantity(eq(INVENTORY_ID), eq(50), any(LocalDateTime.class), eq(USER_ID));
+        then(companyClient).should(never()).getProduct(any(UUID.class));
+        InventoryLog log = savedLog();
+        assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.INBOUND);
+        assertThat(log.getQuantity()).isEqualTo(50);
+        assertThat(log.getOrderId()).isNull();
+    }
+
+    @Test
+    void 재고가_없으면_상품_업체를_담아_새로_만들고_INBOUND_로그를_남긴다() throws Exception {
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID)));
+        given(inventoryRepository.saveAndFlush(any(Inventory.class))).willAnswer(invocation -> {
+            Inventory inventory = invocation.getArgument(0);
+            ReflectionTestUtils.setField(inventory, "id", INVENTORY_ID);
+            return inventory;
+        });
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.inventoryId").value(INVENTORY_ID.toString()))
+                .andExpect(jsonPath("$.data.hubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.quantity").value(50));
+
+        ArgumentCaptor<Inventory> created = ArgumentCaptor.forClass(Inventory.class);
+        then(inventoryRepository).should().saveAndFlush(created.capture());
+        assertThat(created.getValue().getCompanyId()).isEqualTo(COMPANY_ID);
+        InventoryLog log = savedLog();
+        assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.INBOUND);
+        assertThat(log.getQuantity()).isEqualTo(50);
+    }
+
+    @Test
+    void 상품_업체의_관리_허브가_아니면_422를_반환한다() throws Exception {
+        UUID busanId = UUID.fromString("00000000-0000-0000-0000-000000000004");
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, busanId)));
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.details[0].field").value("hubId"))
+                .andExpect(jsonPath("$.error.details[0].reason").value("상품 업체의 관리 허브는 " + busanId + "입니다."));
+
+        then(inventoryRepository).should(never()).saveAndFlush(any(Inventory.class));
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
+    @Test
+    void 입고할_상품이_없으면_404를_반환한다() throws Exception {
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "요청한 리소스를 찾을 수 없습니다.", List.of()));
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("존재하지 않는 상품입니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("productId"));
+
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
+    @Test
+    void 입고할_허브가_없으면_404를_반환한다() throws Exception {
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.empty());
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.message").value("존재하지 않는 허브입니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("hubId"));
+
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
+    // 같은 허브·상품을 동시에 처음 입고해 다른 요청이 먼저 재고를 만든 경우
+    @Test
+    void 재고_생성이_유니크_인덱스에_걸리면_409를_반환한다() throws Exception {
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID)));
+        given(inventoryRepository.saveAndFlush(any(Inventory.class))).willThrow(new DataIntegrityViolationException(
+                "duplicate key",
+                new ConstraintViolationException("duplicate key", new SQLException(), "uk_inventories_hub_id_product_id")));
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVENTORY_CREATE_CONFLICT"));
+
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    void 입고_수량이_1_미만이면_400을_반환한다(int quantity) throws Exception {
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(quantity)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[0].field").value("quantity"));
+
+        then(hubRepository).should(never()).findById(any(UUID.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "COMPANY", "DELIVERY"})
+    void 입고_권한이_없으면_403을_반환한다(String role) throws Exception {
+        mockMvc.perform(inboundRequest(role, inboundBody(50)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        then(hubRepository).should(never()).findById(any(UUID.class));
+    }
+
+    private MockHttpServletRequestBuilder inboundRequest(String role, String body) {
+        return post("/api/v1/inventories/inbound")
+                .header(USER_ID_HEADER, USER_ID.toString())
+                .header(ROLE_HEADER, role)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
+    private String inboundBody(int quantity) {
+        return """
+                {"hubId": "%s", "productId": "%s", "quantity": %d}
+                """.formatted(SEOUL_ID, PRODUCT_ID, quantity);
+    }
+
     private MockHttpServletRequestBuilder adjustRequest(String role, String body) {
         return patch("/api/v1/inventories/{inventoryId}", INVENTORY_ID)
                 .header(USER_ID_HEADER, USER_ID.toString())
@@ -558,10 +776,25 @@ class InventoryControllerTest {
         return seoulInventory(100);
     }
 
-    private Inventory seoulInventory(int quantity) {
+    private InventoryLog decreaseLog() {
+        InventoryLog log = InventoryLog.builder()
+                .inventory(seoulInventory())
+                .orderId(ORDER_ID)
+                .changeType(InventoryChangeType.DECREASE)
+                .quantity(3)
+                .build();
+        ReflectionTestUtils.setField(log, "id", LOG_ID);
+        return log;
+    }
+
+    private Hub seoulHub() {
         Hub seoul = Hub.builder().hubName("서울특별시 센터").address("주소").build();
         ReflectionTestUtils.setField(seoul, "id", SEOUL_ID);
-        Inventory inventory = Inventory.builder().hub(seoul).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        return seoul;
+    }
+
+    private Inventory seoulInventory(int quantity) {
+        Inventory inventory = Inventory.builder().hub(seoulHub()).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", INVENTORY_ID);
         return inventory;
     }
