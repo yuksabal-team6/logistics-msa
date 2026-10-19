@@ -8,6 +8,7 @@ import com.yuksabal.order.order.dto.request.OrderCreateRequest;
 import com.yuksabal.order.order.dto.request.OrderSearchRequest;
 import com.yuksabal.order.order.dto.response.OrderCreateResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
+import com.yuksabal.order.order.service.OrderCancelService;
 import com.yuksabal.order.order.service.OrderCreateService;
 import com.yuksabal.order.order.service.OrderService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,7 +27,7 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.*;
 import static com.yuksabal.order.global.exception.OrderErrorCode.IDEMPOTENCY_KEY_CONFLICT;
 import static com.yuksabal.order.global.exception.OrderErrorCode.IDEMPOTENCY_KEY_MISMATCH;
-import static com.yuksabal.order.global.exception.OrderErrorCode.NOT_IMPLEMENTED;
+import static com.yuksabal.order.global.exception.OrderErrorCode.INVALID_STATUS_TRANSITION;
 import static com.yuksabal.order.global.exception.OrderErrorCode.ORDER_ALREADY_FAILED;
 import static com.yuksabal.order.global.exception.OrderErrorCode.ORDER_IN_PROGRESS;
 import static com.yuksabal.order.global.exception.OrderErrorCode.ORDER_NOT_DELETABLE;
@@ -40,6 +41,7 @@ public class OrderController {
 
     private final OrderService orderService;
     private final OrderCreateService orderCreateService;
+    private final OrderCancelService orderCancelService;
 
     // 게이트웨이가 JWT 검증 후 넣어주는 헤더. 서비스 포트(8084)로 직접 호출할 때만 직접 입력
     private static final String USER_ID_DESCRIPTION = "로그인한 사용자 ID입니다. 게이트웨이를 거치면 자동으로 들어갑니다.";
@@ -118,9 +120,12 @@ public class OrderController {
                     **주문자 본인, 요청 업체 관리자, MASTER**가 취소할 수 있습니다.
                     
                     **허브 출발 전에만** 가능하며, 취소하면 재고를 복원합니다.
+                    
+                    확정(CONFIRMED)된 주문만 취소할 수 있습니다. 이미 출발한 배송이면 delivery의 **409 INVALID_STATUS_TRANSITION**을, 다른 요청이 배송을 수정 중이면 **409 DELIVERY_CONFLICT**를 그대로 응답합니다.
+                    
+                    배송 취소 결과를 확인하지 못하면 **502**를 응답하며, 취소 상태는 유지되고 운영자가 확인합니다.
                     """)
-    // TODO 이슈 51: NOT_IMPLEMENTED 제거, INVALID_STATUS_TRANSITION(409) 추가
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {NOT_IMPLEMENTED})
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {INVALID_STATUS_TRANSITION})
     @PostMapping("/{orderId}/cancel")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
             @PathVariable UUID orderId,
@@ -130,7 +135,7 @@ public class OrderController {
             @RequestHeader("X-User-Role") String role) {
 
         return ResponseEntity.ok(ApiResponse.success(
-                orderService.cancelOrder(orderId, userId, UserRole.from(role)),
+                orderCancelService.cancelOrder(orderId, userId, UserRole.from(role)),
                 "주문이 취소되었습니다."));
     }
 

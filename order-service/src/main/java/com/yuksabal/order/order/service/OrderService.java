@@ -21,7 +21,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
-import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.order.order.repository.OrderSpecification.*;
 
@@ -74,26 +73,11 @@ public class OrderService {
      * @return 조회된 주문 정보
      */
     public OrderResponse getOrder(UUID orderId, UUID userId, UserRole role) {
-        Order order = findOrder(orderId);
+        Order order = orderRepository.findByIdOrThrow(orderId);
         if (role != UserRole.MASTER && !order.isOrderedBy(userId)) {
             throw new BusinessException(FORBIDDEN, "본인 주문만 조회할 수 있습니다.");
         }
         return OrderResponse.from(order);
-    }
-
-    /**
-     * 주문을 취소한다.
-     *
-     * @param orderId 취소할 주문 ID
-     * @param userId  요청한 사용자 ID
-     * @param role    요청한 사용자 권한
-     * @return 취소된 주문 정보
-     */
-    public OrderResponse cancelOrder(UUID orderId, UUID userId, UserRole role) {
-        // TODO 이슈 51 주문 취소: CONFIRMED → CANCELLED + 보상 PENDING → 배송 취소(내부 API 9, 실패 시 CONFIRMED + NOT_REQUIRED로 되돌리고 409/502)
-        //  → 재고 복원(내부 API 4) → 보상 COMPLETED/FAILED. 권한: 주문자, 요청 업체 관리자, MASTER
-        //  DELIVERY_CONFLICT(409) 처리 방식(재시도 또는 그대로 409) 확정 필요
-        throw new BusinessException(OrderErrorCode.NOT_IMPLEMENTED);
     }
 
     /**
@@ -111,7 +95,7 @@ public class OrderService {
         if (role != UserRole.MASTER) {
             throw new BusinessException(FORBIDDEN, "주문은 MASTER만 삭제할 수 있습니다.");
         }
-        Order order = findOrder(orderId);
+        Order order = orderRepository.findByIdOrThrow(orderId);
         if (!order.isDeletable()) {
             throw new BusinessException(OrderErrorCode.ORDER_NOT_DELETABLE,
                     "완료된 주문 또는 보상이 끝난 실패/취소 주문만 삭제할 수 있습니다.", "orderId");
@@ -128,7 +112,7 @@ public class OrderService {
      */
     @Transactional
     public OrderCompleteResponse completeOrder(UUID orderId) {
-        Order order = findOrder(orderId);
+        Order order = orderRepository.findByIdOrThrow(orderId);
         order.complete();
         return OrderCompleteResponse.from(order);
     }
@@ -143,18 +127,5 @@ public class OrderService {
     public OrderInProgressResponse hasInProgressOrder(UUID ordererId) {
         boolean exists = orderRepository.exists(ordererIdEquals(ordererId).and(inProgress()));
         return new OrderInProgressResponse(ordererId, exists);
-    }
-
-    /**
-     * 주문 ID로 주문을 조회한다.
-     * 없거나 삭제된 주문이면 예외를 발생한다.
-     *
-     * @param orderId 존재 여부를 확인할 주문 ID
-     * @return 존재하는 주문 객체
-     */
-    private Order findOrder(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 주문입니다.", "orderId"));
     }
 }

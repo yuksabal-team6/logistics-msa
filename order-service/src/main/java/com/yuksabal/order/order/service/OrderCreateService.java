@@ -10,7 +10,6 @@ import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.HubClient;
 import com.yuksabal.order.order.client.UserClient;
 import com.yuksabal.order.order.client.dto.CompanyResponse;
-import com.yuksabal.order.order.client.dto.DeliveryCancelRequest;
 import com.yuksabal.order.order.client.dto.DeliveryCreateRequest;
 import com.yuksabal.order.order.client.dto.ProductResponse;
 import com.yuksabal.order.order.client.dto.StockRequest;
@@ -35,7 +34,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
-import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 
 // 주문 생성 Saga (결정 17, 18, 21). order가 user, company, hub, delivery를 차례로 호출하고 실패하면 보상
@@ -51,6 +49,8 @@ public class OrderCreateService {
     private final HubClient hubClient;
     private final DeliveryClient deliveryClient;
     private final SlackNotifier slackNotifier;
+    // 재고 복원, 배송 취소 보상 (주문 취소와 같이 사용)
+    private final OrderCompensator orderCompensator;
     // 외부 호출을 트랜잭션 밖에 두고, DB 저장만 짧은 트랜잭션으로 묶는다
     private final TransactionTemplate transactionTemplate;
 
@@ -177,14 +177,19 @@ public class OrderCreateService {
             // 차감됐는지 모름 → 재고 복원 호출 (차감 기록 없으면 hub가 0개 복원으로 성공 처리). 응답은 502
             log.warn("[주문 생성] 4. 재고 차감 5xx/타임아웃 orderId={}, exception={} → FAILED + PENDING, 재고 복원",
                     order.getId(), e.getClass().getSimpleName());
+
             failOrder(order.getId(), CompensationStatus.PENDING);
-            restoreStock(order);
+            orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
+
             throw e;
         } catch (RuntimeException e) {
             // 예상하지 못한 예외(응답 해석 실패 등): 차감됐는지 모름 → 5xx/타임아웃과 같이 재고 복원
+
             log.error("[주문 생성] 4. 재고 차감 중 예상하지 못한 예외 orderId={} → FAILED + PENDING, 재고 복원", order.getId(), e);
+
             failOrder(order.getId(), CompensationStatus.PENDING);
-            restoreStock(order);
+            orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
+
             notifyUnexpectedError(order, "재고 차감 중 예상하지 못한 오류");
             throw e;
         }
@@ -209,28 +214,38 @@ public class OrderCreateService {
 
             // 4xx(허브 경로 없음 등)는 배송 생성 실패를 의미 -> 재고 차감된 상태이므로 재고 복원 후 delivery 오류 그대로 응답
             failOrder(order.getId(), CompensationStatus.PENDING);
-            restoreStock(order);
+            orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
+
             throw e;
         } catch (FeignServerException e) {
+
             // 5xx: 재시도까지 실패. delivery가 오류로 응답했으니 배송은 안 만들어짐 → 재고만 복원. 응답은 502
             log.warn("[주문 생성] 5. 배송 생성 5xx orderId={}, status={} → FAILED + PENDING, 재고 복원",
                     order.getId(), e.getStatus());
+
             failOrder(order.getId(), CompensationStatus.PENDING);
-            restoreStock(order);
+            orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
+
             throw e;
         } catch (RetryableException e) {
+
             // 타임아웃인 경우: 배송이 만들어졌는지 모름
             // → 재고 복원 + 배송 취소 둘 다 (배송 존재하지 않으면 delivery가 200). 응답은 502
             log.warn("[주문 생성] 5. 배송 생성 타임아웃 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId());
+
             failOrder(order.getId(), CompensationStatus.PENDING);
-            restoreStockAndCancelDelivery(order);
+            orderCompensator.restoreStockAndCancelDelivery(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
+
             throw e;
         } catch (RuntimeException e) {
+
             // 예상하지 못한 예외(응답 해석 실패, 응답 data 없음 등): 배송이 만들어졌는지 모름 → 타임아웃과 같이 재고 복원 + 배송 취소
             log.error("[주문 생성] 5. 배송 생성 중 예상하지 못한 예외 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
+
             failOrder(order.getId(), CompensationStatus.PENDING);
-            restoreStockAndCancelDelivery(order);
+            orderCompensator.restoreStockAndCancelDelivery(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
             notifyUnexpectedError(order, "배송 생성 중 예상하지 못한 오류");
+
             throw e;
         }
         log.debug("[주문 생성] 5. 배송 생성 성공 orderId={}, deliveryId={}", order.getId(), deliveryId);
@@ -242,7 +257,7 @@ public class OrderCreateService {
         Order confirmed;
         try {
             confirmed = transactionTemplate.execute(status -> {
-                Order saved = findOrder(order.getId());
+                Order saved = orderRepository.findByIdOrThrow(order.getId());
                 saved.confirm(deliveryId);
                 return saved;
             });
@@ -251,7 +266,7 @@ public class OrderCreateService {
             //  → FAILED + 재고 복원 + 배송 취소 (보상까지 실패하면 Slack 수동 처리)
             log.error("[주문 생성] 6. 주문 확정 저장 실패 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
             failOrder(order.getId(), CompensationStatus.PENDING);
-            restoreStockAndCancelDelivery(order);
+            orderCompensator.restoreStockAndCancelDelivery(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
             notifyUnexpectedError(order, "주문 확정 저장 중 예상하지 못한 오류");
             throw e;
         }
@@ -259,9 +274,15 @@ public class OrderCreateService {
         return confirmed;
     }
 
-    // 예상하지 못한 오류 알림. 보상이 실패했으면 이미 수동 처리 알림이 갔으므로 보상 완료일 때만 확인 필요 알림
+    /**
+     * 보상이 완료된 주문에서 예상치 못한 오류가 발생하면 Slack으로 확인 알림을 보낸다.
+     * 보상 실패 시에는 수동 처리 알림이 미리 전송되므로 완료일 때만 전송한다.
+     *
+     * @param order 확인 대산 주문 엔티티
+     * @param reason 오류 사유
+     */
     private void notifyUnexpectedError(Order order, String reason) {
-        Order current = transactionTemplate.execute(status -> findOrder(order.getId()));
+        Order current = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(order.getId()));
         if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
             slackNotifier.notifyCheckNeeded(current, reason);
         }
@@ -317,89 +338,6 @@ public class OrderCreateService {
     }
 
     /**
-     * 재고 복원을 요청하고 결과에 따라 보상 상태를 변경한다.
-     * 성공 시 보상 상태 COMPLETED, 실패 시 보상 상태 FAILED + 수동 처리
-     *
-     * @param order 재고 복원 대상 주문 엔티티
-     */
-    private void restoreStock(Order order) {
-        finishCompensation(order, callRestoreStock(order));
-    }
-
-    /**
-     * 재고 복원과 배송 취소를 요청하고 보상 결과를 기록한다.
-     * 둘 다 성공해야 보상 COMPLETED, 하나라도 실패면 FAILED
-     *
-     * @param order 보상 처리 대상 주문 엔티티
-     */
-    private void restoreStockAndCancelDelivery(Order order) {
-        boolean restored = callRestoreStock(order);
-        boolean cancelled = callCancelDelivery(order);
-        finishCompensation(order, restored && cancelled);
-    }
-
-    /**
-     * Hub의 재고 복원을 요청하고 성공 여부를 반환한다.
-     * <p>
-     * Hub에서 orderId 기준 중복 복원 방지, 차감 기록이 없으면 복원 없이 성공 처리
-     *
-     * @param order 재고 복원 대상 주문
-     * @return 복원 요청 성공 여부
-     */
-    private boolean callRestoreStock(Order order) {
-        try {
-            hubClient.restoreStock(new StockRequest(
-                    order.getDepartureHubId(), order.getProductId(), order.getQuantity(), order.getId()));
-            log.debug("[주문 생성] 보상 재고 복원 성공 orderId={}", order.getId());
-            return true;
-        } catch (RuntimeException e) {
-            log.error("[수동 처리 필요] 재고 복원 실패 orderId={}, hubId={}, productId={}, quantity={}",
-                    order.getId(), order.getDepartureHubId(), order.getProductId(), order.getQuantity(), e);
-            return false;
-        }
-    }
-
-    /**
-     * Delivery에 배송 취소를 요청한다.
-     * Delivery API는 배송이 없거나 이미 취소된 경우에도 200을 반환한다.
-     *
-     * @param order 배송을 취소할 주문
-     * @return 배송 취소 요청 성공 여부
-     */
-    private boolean callCancelDelivery(Order order) {
-        try {
-            deliveryClient.cancelDelivery(new DeliveryCancelRequest(order.getId()));
-            log.debug("[주문 생성] 보상 배송 취소 성공 orderId={}", order.getId());
-            return true;
-        } catch (RuntimeException e) {
-            log.error("[수동 처리 필요] 배송 취소 실패 orderId={}", order.getId(), e);
-            return false;
-        }
-    }
-
-    /**
-     * 보상 결과를 기록한다.
-     * 성공 → 보상 COMPLETED / 실패 → 보상 FAILED (수동 처리 대상)
-     *
-     * @param order   기록할 주문 엔티티
-     * @param success 보상 작업 성공 여부
-     */
-    private void finishCompensation(Order order, boolean success) {
-        if (success) {
-            transactionTemplate.executeWithoutResult(status -> findOrder(order.getId()).completeCompensation());
-            log.debug("[주문 생성] 보상 완료 orderId={} → 보상 COMPLETED", order.getId());
-            return;
-        }
-        Order failed = transactionTemplate.execute(status -> {
-            Order saved = findOrder(order.getId());
-            saved.failCompensation();
-            return saved;
-        });
-        log.error("[수동 처리 필요] 보상 실패 orderId={} → 보상 FAILED", order.getId());
-        slackNotifier.notifyManualAction(failed, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
-    }
-
-    /**
      * 주문 실패 시 주문 상태/보상 상태를 변경, 저장한다.
      * 별도의 짧은 트랜잭션에서 처리한다.
      *
@@ -407,20 +345,7 @@ public class OrderCreateService {
      * @param compensationStatus 변경할 보상 상태
      */
     private void failOrder(UUID orderId, CompensationStatus compensationStatus) {
-        transactionTemplate.executeWithoutResult(status -> findOrder(orderId).fail(compensationStatus));
-    }
-
-    /**
-     * 주문 ID로 주문을 조회한다.
-     * 없거나 삭제된 주문이면 예외를 발생한다.
-     *
-     * @param orderId 존재 여부를 확인할 주문 ID
-     * @return 존재하는 주문 객체
-     */
-    private Order findOrder(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new BusinessException(RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 주문입니다.", "orderId"));
+        transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(orderId).fail(compensationStatus));
     }
 
     // 1, 2단계 조회 결과 (상품, 공급 업체, 요청 업체)

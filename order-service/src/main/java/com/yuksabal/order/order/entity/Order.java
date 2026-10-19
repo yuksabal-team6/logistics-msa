@@ -142,33 +142,36 @@ public class Order extends BaseEntity implements Persistable<UUID> {
     }
 
     /**
-     * 주문 생성 실패
-     * - 재고 부족(409) → fail(NOT_REQUIRED)
-     * - 배송 생성 실패 → fail(PENDING) → 재고 복원
-     * - 재고 차감이 5xx/타임아웃으로 최종 실패 → fail(PENDING) → 재고 복원 (차감이 됐는지 모르니까)
+     * 주문 상태를 FAILED로 변경하고 보상 상태를 설정한다.
      *
-     * @param compensationStatus 보상 상태 NOT_REQUIRED 또는 PENDING
+     * @param compensationStatus 설정할 보상 상태
      */
     public void fail(CompensationStatus compensationStatus) {
         this.status = OrderStatus.FAILED;
         this.compensationStatus = compensationStatus;
     }
 
-    // 보상 성공: PENDING → COMPLETED 경우만 가능
+    /**
+     * 주문의 보상 상태를 COMPLETED로 변경한다.
+     * 보상 상태가 PENDING인 경우만 가능하다.
+     */
     public void completeCompensation() {
         validateCompensationPending();
         this.compensationStatus = CompensationStatus.COMPLETED;
     }
 
-    // 보상 실패 (재시도 후): PENDING → FAILED 경우만 가능
+    /**
+     * 주문의 보상 상태를 FAILED로 변경한다.
+     * 보상 상태가 PENDING인 경우만 가능하다.
+     */
     public void failCompensation() {
         validateCompensationPending();
         this.compensationStatus = CompensationStatus.FAILED;
     }
 
     /**
-     * 보상 처리가 진행 중인지 검증한다.
-     * compensationStatus가 pending일 때만 보상 결과를 기록할 수 있다.
+     * 보상 처리가 진행 중인지 확인한다.
+     * 보상 상태가 pending일 때만 보상 결과를 기록할 수 있다.
      */
     private void validateCompensationPending() {
         if (compensationStatus != CompensationStatus.PENDING) {
@@ -180,7 +183,7 @@ public class Order extends BaseEntity implements Persistable<UUID> {
     }
 
     /**
-     * 주문을 완료한다.(배송 완료 시)
+     * 주문 상태를 완료로 변경한다.(배송 완료 시)
      * COMPLETED 면 변경 없음(멱등성), CONFIRMED에서만 COMPLETED로 변경 가능하다.
      */
     public void complete() {
@@ -196,10 +199,39 @@ public class Order extends BaseEntity implements Persistable<UUID> {
         this.status = OrderStatus.COMPLETED;
     }
 
-    // TODO 확인: 취소(CANCELLED) 전이 규칙은 주문 취소 구현 때 추가 (결정 #19)
+    /**
+     * 확정된 주문을 취소 상태로 변경한다.
+     *
+     * <ul>
+     *   <li>CONFIRMED 상태에서만 변경 가능하다.</li>
+     *   <li>배송 취소와 재고 복원이 남아 있으므로 보상 상태는 PENDING으로 설정한다.</li>
+     * </ul>
+     */
+    public void cancel() {
+        if (status != OrderStatus.CONFIRMED) {
+            throw new BusinessException(OrderErrorCode.INVALID_STATUS_TRANSITION,
+                    "확정된 주문만 취소할 수 있습니다.", "orderId");
+        }
+        this.status = OrderStatus.CANCELLED;
+        this.compensationStatus = CompensationStatus.PENDING;
+    }
+
+    /**
+     * 배송 취소 실패 시 상태를 되돌린다.
+     * CANCELLED + 보상 PENDING 상태에서만 CONFIRMED + NOT_REQUIRED 로 변경할 수 있다.
+     */
+    public void revertCancel() {
+        if (status != OrderStatus.CANCELLED || compensationStatus != CompensationStatus.PENDING) {
+            throw new BusinessException(OrderErrorCode.INVALID_STATUS_TRANSITION,
+                    "취소 진행 중인 주문만 되돌릴 수 있습니다.", "orderId");
+        }
+        this.status = OrderStatus.CONFIRMED;
+        this.compensationStatus = CompensationStatus.NOT_REQUIRED;
+    }
 
     /**
      * 주문의 삭제 가능 여부를 판단한다.
+     *
      * 완료된 주문 또는 보상 처리가 끝난 실패/취소 주문만 삭제할 수 있다.
      * COMPLETED, 또는 보상이 끝났거나 필요 없는 FAILED/CANCELLED
      *
