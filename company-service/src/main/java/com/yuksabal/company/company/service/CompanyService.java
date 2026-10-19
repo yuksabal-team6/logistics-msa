@@ -13,6 +13,8 @@ import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
+import com.yuksabal.company.global.deletion.DeletionGuard;
+import com.yuksabal.company.global.deletion.DeletionTarget;
 import com.yuksabal.company.global.client.HubClient;
 import com.yuksabal.company.global.client.UserClient;
 import com.yuksabal.company.global.client.dto.response.UserResponse;
@@ -23,7 +25,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Set;
@@ -52,6 +56,8 @@ public class CompanyService {
     private final ProductService productService;
     private final UserClient userClient;
     private final HubClient hubClient;
+    private final DeletionGuard deletionGuard;
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
@@ -179,13 +185,25 @@ public class CompanyService {
     }
 
     // 업체 삭제는 MASTER만 가능. 소속 상품도 같은 트랜잭션에서 함께 Soft Delete(하나라도 실패하면 모두 롤백)
-    @Transactional
+    // 다른 서비스 확인(Feign)은 트랜잭션 밖에서 하고, DB 작업만 transactionTemplate으로 감싼다
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deleteCompany(UUID companyId, UUID userId, UserRole role) {
+        // 1. 권한(403) → 업체 조회(404) → 비활성 업체만 삭제 가능(422)
         if (role != UserRole.MASTER) {
             throw new BusinessException(FORBIDDEN);
         }
+        transactionTemplate.executeWithoutResult(status -> validateInactive(findCompany(companyId)));
 
+        // 2. 남은 업무: 이 업체 상품들의 허브 재고·공급 중인 진행 중 주문 (409, 확인 실패 502)
+        deletionGuard.validateDeletable(DeletionTarget.COMPANY, companyId);
+
+        // 3. 삭제. 확인하는 동안 다시 활성화됐으면 422
+        transactionTemplate.executeWithoutResult(status -> deleteInactiveCompany(companyId, userId));
+    }
+
+    private void deleteInactiveCompany(UUID companyId, UUID userId) {
         Company company = findCompany(companyId);
+        validateInactive(company);
         productService.deleteAllByCompany(companyId, userId);
         company.delete(userId);
     }
@@ -197,6 +215,13 @@ public class CompanyService {
                         RESOURCE_NOT_FOUND,
                         "존재하지 않거나 삭제된 업체입니다.",
                         "companyId"));
+    }
+
+    // 비활성화로 새 주문·입고를 먼저 끊어야, 확인한 "남은 업무 없음"이 삭제 시점까지 유지된다
+    private void validateInactive(Company company) {
+        if (company.isActive()) {
+            throw new BusinessException(BUSINESS_RULE_VIOLATION, "비활성화한 업체만 삭제할 수 있습니다.", "companyId");
+        }
     }
 
     // 값을 보냈고(null 아님) 기존 값과 다를 때만 "바뀜"으로 본다

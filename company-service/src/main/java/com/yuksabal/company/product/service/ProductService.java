@@ -6,6 +6,8 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
+import com.yuksabal.company.global.deletion.DeletionGuard;
+import com.yuksabal.company.global.deletion.DeletionTarget;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
 import com.yuksabal.company.product.dto.request.ProductStatusRequest;
@@ -19,7 +21,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Set;
 import java.util.UUID;
@@ -42,6 +46,8 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CompanyRepository companyRepository;
+    private final DeletionGuard deletionGuard;
+    private final TransactionTemplate transactionTemplate;
 
     // 업체 조회 → 소유권 확인 순서. 관리자(ownerId)는 업체를 조회해야 알 수 있다
     @Transactional
@@ -112,11 +118,26 @@ public class ProductService {
     }
 
     // Soft Delete라 실제로는 deleted_at·deleted_by를 기록하는 UPDATE
-    @Transactional
+    // 다른 서비스 확인(Feign)은 트랜잭션 밖에서 하고, DB 작업만 transactionTemplate으로 감싼다
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deleteProduct(UUID productId, UUID userId, UserRole role) {
-        Product product = findProduct(productId);
-        OwnerPermission.validateOwner(product.getCompany().getOwnerId(), userId, role);
+        // 1. 상품 조회(404) → 소유권(403) → 비활성 상품만 삭제 가능(422)
+        transactionTemplate.executeWithoutResult(status -> {
+            Product product = findProduct(productId);
+            OwnerPermission.validateOwner(product.getCompany().getOwnerId(), userId, role);
+            validateInactive(product);
+        });
 
+        // 2. 남은 업무: 허브 재고·진행 중 주문 (409, 확인 실패 502)
+        deletionGuard.validateDeletable(DeletionTarget.PRODUCT, productId);
+
+        // 3. 삭제. 확인하는 동안 다시 활성화됐으면 422
+        transactionTemplate.executeWithoutResult(status -> deleteInactiveProduct(productId, userId));
+    }
+
+    private void deleteInactiveProduct(UUID productId, UUID userId) {
+        Product product = findProduct(productId);
+        validateInactive(product);
         product.delete(userId);
     }
 
@@ -147,6 +168,13 @@ public class ProductService {
                         RESOURCE_NOT_FOUND,
                         "존재하지 않거나 삭제된 상품입니다.",
                         "productId"));
+    }
+
+    // 비활성화로 새 주문·입고를 먼저 끊어야, 확인한 "남은 업무 없음"이 삭제 시점까지 유지된다
+    private void validateInactive(Product product) {
+        if (product.isActive()) {
+            throw new BusinessException(BUSINESS_RULE_VIOLATION, "비활성화한 상품만 삭제할 수 있습니다.", "productId");
+        }
     }
 
     // 비활성 업체에는 활성 상품이 있으면 안 된다 (상품 등록·활성화 공용)
