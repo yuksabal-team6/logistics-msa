@@ -317,6 +317,26 @@ class CompanyScenarioTest {
         assertThat(newOrder.errorFields()).containsExactly("supplierCompanyId");
     }
 
+    @Test
+    @DisplayName("CMP-13. 재고가 남은 상품 삭제: 409(inventory), 상품 그대로")
+    void cmp13_재고가_남은_상품_삭제() {
+        // 사전 조건: 공통 준비 (서울 허브에 P 재고 10개, 진행 중 주문 없음) + P 비활성화 (상품은 비활성일 때만 삭제 가능)
+        s.deactivateProduct();
+
+        // 이렇게 하면: MASTER가 P 삭제
+        Response delete = Gateway.delete("/api/v1/products/" + s.productP, s.master);
+
+        // 이렇게 돼야 한다
+        // 1. company가 hub 재고 확인(GET /internal/inventories/stock?productId=)으로 남은 재고를 보고 409
+        //    (재고는 허브에 실제로 있는 물건이라 기록을 지우면 안 된다)
+        assertThat(delete.status()).as("%s", delete).isEqualTo(409);
+        assertThat(delete.errorCode()).isEqualTo("HAS_ACTIVE_WORK");
+        assertThat(delete.errorMessage()).isEqualTo("재고나 진행 중인 주문이 있어 상품을 삭제할 수 없습니다.");
+        assertThat(delete.errorFields()).containsExactly("inventory");
+        // 2. 상품은 삭제되지 않음
+        Gateway.get("/api/v1/products/" + s.productP, s.master).expect(200);
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
