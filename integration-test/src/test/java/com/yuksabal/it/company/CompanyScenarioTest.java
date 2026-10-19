@@ -274,6 +274,27 @@ class CompanyScenarioTest {
                 .isEqualTo(Scenario.GYEONGGI_NORTH_HUB.toString());
     }
 
+    @Test
+    @DisplayName("CMP-9. 재고가 남은 업체의 관리 허브 변경: 409(inventory), 허브 그대로")
+    void cmp9_재고가_남은_업체의_관리_허브_변경() {
+        // 사전 조건: 공통 준비 (서울 허브에 P 재고 10개)
+
+        // 이렇게 하면: MASTER가 A의 관리 허브를 서울 → 경기 북부로 변경
+        Response change = Gateway.patch("/api/v1/companies/" + s.companyA, s.master,
+                Map.of("hubId", Scenario.GYEONGGI_NORTH_HUB));
+
+        // 이렇게 돼야 한다
+        // 1. company가 hub 재고 확인(GET /internal/inventories/stock?companyId=)으로 남은 재고를 보고 409
+        //    (바꾸면 서울 재고가 주문으로 빠질 수 없게 갇힌다, #161)
+        assertThat(change.status()).as("%s", change).isEqualTo(409);
+        assertThat(change.errorCode()).isEqualTo("HAS_ACTIVE_WORK");
+        assertThat(change.errorMessage()).isEqualTo("재고나 진행 중인 주문이 있어 업체의 관리 허브를 바꿀 수 없습니다.");
+        assertThat(change.errorFields()).containsExactly("inventory");
+        // 2. A의 관리 허브는 서울 그대로
+        assertThat(Gateway.get("/api/v1/companies/" + s.companyA, s.master).expect(200).data().path("hubId").asText())
+                .isEqualTo(Scenario.SEOUL_HUB.toString());
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
