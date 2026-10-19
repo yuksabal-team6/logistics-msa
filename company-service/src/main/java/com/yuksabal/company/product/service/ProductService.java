@@ -101,6 +101,14 @@ public class ProductService {
                 .forEach(product -> product.delete(userId));
     }
 
+    // 업체 비활성화 전용. 소속 상품을 모두 비활성화한다 (권한은 업체 상태 변경에서 이미 확인)
+    // 업체를 다시 활성화해도 상품은 되돌리지 않는다 (원래 비활성이던 상품과 구분할 수 없어서, 판매할 상품만 다시 활성화)
+    @Transactional
+    public void deactivateAllByCompany(UUID companyId) {
+        productRepository.findAllByCompanyId(companyId)
+                .forEach(product -> product.changeActive(false));
+    }
+
     // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
     public ProductInternalResponse getProductForInternal(UUID productId) {
         return ProductInternalResponse.from(findProduct(productId));
