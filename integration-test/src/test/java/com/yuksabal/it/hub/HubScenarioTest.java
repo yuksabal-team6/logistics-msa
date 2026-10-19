@@ -68,4 +68,22 @@ class HubScenarioTest {
         Response stock = Gateway.get("/api/v1/inventories/products/" + noStock.productP, noStock.master);
         assertThat(stock.status()).as("%s", stock).isEqualTo(404);
     }
+
+    @Test
+    @DisplayName("HUB-3. 다른 업체 상품의 재고 조회: 다른 업체 관리자 403, 상품 업체 관리자 200")
+    void hub3_다른_업체_상품의_재고_조회() {
+        // 사전 조건: 공통 준비 (A의 상품 P, 서울 허브 재고 10개, b는 B의 관리자)
+        String path = "/api/v1/inventories/products/" + s.productP;
+
+        // 이렇게 하면: B 관리자 b와 A 관리자 a가 각각 P의 재고를 조회
+        Response byOther = Gateway.get(path, s.b.token());
+        Response byOwner = Gateway.get(path, s.a.token());
+
+        // 이렇게 돼야 한다
+        // 1. b: hub가 재고의 업체(A)를 company 내부 API(#2)로 조회해 관리자(ownerId)와 요청자를 비교 → 403
+        assertThat(byOther.status()).as("%s", byOther).isEqualTo(403);
+        // 2. a: 자기 업체 상품이라 200, 재고 10개
+        assertThat(byOwner.status()).as("%s", byOwner).isEqualTo(200);
+        assertThat(byOwner.data().path("quantity").asInt()).isEqualTo(INITIAL_STOCK);
+    }
 }
