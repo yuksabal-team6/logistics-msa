@@ -1,3 +1,6 @@
+// Spring Boot 3.3이 관리하는 Testcontainers 1.19.8은 Docker 29 이상(최소 API 1.44)에 연결하지 못해 올린다
+ext['testcontainers.version'] = '1.21.4'
+
 dependencies {
 	implementation project(':common')
 	implementation 'org.springframework.boot:spring-boot-starter-web'
@@ -7,4 +10,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
 	runtimeOnly 'org.postgresql:postgresql'
+	// 테스트용 PostgreSQL 컨테이너 (schema.sql의 부분 유니크 인덱스·CHECK 제약을 실제 DB로 확인한다)
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:junit-jupiter'
+	testImplementation 'org.testcontainers:postgresql'
 }
