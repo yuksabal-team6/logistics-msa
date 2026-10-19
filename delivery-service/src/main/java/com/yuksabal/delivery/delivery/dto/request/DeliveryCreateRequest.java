@@ -32,7 +32,10 @@ public record DeliveryCreateRequest(
 
         @Schema(description = "주문자 ID (선택). 없으면 MASTER와 담당 DELIVERY만 이 배송을 조회할 수 있다",
                 example = "00000000-0000-0000-0000-000000000101")
-        UUID ordererId
+        UUID ordererId,
+
+        @Schema(description = "공급 업체 ID (선택)")
+        UUID supplierCompanyId
 ) {
 
     public Delivery toEntity(){
@@ -41,6 +44,7 @@ public record DeliveryCreateRequest(
                 .departureHubId(departureHubId)
                 .destinationHubId(destinationHubId)
                 .destinationCompanyId(destinationCompanyId)
+                .supplierCompanyId(supplierCompanyId)
                 .ordererId(ordererId)
                 .address(address)
                 .recipientName(recipientName)

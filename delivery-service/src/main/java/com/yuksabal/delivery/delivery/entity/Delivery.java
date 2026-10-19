@@ -40,6 +40,9 @@ public class Delivery extends BaseEntity {
     @Column(nullable = false)
     private UUID destinationCompanyId;
 
+    // 공급 업체. 지금은 저장만 하고, 업체 기준 조회로 넓힐 때 사용 (order와 함께 변경)
+    private UUID supplierCompanyId;
+
     // 허브 → 업체 배송 담당자 → user-service p_users.user_id
     private UUID deliveryManagerId;
 
@@ -69,12 +72,13 @@ public class Delivery extends BaseEntity {
 
     @Builder
     public Delivery(UUID orderId, UUID departureHubId, UUID destinationHubId, UUID destinationCompanyId,
-                    UUID deliveryManagerId, UUID ordererId, String address, String recipientName,
-                    String recipientSlackId) {
+                    UUID supplierCompanyId, UUID deliveryManagerId, UUID ordererId, String address,
+                    String recipientName, String recipientSlackId) {
         this.orderId = orderId;
         this.departureHubId = departureHubId;
         this.destinationHubId = destinationHubId;
         this.destinationCompanyId = destinationCompanyId;
+        this.supplierCompanyId = supplierCompanyId;
         this.deliveryManagerId = deliveryManagerId;
         this.ordererId = ordererId;
         this.address = address;
