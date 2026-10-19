@@ -29,13 +29,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class InitialMasterIntegrationTest {
 
+    private static final String MASTER_USERNAME = "master01";
     private static final String PASSWORD = "Master123!";
     private static final String JWT_SECRET = TestJwt.randomBase64Secret(32);
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("jwt.secret", () -> JWT_SECRET);
-        registry.add("initial-master.username", () -> "master01");
+        registry.add("initial-master.username", () -> MASTER_USERNAME);
         registry.add("initial-master.password", () -> PASSWORD);
         registry.add("initial-master.email", () -> "master@example.com");
         registry.add("initial-master.slack-id", () -> "U0MASTER");
@@ -51,30 +52,44 @@ class InitialMasterIntegrationTest {
     private InitialMasterInitializer initializer;
 
     @Test
-    void 기동_시_MASTER가_한_번만_생성되고_로그인하면_MASTER_토큰이_나온다() throws Exception {
+    void 재시작해도_MASTER는_한_번만_생성되고_비밀번호는_BCrypt_해시다() {
+        // when
         // 재시작을 흉내 내 한 번 더 실행해도 늘지 않는다
         initializer.run(null);
 
-        List<User> masters = userRepository.findAll().stream().filter(u -> u.getRole() == UserRole.MASTER).toList();
+        // then
+        List<User> masters = userRepository.findAll().stream()
+                .filter(user -> user.getRole() == UserRole.MASTER)
+                .toList();
         assertThat(masters).hasSize(1);
         assertThat(masters.get(0).getPassword()).startsWith("$2").isNotEqualTo(PASSWORD);
+    }
 
-        String body = mockMvc.perform(post("/api/v1/auth/login")
+    @Test
+    void 기동_시_생성된_MASTER로_로그인하면_MASTER_토큰이_나온다() throws Exception {
+        // when
+        String responseBody = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("username", "master01", "password", PASSWORD))))
+                        .content(objectMapper.writeValueAsString(Map.of("username", MASTER_USERNAME, "password", PASSWORD))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        String token = objectMapper.readTree(body).path("data").path("accessToken").asText();
+
+        // then
+        String token = objectMapper.readTree(responseBody).path("data").path("accessToken").asText();
         assertThat(TestJwt.parse(JWT_SECRET, token).getPayload().get("role")).isEqualTo("MASTER");
     }
 
     @Test
     void 일반_회원가입은_계속_USER로_고정된다() throws Exception {
+        // given
+        Map<String, String> registerWithMasterRole = Map.of(
+                "username", "user01", "password", "Strong123!", "slackId", "U1",
+                "email", "user01@example.com", "role", "MASTER");
+
+        // when & then
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "username", "user01", "password", "Strong123!", "slackId", "U1",
-                                "email", "user01@example.com", "role", "MASTER"))))
+                        .content(objectMapper.writeValueAsString(registerWithMasterRole)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.role").value("USER"));
     }

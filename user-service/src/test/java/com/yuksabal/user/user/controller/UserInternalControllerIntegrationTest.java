@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -33,6 +34,7 @@ class UserInternalControllerIntegrationTest {
     private static final String URL = "/internal/users/";
     private static final UUID HUB = UUID.fromString("00000000-0000-0000-0000-000000000004");
     private static final UUID COMPANY = UUID.fromString("20000000-0000-4000-8000-000000000001");
+    private static final String ENCODED_PASSWORD = "$2a$10$abcdefghijklmnopqrstuuF7a0hJt8q4lH4mQGq3e0Wv0C9oS4w3y";
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -51,7 +53,7 @@ class UserInternalControllerIntegrationTest {
         userRepository.deleteAllInBatch();
         delivery = userRepository.saveAndFlush(User.builder()
                 .username("deliver01")
-                .password("$2a$10$abcdefghijklmnopqrstuuF7a0hJt8q4lH4mQGq3e0Wv0C9oS4w3y")
+                .password(ENCODED_PASSWORD)
                 .email("deliver01@example.com")
                 .slackId("U0DELIVER")
                 .role(UserRole.DELIVERY)
@@ -62,6 +64,7 @@ class UserInternalControllerIntegrationTest {
 
     @Test
     void 회원의_ID_아이디_활성_여부_역할_소속을_공통_응답으로_돌려준다() throws Exception {
+        // when & then
         getUser(delivery.getId())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -76,22 +79,26 @@ class UserInternalControllerIntegrationTest {
 
     @Test
     void 응답에는_내부_계약_필드만_있고_비밀번호_등_개인_정보는_없다() throws Exception {
-        String body = getUser(delivery.getId())
-                .andExpect(jsonPath("$.data.*", org.hamcrest.Matchers.hasSize(6)))
+        // when
+        String responseBody = getUser(delivery.getId())
+                .andExpect(jsonPath("$.data.*", hasSize(6)))
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.email").doesNotExist())
                 .andExpect(jsonPath("$.data.slackId").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(body).doesNotContain("$2a$").doesNotContain("deliver01@example.com");
+        // then
+        assertThat(responseBody).doesNotContain("$2a$").doesNotContain("deliver01@example.com");
     }
 
     @Test
     void 소속이_없으면_null로_돌려준다() throws Exception {
-        User user = userRepository.saveAndFlush(User.builder().username("user01").password("$2a$hash")
+        // given
+        User noAffiliationUser = userRepository.saveAndFlush(User.builder().username("user01").password("$2a$hash")
                 .email("user01@example.com").slackId("U1").role(UserRole.USER).build());
 
-        getUser(user.getId())
+        // when & then
+        getUser(noAffiliationUser.getId())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role").value("USER"))
                 .andExpect(jsonPath("$.data.hubId").doesNotExist())
@@ -100,9 +107,11 @@ class UserInternalControllerIntegrationTest {
 
     @Test
     void 비활성_회원도_404가_아니라_active_false로_돌려준다() throws Exception {
+        // given
         delivery.changeActive(false);
         userRepository.saveAndFlush(delivery);
 
+        // when & then
         getUser(delivery.getId())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.active").value(false))
@@ -111,6 +120,7 @@ class UserInternalControllerIntegrationTest {
 
     @Test
     void 없는_회원은_404() throws Exception {
+        // when & then
         getUser(UUID.randomUUID())
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false))
@@ -120,25 +130,35 @@ class UserInternalControllerIntegrationTest {
 
     @Test
     void 탈퇴_소프트_삭제한_회원은_404() throws Exception {
+        // given
         delivery.delete(UUID.randomUUID());
         userRepository.saveAndFlush(delivery);
 
+        // when & then
         getUser(delivery.getId()).andExpect(status().isNotFound());
     }
 
     @Test
     void 회원_ID가_UUID_형식이_아니면_400() throws Exception {
+        // when & then
         mockMvc.perform(get(URL + "not-a-uuid"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
     }
 
+    // Feign 호출은 FeignHeaderInterceptor가 X-User-*를 넘기지만, 내부 API는 사용자 권한을 보지 않는다 (명세 0.3).
+    // 외부 접근 차단은 게이트웨이 미노출로 한다 (api-gateway 테스트: 내부_API_경로는_외부에서_404)
     @Test
     void 내부_API는_사용자_헤더_없이_호출된다() throws Exception {
-        // Feign 호출은 FeignHeaderInterceptor가 X-User-*를 넘기지만, 내부 API는 사용자 권한을 보지 않는다 (명세 0.3).
-        // 외부 접근 차단은 게이트웨이 미노출로 한다 (api-gateway 테스트: 내부_API_경로는_외부에서_404)
+        // when & then
         getUser(delivery.getId()).andExpect(status().isOk());
-        mockMvc.perform(get(URL + delivery.getId()).header("X-User-Id", UUID.randomUUID().toString())
+    }
+
+    @Test
+    void 내부_API는_다른_회원의_USER_헤더가_있어도_권한을_보지_않고_200() throws Exception {
+        // when & then
+        mockMvc.perform(get(URL + delivery.getId())
+                        .header("X-User-Id", UUID.randomUUID().toString())
                         .header("X-User-Role", "USER"))
                 .andExpect(status().isOk());
     }

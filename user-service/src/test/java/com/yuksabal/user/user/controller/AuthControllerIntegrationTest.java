@@ -10,6 +10,8 @@ import com.yuksabal.user.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,8 +41,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class AuthControllerIntegrationTest {
 
-    private static final String URL = "/api/v1/auth/register";
+    private static final String REGISTER_URL = "/api/v1/auth/register";
     private static final String LOGIN_URL = "/api/v1/auth/login";
+    private static final String USERNAME = "user01";
+    private static final String EMAIL = "user01@example.com";
     private static final String PASSWORD = "Strong123!";
     private static final String JWT_SECRET = TestJwt.randomBase64Secret(32);
 
@@ -68,23 +72,28 @@ class AuthControllerIntegrationTest {
         userRepository.deleteAllInBatch();
     }
 
+    // ---------- 회원가입 ----------
+
     @Test
     void 정상_회원가입은_201과_공통_응답_형식() throws Exception {
+        // given
         UUID hubId = UUID.randomUUID();
         UUID companyId = UUID.randomUUID();
+        Map<String, Object> request = Map.of("username", USERNAME, "password", PASSWORD, "slackId", "U12345678",
+                "email", EMAIL, "hubId", hubId.toString(), "companyId", companyId.toString());
 
-        String body = register(Map.of("username", "user01", "password", PASSWORD, "slackId", "U12345678",
-                "email", "user01@example.com", "hubId", hubId.toString(), "companyId", companyId.toString()))
+        // when
+        String responseJson = register(request)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("회원가입이 완료되었습니다."))
-                .andExpect(jsonPath("$.data.username").value("user01"))
+                .andExpect(jsonPath("$.data.username").value(USERNAME))
                 .andExpect(jsonPath("$.data.role").value("USER"))
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
-        UUID userId = UUID.fromString(objectMapper.readTree(body).path("data").path("userId").asText());
-        User saved = userRepository.findById(userId).orElseThrow();
+        // then
+        User saved = userRepository.findById(UUID.fromString(userIdOf(responseJson))).orElseThrow();
         assertThat(saved.getHubId()).isEqualTo(hubId);
         assertThat(saved.getCompanyId()).isEqualTo(companyId);
         assertThat(saved.isPublic()).isTrue();
@@ -94,11 +103,13 @@ class AuthControllerIntegrationTest {
 
     @Test
     void 비밀번호는_BCrypt_해시로_저장되고_응답에_없다() throws Exception {
-        String body = register(validBody("user01", "user01@example.com"))
+        // when
+        String responseJson = register(validBody(USERNAME, EMAIL))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(body).doesNotContain(PASSWORD);
+        // then
+        assertThat(responseJson).doesNotContain(PASSWORD);
         User saved = userRepository.findAll().get(0);
         assertThat(saved.getPassword()).isNotEqualTo(PASSWORD).startsWith("$2");
         assertThat(passwordEncoder.matches(PASSWORD, saved.getPassword())).isTrue();
@@ -106,17 +117,22 @@ class AuthControllerIntegrationTest {
 
     @Test
     void 요청에_role을_넣어도_USER로_가입된다() throws Exception {
-        Map<String, Object> body = new HashMap<>(validBody("user01", "user01@example.com"));
-        body.put("role", "MASTER");
+        // given
+        Map<String, Object> request = validBodyWith("role", "MASTER");
 
-        register(body).andExpect(status().isCreated()).andExpect(jsonPath("$.data.role").value("USER"));
+        // when & then
+        register(request)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.role").value("USER"));
         assertThat(userRepository.findAll().get(0).getRole()).isEqualTo(UserRole.USER);
     }
 
     @Test
     void 이메일이_중복이면_409() throws Exception {
+        // given
         register(validBody("user01", "same@example.com")).andExpect(status().isCreated());
 
+        // when & then
         register(validBody("user02", "same@example.com"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
@@ -127,25 +143,28 @@ class AuthControllerIntegrationTest {
 
     @Test
     void 아이디가_중복이면_409() throws Exception {
-        register(validBody("user01", "a@example.com")).andExpect(status().isCreated());
+        // given
+        register(validBody(USERNAME, "a@example.com")).andExpect(status().isCreated());
 
-        register(validBody("user01", "b@example.com"))
+        // when & then
+        register(validBody(USERNAME, "b@example.com"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("username")));
     }
 
     @Test
     void 삭제된_회원의_아이디와_이메일로는_다시_가입할_수_있다() throws Exception {
-        register(validBody("user01", "user01@example.com")).andExpect(status().isCreated());
-        User user = userRepository.findAll().get(0);
-        user.delete(UUID.randomUUID());
-        userRepository.saveAndFlush(user);
+        // given
+        register(validBody(USERNAME, EMAIL)).andExpect(status().isCreated());
+        softDelete(userRepository.findAll().get(0));
 
-        register(validBody("user01", "user01@example.com")).andExpect(status().isCreated());
+        // when & then
+        register(validBody(USERNAME, EMAIL)).andExpect(status().isCreated());
     }
 
     @Test
     void 필수값이_없으면_400과_누락_필드_전부() throws Exception {
+        // when & then
         register(Map.of())
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
@@ -156,42 +175,62 @@ class AuthControllerIntegrationTest {
 
     @Test
     void 아이디_비밀번호_형식이_틀리면_400() throws Exception {
-        register(Map.of("username", "User!", "password", "weak", "slackId", "U1", "email", "a@example.com"))
+        // given
+        Map<String, Object> request = Map.of("username", "User!", "password", "weak", "slackId", "U1",
+                "email", "a@example.com");
+
+        // when & then
+        register(request)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("username", "password")));
     }
 
     @Test
     void hubId가_UUID_형식이_아니면_400() throws Exception {
-        Map<String, Object> body = new HashMap<>(validBody("user01", "user01@example.com"));
-        body.put("hubId", "not-a-uuid");
+        // given
+        Map<String, Object> request = validBodyWith("hubId", "not-a-uuid");
 
-        register(body)
+        // when & then
+        register(request)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
     }
 
-    @Test
-    void 소속_ID가_빈_문자열이면_소속_없이_가입되지_않고_400() throws Exception {
-        for (String blank : new String[]{"", " "}) {
-            for (String field : new String[]{"hubId", "companyId"}) {
-                Map<String, Object> body = new HashMap<>(validBody("user01", "user01@example.com"));
-                body.put(field, blank);
+    @ParameterizedTest
+    @ValueSource(strings = {"", " "})
+    void hubId가_빈_문자열이면_소속_없이_가입되지_않고_400(String blank) throws Exception {
+        // given
+        Map<String, Object> request = validBodyWith("hubId", blank);
 
-                register(body)
-                        .andExpect(status().isBadRequest())
-                        .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
-            }
-        }
-        assertThat(userRepository.findByUsername("user01")).isEmpty();
+        // when & then
+        register(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+        assertThat(userRepository.findByUsername(USERNAME)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " "})
+    void companyId가_빈_문자열이면_소속_없이_가입되지_않고_400(String blank) throws Exception {
+        // given
+        Map<String, Object> request = validBodyWith("companyId", blank);
+
+        // when & then
+        register(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+        assertThat(userRepository.findByUsername(USERNAME)).isEmpty();
     }
 
     @Test
     void 같은_키가_두_번_오면_400() throws Exception {
-        String json = "{\"username\":\"user01\",\"password\":\"" + PASSWORD + "\",\"slackId\":\"U1\","
+        // given
+        // Map으로는 같은 키를 두 번 넣을 수 없어서 JSON을 직접 쓴다
+        String duplicateKeyJson = "{\"username\":\"user01\",\"password\":\"" + PASSWORD + "\",\"slackId\":\"U1\","
                 + "\"email\":\"user01@example.com\",\"username\":\"user02\"}";
 
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(json))
+        // when & then
+        mockMvc.perform(post(REGISTER_URL).contentType(MediaType.APPLICATION_JSON).content(duplicateKeyJson))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
         assertThat(userRepository.count()).isZero();
@@ -199,20 +238,30 @@ class AuthControllerIntegrationTest {
 
     @Test
     void 오류_응답에_비밀번호가_노출되지_않는다() throws Exception {
-        register(Map.of("username", "ab", "password", "SecretPw1!", "slackId", "U1", "email", "a@example.com"))
+        // given
+        String rawPassword = "SecretPw1!";
+        Map<String, Object> invalidUsernameRequest = Map.of("username", "ab", "password", rawPassword,
+                "slackId", "U1", "email", "a@example.com");
+
+        // when & then
+        register(invalidUsernameRequest)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details[*].field").value(hasItem("username")))
-                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).doesNotContain("SecretPw1!"));
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).doesNotContain(rawPassword));
     }
+
+    // ---------- 로그인 ----------
 
     @Test
     void 정상_로그인은_200과_게이트웨이가_검증할_수_있는_토큰() throws Exception {
-        String registered = register(validBody("user01", "user01@example.com"))
+        // given
+        String registerJson = register(validBody(USERNAME, EMAIL))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        String userId = objectMapper.readTree(registered).path("data").path("userId").asText();
+        String userId = userIdOf(registerJson);
 
-        String body = login(Map.of("username", "user01", "password", PASSWORD))
+        // when
+        String loginJson = login(USERNAME, PASSWORD)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("로그인에 성공했습니다."))
@@ -220,62 +269,97 @@ class AuthControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.expiresIn").value(3600))
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(body).doesNotContain(PASSWORD);
-        String accessToken = objectMapper.readTree(body).path("data").path("accessToken").asText();
+        // then
+        assertThat(loginJson).doesNotContain(PASSWORD);
+        String accessToken = objectMapper.readTree(loginJson).path("data").path("accessToken").asText();
         Claims claims = TestJwt.parse(JWT_SECRET, accessToken).getPayload();
         assertThat(claims.getSubject()).isEqualTo(userId);
         assertThat(claims.get("role")).isEqualTo("USER");
     }
 
     @Test
-    void 비밀번호가_틀리거나_아이디가_없으면_같은_401() throws Exception {
-        register(validBody("user01", "user01@example.com")).andExpect(status().isCreated());
+    void 비밀번호가_틀리면_401_INVALID_CREDENTIALS() throws Exception {
+        // given
+        register(validBody(USERNAME, EMAIL)).andExpect(status().isCreated());
 
-        String wrongPassword = login(Map.of("username", "user01", "password", "Wrong123!"))
+        // when & then
+        login(USERNAME, "Wrong123!")
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"))
-                .andReturn().getResponse().getContentAsString();
-        String unknownUser = login(Map.of("username", "nobody", "password", PASSWORD))
+                .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void 아이디가_없으면_비밀번호가_틀린_경우와_같은_401() throws Exception {
+        // given
+        register(validBody(USERNAME, EMAIL)).andExpect(status().isCreated());
+        String wrongPasswordJson = login(USERNAME, "Wrong123!")
                 .andExpect(status().isUnauthorized())
                 .andReturn().getResponse().getContentAsString();
 
-        assertThat(unknownUser).isEqualTo(wrongPassword);
+        // when
+        String unknownUserJson = login("nobody", PASSWORD)
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+
+        // then
+        assertThat(unknownUserJson).isEqualTo(wrongPasswordJson);
     }
 
     @Test
     void 삭제된_회원은_로그인할_수_없다() throws Exception {
-        register(validBody("user01", "user01@example.com")).andExpect(status().isCreated());
-        User user = userRepository.findAll().get(0);
-        user.delete(UUID.randomUUID());
-        userRepository.saveAndFlush(user);
+        // given
+        register(validBody(USERNAME, EMAIL)).andExpect(status().isCreated());
+        softDelete(userRepository.findAll().get(0));
 
-        login(Map.of("username", "user01", "password", PASSWORD))
+        // when & then
+        login(USERNAME, PASSWORD)
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
     }
 
     @Test
     void 로그인_필수값이_없으면_400() throws Exception {
-        login(Map.of())
+        // when & then
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("username", "password")));
     }
 
-    private ResultActions login(Map<String, ?> body) throws Exception {
+    // ---------- 공통 준비 ----------
+
+    private ResultActions register(Map<String, ?> request) throws Exception {
+        return mockMvc.perform(post(REGISTER_URL)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)));
+    }
+
+    private ResultActions login(String username, String password) throws Exception {
         return mockMvc.perform(post(LOGIN_URL)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(body)));
+                .content(objectMapper.writeValueAsString(Map.of("username", username, "password", password))));
     }
 
     private Map<String, Object> validBody(String username, String email) {
         return Map.of("username", username, "password", PASSWORD, "slackId", "U12345678", "email", email);
     }
 
-    private ResultActions register(Map<String, ?> body) throws Exception {
-        return mockMvc.perform(post(URL)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(body)));
+    // 정상 가입 요청에서 한 필드만 바꾼 요청
+    private Map<String, Object> validBodyWith(String field, Object value) {
+        Map<String, Object> request = new HashMap<>(validBody(USERNAME, EMAIL));
+        request.put(field, value);
+        return request;
+    }
+
+    private String userIdOf(String responseJson) throws Exception {
+        return objectMapper.readTree(responseJson).path("data").path("userId").asText();
+    }
+
+    private void softDelete(User user) {
+        user.delete(UUID.randomUUID());
+        userRepository.saveAndFlush(user);
     }
 }

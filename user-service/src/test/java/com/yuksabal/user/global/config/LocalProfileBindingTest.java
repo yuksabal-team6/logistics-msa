@@ -29,6 +29,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @ActiveProfiles({"test", "local"})
 class LocalProfileBindingTest {
 
+    private static final String LOOPBACK = "127.0.0.1";
+    private static final int CONNECT_TIMEOUT_MS = 2000;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("jwt.secret", () -> TestJwt.randomBase64Secret(32));
@@ -41,22 +44,32 @@ class LocalProfileBindingTest {
 
     @Test
     void 바인딩_주소와_Eureka_등록_주소가_loopback이다() {
-        assertThat(environment.getProperty("server.address")).isEqualTo("127.0.0.1");
-        assertThat(environment.getProperty("eureka.instance.ip-address")).isEqualTo("127.0.0.1");
+        // when & then
+        assertThat(environment.getProperty("server.address")).isEqualTo(LOOPBACK);
+        assertThat(environment.getProperty("eureka.instance.ip-address")).isEqualTo(LOOPBACK);
     }
 
     @Test
-    void loopback으로는_접속되고_LAN_주소로는_접속되지_않는다() throws IOException {
+    void loopback으로는_접속된다() throws IOException {
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", port), 2000);
+            // when
+            socket.connect(new InetSocketAddress(LOOPBACK, port), CONNECT_TIMEOUT_MS);
+
+            // then
             assertThat(socket.isConnected()).isTrue();
         }
+    }
 
+    @Test
+    void LAN_주소로는_접속되지_않는다() throws IOException {
+        // given
         Optional<InetAddress> lanAddress = findLanAddress();
         assumeTrue(lanAddress.isPresent(), "LAN 주소가 없는 환경에서는 건너뛴다");
+
+        // when & then
         assertThatThrownBy(() -> {
             try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress(lanAddress.get(), port), 2000);
+                socket.connect(new InetSocketAddress(lanAddress.get(), port), CONNECT_TIMEOUT_MS);
             }
         }).isInstanceOf(IOException.class);
     }

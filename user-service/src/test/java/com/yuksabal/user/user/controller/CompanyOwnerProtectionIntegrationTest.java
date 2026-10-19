@@ -17,6 +17,8 @@ import feign.Request;
 import feign.RetryableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,6 +29,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -51,9 +54,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class CompanyOwnerProtectionIntegrationTest {
 
     private static final String USERS_URL = "/api/v1/users/";
-    private static final String MESSAGE = "업체 관리자를 먼저 변경해 주세요.";
+    private static final String OWNER_CHANGE_REQUIRED_MESSAGE = "업체 관리자를 먼저 변경해 주세요.";
     private static final UUID OWNED = UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID OTHER = UUID.fromString("30000000-0000-4000-8000-000000000002");
+    private static final String NEW_SLACK_ID = "U99";
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -91,21 +95,27 @@ class CompanyOwnerProtectionIntegrationTest {
 
     @Test
     void 관리_업체로_소속을_지정하는_것은_허용한다() throws Exception {
+        // given
         owns(owner, OWNED);
 
-        update(Map.of("companyId", OWNED.toString()))
+        // when & then
+        updateUser(owner, Map.of("companyId", OWNED.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.companyId").value(OWNED.toString()));
-
         verify(companyClient).getCompaniesByOwner(owner.getId());
     }
 
     @Test
     void 관리_업체가_아닌_업체로_지정하면_422이고_바뀌지_않는다() throws Exception {
+        // given
         owns(owner, OWNED);
 
-        expectOwnerViolation(update(Map.of("companyId", OTHER.toString(), "slackId", "U99")), "companyId");
+        // when
+        ResultActions result = updateUser(owner, Map.of("companyId", OTHER.toString(), "slackId", NEW_SLACK_ID));
 
+        // then
+        expectOwnerViolation(result, "companyId");
+        // 같은 요청의 다른 필드도 반영되지 않는다
         User reloaded = reload(owner);
         assertThat(reloaded.getCompanyId()).isNull();
         assertThat(reloaded.getSlackId()).isEqualTo("Uowner01");
@@ -113,51 +123,78 @@ class CompanyOwnerProtectionIntegrationTest {
 
     @Test
     void 관리_업체_소속인_관리자를_다른_업체로_옮기면_422() throws Exception {
-        owner = save("owner02", UserRole.COMPANY, OWNED);
-        owns(owner, OWNED);
+        // given
+        User ownerInCompany = save("owner02", UserRole.COMPANY, OWNED);
+        owns(ownerInCompany, OWNED);
 
-        expectOwnerViolation(update(Map.of("companyId", OTHER.toString())), "companyId");
-        assertThat(reload(owner).getCompanyId()).isEqualTo(OWNED);
+        // when
+        ResultActions result = updateUser(ownerInCompany, Map.of("companyId", OTHER.toString()));
+
+        // then
+        expectOwnerViolation(result, "companyId");
+        assertThat(reload(ownerInCompany).getCompanyId()).isEqualTo(OWNED);
     }
 
     @Test
     void 관리_업체가_없는_COMPANY_회원은_제한하지_않는다() throws Exception {
+        // given
         owns(owner);
 
-        update(Map.of("companyId", OTHER.toString())).andExpect(status().isOk());
+        // when & then
+        updateUser(owner, Map.of("companyId", OTHER.toString())).andExpect(status().isOk());
         assertThat(reload(owner).getCompanyId()).isEqualTo(OTHER);
     }
 
     @Test
     void 관리_업체가_2개_이상이면_데이터_이상으로_422() throws Exception {
+        // given
         owns(owner, OWNED, OTHER);
 
-        expectOwnerViolation(update(Map.of("companyId", OWNED.toString())), "companyId");
+        // when
+        ResultActions result = updateUser(owner, Map.of("companyId", OWNED.toString()));
+
+        // then
+        expectOwnerViolation(result, "companyId");
     }
 
     @Test
     void COMPANY가_아닌_회원은_관리_업체를_조회하지_않는다() throws Exception {
+        // given
         User user = save("user01", UserRole.USER, null);
 
-        update(user, Map.of("companyId", OTHER.toString())).andExpect(status().isOk());
+        // when & then
+        updateUser(user, Map.of("companyId", OTHER.toString())).andExpect(status().isOk());
         verify(companyClient, never()).getCompaniesByOwner(any());
     }
 
     @Test
-    void companyId가_현재와_같거나_없으면_관리_업체를_조회하지_않는다() throws Exception {
-        owner = save("owner02", UserRole.COMPANY, OWNED);
+    void companyId가_현재와_같으면_관리_업체를_조회하지_않는다() throws Exception {
+        // given
+        User ownerInCompany = save("owner02", UserRole.COMPANY, OWNED);
 
-        update(Map.of("companyId", OWNED.toString())).andExpect(status().isOk());
-        update(Map.of("slackId", "U99")).andExpect(status().isOk());
+        // when & then
+        updateUser(ownerInCompany, Map.of("companyId", OWNED.toString())).andExpect(status().isOk());
+        verify(companyClient, never()).getCompaniesByOwner(any());
+    }
+
+    @Test
+    void companyId가_없으면_관리_업체를_조회하지_않는다() throws Exception {
+        // given
+        User ownerInCompany = save("owner02", UserRole.COMPANY, OWNED);
+
+        // when & then
+        updateUser(ownerInCompany, Map.of("slackId", NEW_SLACK_ID)).andExpect(status().isOk());
         verify(companyClient, never()).getCompaniesByOwner(any());
     }
 
     @Test
     void 없는_업체면_존재_확인이_먼저_400() throws Exception {
+        // given
         given(companyClient.getCompany(OTHER))
                 .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "not found", List.of()));
 
-        update(Map.of("companyId", OTHER.toString()))
+        // when & then
+        updateUser(owner, Map.of("companyId", OTHER.toString()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details[0].field").value("companyId"));
         verify(companyClient, never()).getCompaniesByOwner(any());
@@ -165,9 +202,11 @@ class CompanyOwnerProtectionIntegrationTest {
 
     @Test
     void 관리_업체_조회가_타임아웃이면_502이고_바뀌지_않는다() throws Exception {
+        // given
         given(companyClient.getCompaniesByOwner(owner.getId())).willThrow(timeout());
 
-        update(Map.of("companyId", OWNED.toString()))
+        // when & then
+        updateUser(owner, Map.of("companyId", OWNED.toString()))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_FAILURE"));
         assertThat(reload(owner).getCompanyId()).isNull();
@@ -175,47 +214,67 @@ class CompanyOwnerProtectionIntegrationTest {
 
     @Test
     void 관리_업체_조회_응답이_비어_있으면_확인하지_못한_것으로_502() throws Exception {
+        // given
         given(companyClient.getCompaniesByOwner(owner.getId())).willReturn(ApiResponse.success(null));
 
-        update(Map.of("companyId", OWNED.toString()))
+        // when & then
+        updateUser(owner, Map.of("companyId", OWNED.toString()))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_FAILURE"));
     }
 
     // ---------- 역할 변경 ----------
 
-    @Test
-    void 업체_관리자를_다른_역할로_바꾸면_422이고_바뀌지_않는다() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"USER", "DELIVERY", "MASTER"})
+    void 업체_관리자를_다른_역할로_바꾸면_422이고_바뀌지_않는다(String newRole) throws Exception {
+        // given
         owns(owner, OWNED);
 
-        for (String role : new String[]{"USER", "DELIVERY", "MASTER"}) {
-            expectOwnerViolation(role(owner, role), "role");
-        }
+        // when
+        ResultActions result = changeRole(owner, newRole);
+
+        // then
+        expectOwnerViolation(result, "role");
         assertThat(reload(owner).getRole()).isEqualTo(UserRole.COMPANY);
     }
 
     @Test
     void 관리_업체가_없는_COMPANY_회원은_역할을_바꿀_수_있다() throws Exception {
+        // given
         owns(owner);
 
-        role(owner, "USER").andExpect(status().isOk()).andExpect(jsonPath("$.data.role").value("USER"));
+        // when & then
+        changeRole(owner, "USER")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("USER"));
     }
 
     @Test
-    void COMPANY로_바꾸거나_같은_역할이면_관리_업체를_조회하지_않는다() throws Exception {
+    void COMPANY로_바꾸면_관리_업체를_조회하지_않는다() throws Exception {
+        // given
         User user = save("user01", UserRole.USER, null);
 
-        role(user, "COMPANY").andExpect(status().isOk());
-        role(owner, "COMPANY").andExpect(status().isOk());
+        // when & then
+        changeRole(user, "COMPANY").andExpect(status().isOk());
+        verify(companyClient, never()).getCompaniesByOwner(any());
+    }
+
+    @Test
+    void 같은_역할로_바꾸면_관리_업체를_조회하지_않는다() throws Exception {
+        // when & then
+        changeRole(owner, "COMPANY").andExpect(status().isOk());
         verify(companyClient, never()).getCompaniesByOwner(any());
     }
 
     @Test
     void 역할_변경_중_관리_업체_조회가_5xx면_502이고_바뀌지_않는다() throws Exception {
+        // given
         given(companyClient.getCompaniesByOwner(owner.getId()))
                 .willThrow(new FeignServerException(503, "SERVICE_UNAVAILABLE", "down", "CompanyClient#getCompaniesByOwner"));
 
-        role(owner, "USER")
+        // when & then
+        changeRole(owner, "USER")
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_FAILURE"));
         assertThat(reload(owner).getRole()).isEqualTo(UserRole.COMPANY);
@@ -225,10 +284,11 @@ class CompanyOwnerProtectionIntegrationTest {
 
     @Test
     void 업체_관리자의_비활성화는_허용하고_조회하지_않는다() throws Exception {
+        // given
         owns(owner, OWNED);
 
-        mockMvc.perform(asMaster(patch(USERS_URL + owner.getId() + "/status"))
-                        .content("{\"active\":false}"))
+        // when & then
+        changeStatus(owner, false)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.active").value(false));
         verify(companyClient, never()).getCompaniesByOwner(any());
@@ -236,17 +296,22 @@ class CompanyOwnerProtectionIntegrationTest {
 
     @Test
     void MASTER가_아니면_관리_업체를_조회하기_전에_403() throws Exception {
+        // given
         User user = save("user01", UserRole.USER, null);
 
+        // when & then
         mockMvc.perform(patch(USERS_URL + owner.getId() + "/role")
-                        .header("X-User-Id", user.getId().toString()).header("X-User-Role", "USER")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"USER\"}"))
+                        .header("X-User-Id", user.getId().toString())
+                        .header("X-User-Role", "USER")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("role", "USER"))))
                 .andExpect(status().isForbidden());
         verify(companyClient, never()).getCompaniesByOwner(any());
     }
 
     // ---------- helpers ----------
 
+    // 관리 업체 조회(company #11)가 돌려줄 업체 목록. 인자가 없으면 관리 업체 없음
     private void owns(User user, UUID... companyIds) {
         List<CompanyResponse> companies = Arrays.stream(companyIds).map(CompanyResponse::new).toList();
         given(companyClient.getCompaniesByOwner(user.getId())).willReturn(ApiResponse.success(companies));
@@ -255,7 +320,7 @@ class CompanyOwnerProtectionIntegrationTest {
     private void expectOwnerViolation(ResultActions result, String field) throws Exception {
         result.andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
-                .andExpect(jsonPath("$.error.message").value(MESSAGE))
+                .andExpect(jsonPath("$.error.message").value(OWNER_CHANGE_REQUIRED_MESSAGE))
                 .andExpect(jsonPath("$.error.details[0].field").value(field));
     }
 
@@ -280,24 +345,24 @@ class CompanyOwnerProtectionIntegrationTest {
         return userRepository.findById(user.getId()).orElseThrow();
     }
 
-    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder asMaster(
-            org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request) {
+    private MockHttpServletRequestBuilder asMaster(MockHttpServletRequestBuilder request) {
         return request.header("X-User-Id", master.getId().toString())
                 .header("X-User-Role", "MASTER")
                 .contentType(MediaType.APPLICATION_JSON);
     }
 
-    private ResultActions update(Map<String, ?> body) throws Exception {
-        return update(owner, body);
-    }
-
-    private ResultActions update(User target, Map<String, ?> body) throws Exception {
+    private ResultActions updateUser(User target, Map<String, ?> changes) throws Exception {
         return mockMvc.perform(asMaster(patch(USERS_URL + target.getId()))
-                .content(objectMapper.writeValueAsString(body)));
+                .content(objectMapper.writeValueAsString(changes)));
     }
 
-    private ResultActions role(User target, String role) throws Exception {
+    private ResultActions changeRole(User target, String role) throws Exception {
         return mockMvc.perform(asMaster(patch(USERS_URL + target.getId() + "/role"))
                 .content(objectMapper.writeValueAsString(Map.of("role", role))));
+    }
+
+    private ResultActions changeStatus(User target, boolean active) throws Exception {
+        return mockMvc.perform(asMaster(patch(USERS_URL + target.getId() + "/status"))
+                .content(objectMapper.writeValueAsString(Map.of("active", active))));
     }
 }

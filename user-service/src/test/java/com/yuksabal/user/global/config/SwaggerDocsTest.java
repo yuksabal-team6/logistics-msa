@@ -30,6 +30,7 @@ class SwaggerDocsTest {
 
     @Test
     void API_문서가_생성되고_회원_관리_API가_포함된다() throws Exception {
+        // when & then
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/users'].get").exists())
