@@ -24,7 +24,7 @@ public record ProductInternalResponse(
         @Schema(description = "공급 업체의 관리 허브 ID", example = "00000000-0000-0000-0000-000000000004")
         UUID hubId,
 
-        @Schema(description = "활성 여부. false면 새 주문·입고를 받지 않는다 (업체가 비활성이면 상품도 비활성)", example = "true")
+        @Schema(description = "주문·입고 가능 여부. 상품과 공급 업체가 모두 활성일 때만 true", example = "true")
         boolean active
 ) {
 
@@ -35,7 +35,8 @@ public record ProductInternalResponse(
                 product.getUnitPrice(),
                 product.getCompany().getId(),
                 product.getCompany().getHubId(),
-                product.isActive()
+                // 연쇄 비활성화로 보통은 상품 상태만 봐도 같지만, 업체 상태 변경과 겹친 요청에서도 정확하도록 업체 상태를 함께 본다
+                product.isActive() && product.getCompany().isActive()
         );
     }
 }
