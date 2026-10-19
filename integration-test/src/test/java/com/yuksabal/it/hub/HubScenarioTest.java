@@ -2,12 +2,17 @@ package com.yuksabal.it.hub;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.yuksabal.it.support.Gateway;
+import com.yuksabal.it.support.Concurrently;
 import com.yuksabal.it.support.Gateway.Response;
 import com.yuksabal.it.support.Scenario;
+import com.yuksabal.it.support.Scenario.Member;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
@@ -18,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // 시나리오마다 공통 준비(업체 A·B, 상품 P, 재고 10개, 회원 u·a·b)를 새로 만든다 (Scenario 참고)
 //
 // hub는 입고·재고 조회 때 company 내부 API(#1 상품)로 상품의 활성 여부·업체·관리 허브를 확인한다
+// 동시 요청 시나리오(HUB-5, 7, 13, 14)는 어느 요청이 먼저 처리될지 매번 달라서, 성공·실패 건수와 최종 데이터(재고·이력·주문 상태)를 확인한다
 class HubScenarioTest {
 
     private Scenario s;
@@ -85,6 +91,38 @@ class HubScenarioTest {
         // 2. a: 자기 업체 상품이라 200, 재고 10개
         assertThat(byOwner.status()).as("%s", byOwner).isEqualTo(200);
         assertThat(byOwner.data().path("quantity").asInt()).isEqualTo(INITIAL_STOCK);
+    }
+
+    @Test
+    @DisplayName("HUB-5 · ORD-21. 마지막 재고에 주문 2건 동시: 1건 201, 1건 409(INSUFFICIENT_STOCK), 재고 0 (음수 없음)")
+    void hub5_ord21_마지막_재고에_주문_2건_동시() {
+        // 사전 조건: 재고가 없는 공통 준비 + 서울 허브에 P 1개 입고, 주문자 u·v (토큰은 출발 전에 미리 받는다)
+        Scenario last = new Scenario(false);
+        last.inbound(Scenario.SEOUL_HUB, 1);
+        String inventoryId = last.inventoryOfP().path("inventoryId").asText();
+        Member v = last.user("v");
+        String uToken = last.u.token();
+        String vToken = v.token();
+
+        // 이렇게 하면: u와 v가 P를 1개씩 동시에 주문 (Idempotency-Key는 각자 다르게)
+        List<Response> orders = Concurrently.run(() -> last.order(uToken, 1), () -> last.order(vToken, 1));
+
+        // 이렇게 돼야 한다
+        // 1. 하나는 201 CONFIRMED, 하나는 hub의 재고 부족(409 INSUFFICIENT_STOCK)을 order가 그대로 전달
+        //    (hub가 재고 행을 잠그고(SELECT ... FOR UPDATE) 수량이 충분할 때만 차감해서, 뒤 요청은 0개를 보고 실패한다)
+        assertThat(Concurrently.count(orders, 201)).as("%s", orders).isEqualTo(1);
+        assertThat(Concurrently.count(orders, 409)).as("%s", orders).isEqualTo(1);
+        Response failed = orders.stream().filter(r -> r.status() == 409).findFirst().orElseThrow();
+        assertThat(failed.errorCode()).isEqualTo("INSUFFICIENT_STOCK");
+        // 2. hub: 재고 0 (음수가 아님), 차감 이력 1건
+        assertThat(last.stockOfP()).isZero();
+        assertThat(Collections.frequency(last.changeTypesOf(inventoryId), "DECREASE")).isEqualTo(1);
+        // 3. order: CONFIRMED 1건, 재고 부족 쪽은 PENDING으로 저장된 뒤 FAILED + 보상 불필요(NOT_REQUIRED)로 남는다 (ORD-4와 같음)
+        List<String> results = new ArrayList<>();
+        for (String token : List.of(uToken, vToken)) {
+            last.ordersOf(token).forEach(o -> results.add(o.path("status").asText() + " / " + o.path("compensationStatus").asText()));
+        }
+        assertThat(results).containsExactlyInAnyOrder("CONFIRMED / NOT_REQUIRED", "FAILED / NOT_REQUIRED");
     }
 
     @Test
