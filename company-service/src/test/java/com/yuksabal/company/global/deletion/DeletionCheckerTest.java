@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
-// 계약 가정(#137) 응답을 해석하는 부분만 확인한다. 실제 경로·필드는 hub·order API 확정 후 맞춘다
+// hub(#146)·order(#143) 내부 API 응답을 해석하는 부분만 확인한다. 실제 호출은 통합 확인으로 검증한다
 class DeletionCheckerTest {
 
     private static final UUID ID = UUID.randomUUID();
@@ -38,7 +38,7 @@ class DeletionCheckerTest {
     @Test
     void 대상에_맞는_API로_진행_중_주문을_확인한다() {
         given(orderClient.getInProgressByProduct(ID)).willReturn(ApiResponse.success(new OrderInProgressResponse(false)));
-        given(orderClient.getInProgressBySupplier(ID)).willReturn(ApiResponse.success(new OrderInProgressResponse(true)));
+        given(orderClient.getInProgressByCompany(ID)).willReturn(ApiResponse.success(new OrderInProgressResponse(true)));
 
         assertThat(orderChecker.findBlockers(DeletionTarget.PRODUCT, ID)).isEmpty();
         assertThat(orderChecker.findBlockers(DeletionTarget.COMPANY, ID)).containsExactly("진행 중인 주문이 있습니다.");
@@ -47,7 +47,7 @@ class DeletionCheckerTest {
     @Test
     void 응답이_비어_있으면_확인하지_못한_것으로_보고_예외() {
         given(hubClient.getStockByProduct(ID)).willReturn(ApiResponse.success(null));
-        given(orderClient.getInProgressBySupplier(ID)).willReturn(null);
+        given(orderClient.getInProgressByCompany(ID)).willReturn(null);
 
         assertThatThrownBy(() -> inventoryChecker.findBlockers(DeletionTarget.PRODUCT, ID))
                 .isInstanceOfSatisfying(BusinessException.class,

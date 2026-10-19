@@ -13,7 +13,7 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 
 // order 진행 중 주문 확인 (#137). 진행 중인 주문이 있으면 삭제할 수 없다
-// 업체는 공급 업체 기준만 본다 (요청 업체로 걸린 주문은 배송이 주소·수령인을 복사해 두어 업체가 없어도 진행된다)
+// 업체는 공급 업체·요청 업체로 걸린 주문을 모두 본다 (#143 order 담당자 제안: 거래가 진행 중인 업체는 어느 쪽이든 지우지 않는다)
 @Component
 @RequiredArgsConstructor
 public class OrderDeletionChecker implements DeletionChecker {
@@ -29,7 +29,7 @@ public class OrderDeletionChecker implements DeletionChecker {
     public List<String> findBlockers(DeletionTarget target, UUID id) {
         ApiResponse<OrderInProgressResponse> response = switch (target) {
             case PRODUCT -> orderClient.getInProgressByProduct(id);
-            case COMPANY -> orderClient.getInProgressBySupplier(id);
+            case COMPANY -> orderClient.getInProgressByCompany(id);
         };
         if (response == null || response.data() == null) {
             throw new BusinessException(DEPENDENCY_FAILURE);   // 응답이 비어 있으면 확인하지 못한 것으로 보고 막는다

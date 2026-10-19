@@ -195,7 +195,7 @@ public class CompanyService {
         }
         transactionTemplate.executeWithoutResult(status -> validateInactive(findCompany(companyId)));
 
-        // 2. 남은 업무: 이 업체 상품들의 허브 재고·공급 중인 진행 중 주문 (409, 확인 실패 502)
+        // 2. 남은 업무: 이 업체 상품들의 허브 재고·이 업체가 공급·요청한 진행 중 주문 (409, 확인 실패 502)
         deletionGuard.validateDeletable(DeletionTarget.COMPANY, companyId);
 
         // 3. 삭제. 확인하는 동안 다시 활성화됐으면 422

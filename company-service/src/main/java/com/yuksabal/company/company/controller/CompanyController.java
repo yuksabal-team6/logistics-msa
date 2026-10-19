@@ -119,7 +119,7 @@ public class CompanyController {
 
     // 삭제: 200 + ApiResponse.success(null, message). MASTER만 가능, 응답 data 없음
     @Operation(summary = "업체 삭제",
-            description = "비활성 업체만 삭제 가능(422). 이 업체 상품의 허브 재고나 공급 중인 진행 중 주문이 있으면 409, "
+            description = "비활성 업체만 삭제 가능(422). 이 업체 상품의 허브 재고나 이 업체가 공급·요청한 진행 중 주문이 있으면 409, "
                     + "확인하지 못하면 502. 소속 상품도 함께 삭제")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE},
             value = {HAS_ACTIVE_WORK})
