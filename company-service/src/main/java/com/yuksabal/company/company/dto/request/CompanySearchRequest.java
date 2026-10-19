@@ -12,6 +12,9 @@ public record CompanySearchRequest(
         String companyName,
 
         @Schema(description = "관리 허브 ID (정확히 일치). 생략 시 조건 없음", example = "00000000-0000-0000-0000-000000000004")
-        UUID hubId
+        UUID hubId,
+
+        @Schema(description = "활성 여부 (true = 활성만, false = 비활성만). 생략 시 조건 없음", example = "true")
+        Boolean active
 ) {
 }

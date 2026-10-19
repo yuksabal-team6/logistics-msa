@@ -72,7 +72,7 @@ public class ProductController {
     }
 
     // 목록 조회: 200 + ApiResponse.success(PageResponse, message). 검색 조건은 모두 선택
-    @Operation(summary = "상품 목록 조회 및 검색", description = "정렬 가능: createdAt, productName, unitPrice")
+    @Operation(summary = "상품 목록 조회 및 검색", description = "정렬 가능: createdAt, productName, unitPrice. active로 활성·비활성 상품만 조회 가능")
     @ApiErrorCodes(common = {VALIDATION_ERROR})
     @GetMapping("/products")
     public ResponseEntity<ApiResponse<PageResponse<ProductResponse>>> getProducts(

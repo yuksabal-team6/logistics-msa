@@ -27,6 +27,7 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
+import static com.yuksabal.company.product.repository.ProductSpecification.activeEquals;
 import static com.yuksabal.company.product.repository.ProductSpecification.companyIdEquals;
 import static com.yuksabal.company.product.repository.ProductSpecification.hubIdEquals;
 import static com.yuksabal.company.product.repository.ProductSpecification.productNameContains;
@@ -68,7 +69,8 @@ public class ProductService {
         Specification<Product> spec = Specification
                 .where(productNameContains(request.productName()))
                 .and(companyIdEquals(request.companyId()))
-                .and(hubIdEquals(request.hubId()));
+                .and(hubIdEquals(request.hubId()))
+                .and(activeEquals(request.active()));
 
         Page<Product> products = productRepository.findAll(spec, toStablePageable(pageable, SORTABLE_FIELDS));
 

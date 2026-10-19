@@ -34,6 +34,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
+import static com.yuksabal.company.company.repository.CompanySpecification.activeEquals;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
 
@@ -98,7 +99,8 @@ public class CompanyService {
     public PageResponse<CompanyResponse> getCompanies(CompanySearchRequest request, Pageable pageable) {
         Specification<Company> spec = Specification
                 .where(companyNameContains(request.companyName()))
-                .and(hubIdEquals(request.hubId()));
+                .and(hubIdEquals(request.hubId()))
+                .and(activeEquals(request.active()));
 
         Page<Company> companies = companyRepository.findAll(spec, toStablePageable(pageable, SORTABLE_FIELDS));
 

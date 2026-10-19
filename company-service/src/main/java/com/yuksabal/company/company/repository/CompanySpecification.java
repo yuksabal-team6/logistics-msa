@@ -19,6 +19,13 @@ public class CompanySpecification {
                         : cb.equal(root.get("hubId"), hubId);
     }
 
+    public static Specification<Company> activeEquals(Boolean active) {
+        return (root, query, cb) ->
+                active == null
+                        ? null
+                        : cb.equal(root.get("isActive"), active);
+    }
+
     public static Specification<Company> companyNameContains(String companyName) {
         return (root, query, cb) ->
                 companyName == null || companyName.isBlank()
