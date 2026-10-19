@@ -191,6 +191,7 @@ public class InventoryService {
     // 허브에 상품을 입고한다 (MASTER). 재고가 있으면 수량을 늘리고, 없으면 새로 만든다
     // 상품 활성 상태는 바뀔 수 있어 재고 유무와 관계없이 입고마다 company #1로 확인한다 (#139)
     // 업체를 비활성화하면 소속 상품도 비활성화되므로 상품 active만 보면 비활성 업체 상품도 막힌다
+    // 관리 허브도 바뀔 수 있어 입고마다 확인한다 (#175). 허브 변경 후 이전 허브에 남은 수량 0 재고로 입고되면 재고가 두 허브로 나뉜다
     // company 호출(#1)은 트랜잭션 밖에서 하고, 재고 변경만 transactionTemplate으로 감싼다 (응답을 기다리는 동안 커넥션을 잡지 않도록)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public InventoryResponse inbound(InventoryInboundRequest request, UUID userId, UserRole role) {
@@ -211,6 +212,13 @@ public class InventoryService {
                     CommonErrorCode.BUSINESS_RULE_VIOLATION,
                     "비활성 상품은 입고할 수 없습니다.",
                     "productId");
+        }
+        // 상품 재고는 업체 관리 허브 한 곳에만 둔다
+        if (!request.hubId().equals(product.hubId())) {
+            throw new BusinessException(
+                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
+                    "상품 업체의 관리 허브에만 입고할 수 있습니다.",
+                    List.of(new ApiErrorDetail("hubId", "상품 업체의 관리 허브는 " + product.hubId() + "입니다.")));
         }
 
         return transactionTemplate.execute(status -> saveInbound(request, product, userId));
@@ -238,16 +246,9 @@ public class InventoryService {
         return findInventory(inventory.getId());
     }
 
-    // 상품 업체의 관리 허브에만 재고를 만든다 (상품 재고는 업체 관리 허브 한 곳에만 둔다)
+    // 관리 허브 확인은 inbound에서 끝났다
     // 같은 허브·상품을 동시에 처음 입고하면 늦은 쪽이 (hub_id, product_id) 유니크 인덱스 위반으로 실패해 409로 응답한다
     private Inventory createInventory(Hub hub, ProductResponse product, InventoryInboundRequest request) {
-        if (!hub.getId().equals(product.hubId())) {
-            throw new BusinessException(
-                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
-                    "상품 업체의 관리 허브에만 입고할 수 있습니다.",
-                    List.of(new ApiErrorDetail("hubId", "상품 업체의 관리 허브는 " + product.hubId() + "입니다.")));
-        }
-
         try {
             // 유니크 위반이 여기서 나도록 바로 flush 한다
             return inventoryRepository.saveAndFlush(Inventory.builder()
