@@ -7,6 +7,8 @@ public record ProductResponse(
         UUID productId,
         String productName,
         Long unitPrice,
-        UUID companyId
+        UUID companyId,
+        // 상품과 업체가 모두 활성일 때만 true (company #147). false면 새 주문 불가
+        boolean active
 ) {
 }

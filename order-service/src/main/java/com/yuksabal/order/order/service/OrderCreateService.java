@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 
@@ -102,11 +103,31 @@ public class OrderCreateService {
         if (!product.companyId().equals(request.supplierCompanyId())) {
             throw new BusinessException(VALIDATION_ERROR, "공급 업체의 상품이 아닙니다.", "productId");
         }
+
+        // 비활성 상태인지 확인
+        validateActive(product.active(), "productId", "비활성 상품은 주문할 수 없습니다.");
         CompanyResponse supplier = companyClient.getCompany(request.supplierCompanyId()).data();
+        validateActive(supplier.active(), "supplierCompanyId", "비활성 공급 업체의 상품은 주문할 수 없습니다.");
         CompanyResponse requester = companyClient.getCompany(request.requestCompanyId()).data();
+        validateActive(requester.active(), "requestCompanyId", "비활성 업체로는 주문할 수 없습니다.");
         log.debug("[주문 생성] 1, 2. 조회 완료 unitPrice={}, 출발 허브(공급 업체)={}, 도착 허브(요청 업체)={}",
                 product.unitPrice(), supplier.hubId(), requester.hubId());
         return new OrderSource(product, supplier, requester);
+    }
+
+    /**
+     * active 필드가 비활성인 경우 예외를 발생시킨다.
+     * 비활성 상품, 업체는 주문할 수 없다.
+     *
+     * @param active 확인 대상 객체의 활성 상태
+     * @param field 확인 대상 필드명
+     * @param message 에러 메시지
+     */
+    private void validateActive(boolean active, String field, String message) {
+        if (!active) {
+            log.warn("[주문 생성] 1, 2. 비활성 {} → 422", field);
+            throw new BusinessException(BUSINESS_RULE_VIOLATION, message, field);
+        }
     }
 
     // 3. 주문 PENDING 저장 (출발 허브 = 공급 업체 허브, 도착 허브 = 요청 업체 허브)

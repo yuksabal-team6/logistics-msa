@@ -347,7 +347,7 @@ class OrderCancelIntegrationTest {
 
     private void givenRequestCompanyOwner(Order order, UUID ownerId) {
         given(companyClient.getCompany(order.getRequestCompanyId())).willReturn(ApiResponse.success(
-                new CompanyResponse(order.getRequestCompanyId(), "요청 업체", order.getArrivalHubId(), "부산", ownerId)));
+                new CompanyResponse(order.getRequestCompanyId(), "요청 업체", order.getArrivalHubId(), "부산", ownerId, true)));
     }
 
     private void givenCancelSucceeds(Order order) {

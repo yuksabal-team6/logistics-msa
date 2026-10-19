@@ -56,8 +56,10 @@ public class OrderController {
                     같은 Idempotency-Key로 다시 요청하면 새로 만들지 않고 **기존 주문 결과를 응답**합니다.
 
                     재고가 부족하면 hub의 **409 INSUFFICIENT_STOCK**을 그대로 응답합니다.
+
+                    상품, 공급 업체, 요청 업체 중 하나라도 **비활성**이면 **422 BUSINESS_RULE_VIOLATION**입니다.
                     """)
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE},
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE},
             value = {ORDER_IN_PROGRESS, ORDER_ALREADY_FAILED, IDEMPOTENCY_KEY_CONFLICT, IDEMPOTENCY_KEY_MISMATCH})
     @PostMapping
     public ResponseEntity<ApiResponse<OrderCreateResponse>> createOrder(

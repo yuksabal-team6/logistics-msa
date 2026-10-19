@@ -90,13 +90,13 @@ class OrderCreateConcurrencyTest {
         given(companyClient.getProduct(productId)).willAnswer(invocation -> {
             allArrived.countDown();
             allArrived.await(5, TimeUnit.SECONDS);
-            return ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId));
+            return ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, true));
         });
         given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, true)));
         given(companyClient.getCompany(supplierId)).willReturn(
-                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", UUID.randomUUID(), "주소1", UUID.randomUUID())));
+                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", UUID.randomUUID(), "주소1", UUID.randomUUID(), true)));
         given(companyClient.getCompany(requesterId)).willReturn(
-                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", UUID.randomUUID(), "주소2", UUID.randomUUID())));
+                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", UUID.randomUUID(), "주소2", UUID.randomUUID(), true)));
         given(hubClient.decreaseStock(any())).willReturn(
                 ApiResponse.success(new StockDecreaseResponse(UUID.randomUUID(), productId, 95, null)));
         given(deliveryClient.createDelivery(any())).willReturn(

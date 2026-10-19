@@ -55,6 +55,7 @@ import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -100,11 +101,11 @@ class OrderCreateIntegrationTest {
         orderRepository.deleteAllInBatch();
         given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, true)));
         given(companyClient.getProduct(productId)).willReturn(
-                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId)));
+                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, true)));
         given(companyClient.getCompany(supplierId)).willReturn(
-                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", supplierHubId, "주소1", UUID.randomUUID())));
+                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", supplierHubId, "주소1", UUID.randomUUID(), true)));
         given(companyClient.getCompany(requesterId)).willReturn(
-                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID())));
+                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID(), true)));
         given(hubClient.decreaseStock(any())).willReturn(
                 ApiResponse.success(new StockDecreaseResponse(supplierHubId, productId, 95, null)));
         given(deliveryClient.createDelivery(any())).willReturn(
@@ -154,7 +155,7 @@ class OrderCreateIntegrationTest {
     @Test
     void 공급_업체의_상품이_아니면_400이고_저장_안함() throws Exception {
         given(companyClient.getProduct(productId)).willReturn(
-                ApiResponse.success(new ProductResponse(productId, "다른 업체 상품", 12_000L, UUID.randomUUID())));
+                ApiResponse.success(new ProductResponse(productId, "다른 업체 상품", 12_000L, UUID.randomUUID(), true)));
 
         create(validBody())
                 .andExpect(status().isBadRequest())
@@ -163,6 +164,46 @@ class OrderCreateIntegrationTest {
 
         assertThat(orderRepository.count()).isZero();
         verify(hubClient, never()).decreaseStock(any());
+    }
+
+    // ---------- 비활성 상품, 업체 (#143) ----------
+
+    @Test
+    void 비활성_상품이면_422이고_저장_안함() throws Exception {
+        given(companyClient.getProduct(productId)).willReturn(
+                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, false)));
+
+        assertInactiveRejected("productId", "비활성 상품은 주문할 수 없습니다.");
+    }
+
+    @Test
+    void 비활성_공급_업체면_422이고_저장_안함() throws Exception {
+        given(companyClient.getCompany(supplierId)).willReturn(
+                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", supplierHubId, "주소1", UUID.randomUUID(), false)));
+
+        assertInactiveRejected("supplierCompanyId", "비활성 공급 업체의 상품은 주문할 수 없습니다.");
+    }
+
+    @Test
+    void 비활성_요청_업체면_422이고_저장_안함() throws Exception {
+        given(companyClient.getCompany(requesterId)).willReturn(
+                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID(), false)));
+
+        assertInactiveRejected("requestCompanyId", "비활성 업체로는 주문할 수 없습니다.");
+    }
+
+    // 주문 저장 전에 막혀서 재고 차감, 배송 생성, Slack 없음
+    private void assertInactiveRejected(String field, String message) throws Exception {
+        create(validBody())
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.message").value(message))
+                .andExpect(jsonPath("$.error.details[0].field").value(field));
+
+        assertThat(orderRepository.count()).isZero();
+        verify(hubClient, never()).decreaseStock(any());
+        verify(deliveryClient, never()).createDelivery(any());
+        verifyNoInteractions(slackNotifier);
     }
 
     @Test
