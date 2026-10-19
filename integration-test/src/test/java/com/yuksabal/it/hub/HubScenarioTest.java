@@ -1,0 +1,50 @@
+package com.yuksabal.it.hub;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.yuksabal.it.support.Gateway;
+import com.yuksabal.it.support.Gateway.Response;
+import com.yuksabal.it.support.Scenario;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+
+import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
+import static org.assertj.core.api.Assertions.assertThat;
+
+// HUB: 재고 시나리오 (노션 테스트 시나리오 창구)
+// 테스트 본문은 노션 본문과 같은 순서로 쓴다: 사전 조건 → 이렇게 하면 → 이렇게 돼야 한다
+// 시나리오마다 공통 준비(업체 A·B, 상품 P, 재고 10개, 회원 u·a·b)를 새로 만든다 (Scenario 참고)
+//
+// hub는 입고·재고 조회 때 company 내부 API(#1 상품)로 상품의 활성 여부·업체·관리 허브를 확인한다
+class HubScenarioTest {
+
+    private Scenario s;
+
+    @BeforeEach
+    void setUp() {
+        s = new Scenario();
+    }
+
+    @Test
+    @DisplayName("HUB-1. 비활성 상품 입고: 422(productId), 재고·입고 이력 그대로")
+    void hub1_비활성_상품_입고() {
+        // 사전 조건: 공통 준비 (서울 허브 P 재고 10개, 입고 이력 1건) + P 비활성화 (업체 A는 활성)
+        String inventoryId = s.inventoryOfP().path("inventoryId").asText();
+        s.deactivateProduct();
+
+        // 이렇게 하면: MASTER가 서울 허브에 P를 5개 입고
+        Response inbound = Gateway.post("/api/v1/inventories/inbound", s.master,
+                Map.of("hubId", Scenario.SEOUL_HUB, "productId", s.productP, "quantity", 5));
+
+        // 이렇게 돼야 한다
+        // 1. hub가 company #1의 active=false를 보고 422
+        assertThat(inbound.status()).as("%s", inbound).isEqualTo(422);
+        assertThat(inbound.errorMessage()).isEqualTo("비활성 상품은 입고할 수 없습니다.");
+        assertThat(inbound.errorFields()).containsExactly("productId");
+        // 2. 재고 10개 그대로, 입고 이력도 처음 입고 1건 그대로
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+        assertThat(s.changeTypesOf(inventoryId)).containsExactly("INBOUND");
+    }
+}
