@@ -1,7 +1,7 @@
-package com.yuksabal.company.company.client;
+package com.yuksabal.company.global.client;
 
 import com.yuksabal.common.response.ApiResponse;
-import com.yuksabal.company.company.client.dto.response.UserResponse;
+import com.yuksabal.company.global.client.dto.response.UserResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
