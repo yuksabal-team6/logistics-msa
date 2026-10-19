@@ -173,6 +173,39 @@ class CompanyScenarioTest {
         assertThat(byInactive.errorFields()).containsExactly("ownerId");
     }
 
+    @Test
+    @DisplayName("CMP-7. 업체 관리자 교체 (소속 확인): 다른 업체 소속이면 422, 이 업체 소속이면 200 + 권한 이동")
+    void cmp7_업체_관리자_교체_소속_확인() {
+        // 사전 조건: 업체를 관리하지 않는 COMPANY 회원 두 명 - B 소속 o, A 소속 m
+        // (b는 B 소속이지만 이미 B의 관리자라, 관리자 중복 409가 소속 확인(422)보다 먼저 걸린다 → 소속 확인 경로를 보려고 o를 따로 만든다)
+        Member o = s.companyManager("o");
+        s.assignCompany(o, s.companyB);
+        Member m = s.companyManager("m");
+        s.assignCompany(m, s.companyA);
+        String companyA = "/api/v1/companies/" + s.companyA;
+        String productP = "/api/v1/products/" + s.productP;
+
+        // 이렇게 하면 (1): MASTER가 A의 관리자를 o(B 소속)로 교체
+        Response toOtherCompany = Gateway.patch(companyA, s.master, Map.of("ownerId", o.userId()));
+
+        // 이렇게 돼야 한다 (1): company가 user 내부 API(#8)의 실제 companyId(B)로 판단해 422
+        assertThat(toOtherCompany.status()).as("%s", toOtherCompany).isEqualTo(422);
+        assertThat(toOtherCompany.errorMessage()).isEqualTo("이 업체 소속 회원만 업체 관리자로 지정할 수 있습니다.");
+        assertThat(toOtherCompany.errorFields()).containsExactly("ownerId");
+
+        // 이렇게 하면 (2): MASTER가 A의 관리자를 m(A 소속)으로 교체한 뒤, a와 m이 각각 P를 수정
+        Response toSameCompany = Gateway.patch(companyA, s.master, Map.of("ownerId", m.userId()));
+        Response byOldOwner = Gateway.patch(productP, s.a.token(), Map.of("unitPrice", 6000));
+        Response byNewOwner = Gateway.patch(productP, m.token(), Map.of("unitPrice", 7000));
+
+        // 이렇게 돼야 한다 (2): 교체 200, 상품 관리 권한이 a에서 m으로 넘어감
+        assertThat(toSameCompany.status()).as("%s", toSameCompany).isEqualTo(200);
+        assertThat(toSameCompany.data().path("ownerId").asText()).isEqualTo(m.userId().toString());
+        assertThat(byOldOwner.status()).as("%s", byOldOwner).isEqualTo(403);
+        assertThat(byOldOwner.errorCode()).isEqualTo("COMPANY_ACCESS_DENIED");
+        assertThat(byNewOwner.status()).as("%s", byNewOwner).isEqualTo(200);
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
