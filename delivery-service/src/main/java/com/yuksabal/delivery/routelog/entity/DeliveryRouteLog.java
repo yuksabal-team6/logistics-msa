@@ -109,17 +109,17 @@ public class DeliveryRouteLog extends BaseEntity {
     }
 
     // IN_TRANSIT → ARRIVED, 배송은 IN_TRANSIT → ARRIVED_AT_HUB
-    // 409(전이 불가)를 400(거리 누락)보다 먼저 확인한다. 400이면 배송 상태가 이미 바뀌었지만 트랜잭션 롤백으로 반영되지 않는다
+    // 409(전이 불가)를 400(거리 누락)보다 먼저 확인한다. 거리는 배송 상태를 바꾸기 전에 검증한다
     private void arrive(BigDecimal actualDistanceKm) {
         if (routeStatus != RouteStatus.IN_TRANSIT) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "이동 중(IN_TRANSIT)인 경로 기록만 도착 처리할 수 있습니다.");
         }
-        delivery.arriveAtHub();
         if (actualDistanceKm == null || actualDistanceKm.signum() <= 0) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR,
                     "도착 시 실제 거리(km)는 0보다 커야 합니다.", "actualDistanceKm");
         }
+        delivery.arriveAtHub();
         this.routeStatus = RouteStatus.ARRIVED;
         this.arrivedAt = LocalDateTime.now();
         this.actualDistanceKm = actualDistanceKm;
