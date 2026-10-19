@@ -226,6 +226,28 @@ class CompanyScenarioTest {
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
     }
 
+    @Test
+    @DisplayName("CMP-12. 진행 중 주문이 있는 공급 업체 비활성화 후 배송 완료: 진행 중 주문은 COMPLETED, 새 주문은 422")
+    void cmp12_진행_중_주문이_있는_공급_업체_비활성화_후_배송_완료() {
+        // 사전 조건: u의 CONFIRMED 주문 O가 있는 상태에서 공급 업체 A 비활성화
+        Response order = s.order(s.u.token(), 2).expect(201);
+        s.deactivateCompany(s.companyA);
+
+        // 이렇게 하면 (1): O의 배송을 끝까지 진행 (각 단계 200이 아니면 바로 실패)
+        s.completeDelivery(order.uuid("deliveryId"));
+
+        // 이렇게 돼야 한다 (1): 비활성은 새 거래만 막고 진행 중인 주문·배송은 끝까지 간다
+        assertThat(s.delivery(order.uuid("deliveryId")).path("deliveryStatus").asText()).isEqualTo("COMPLETED");
+        assertThat(s.orderDetail(order.uuid("orderId")).path("status").asText()).isEqualTo("COMPLETED");
+
+        // 이렇게 하면 (2): u가 P를 새로 주문
+        Response newOrder = s.order(s.u.token(), 2);
+
+        // 이렇게 돼야 한다 (2): 새 주문은 공급 업체 확인에서 422
+        assertThat(newOrder.status()).as("%s", newOrder).isEqualTo(422);
+        assertThat(newOrder.errorFields()).containsExactly("supplierCompanyId");
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
