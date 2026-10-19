@@ -15,6 +15,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.util.UUID;
@@ -45,6 +46,12 @@ public class Product extends BaseEntity {
     @Column(nullable = false)
     private Long unitPrice;
 
+    // 판매 가능 여부. 비활성이면 새 주문·입고를 막는다. 활성 상품은 항상 활성 업체에 속한다 (업체 비활성화 시 연쇄 비활성화)
+    // ddl-auto update로 컬럼이 추가될 때 기존 상품이 활성으로 채워지도록 DB 기본값을 둔다
+    @ColumnDefault("true")
+    @Column(nullable = false)
+    private boolean isActive = true;
+
     @Builder
     public Product(Company company, String productName, String description, Long unitPrice) {
         this.company = company;
@@ -64,6 +71,11 @@ public class Product extends BaseEntity {
         if (unitPrice != null) {
             this.unitPrice = unitPrice;
         }
+    }
+
+    // 활성화·비활성화. 권한과 업체 상태 확인은 서비스에서 한다
+    public void changeActive(boolean active) {
+        this.isActive = active;
     }
 
     public void delete(UUID deletedBy) {
