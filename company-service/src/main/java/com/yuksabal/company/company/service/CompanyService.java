@@ -138,8 +138,11 @@ public class CompanyService {
         }
 
         // 3. 외부 확인: 바뀌는 값만 hub·user에 확인 (404, 422, 장애 502)
+        // 관리 허브 변경은 재고·진행 중 주문이 남아 있으면 409 (이전 허브 재고가 주문으로 빠질 수 없게 남는다, #161)
+        // 다른 외부 확인처럼 수정 트랜잭션 안에서 부른다 (MASTER만 하는 드문 작업이라 커넥션 점유는 감수)
         if (hubChanged) {
             verifyHubExists(request.hubId());
+            deletionGuard.validateHubChangeable(companyId);
         }
         if (ownerChanged) {
             verifyOwner(request.ownerId(), companyId);   // 새 관리자가 이 업체 소속이어야 함

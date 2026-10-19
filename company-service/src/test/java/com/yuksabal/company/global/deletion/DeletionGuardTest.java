@@ -71,6 +71,31 @@ class DeletionGuardTest {
         assertThatThrownBy(() -> guard.validateDeletable(DeletionTarget.COMPANY, ID)).isSameAs(original);
     }
 
+    @Test
+    void 허브_변경_전_확인은_업체_기준이고_메시지가_허브_변경으로_나온다() {
+        RecordingChecker checker = new RecordingChecker("inventory", "허브에 재고가 남아 있습니다.");
+        DeletionGuard guard = new DeletionGuard(List.of(checker));
+
+        assertThatThrownBy(() -> guard.validateHubChangeable(ID))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(HAS_ACTIVE_WORK);
+                    assertThat(e.getMessage()).isEqualTo("재고나 진행 중인 주문이 있어 업체의 관리 허브를 바꿀 수 없습니다.");
+                    assertThat(e.getDetails()).extracting("field").containsExactly("inventory");
+                });
+        assertThat(checker.target).isEqualTo(DeletionTarget.COMPANY);
+    }
+
+    @Test
+    void 허브_변경_전_확인을_하지_못하면_502() {
+        DeletionGuard guard = new DeletionGuard(List.of(new FailingChecker("order", new IllegalStateException("타임아웃"))));
+
+        assertThatThrownBy(() -> guard.validateHubChangeable(ID))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE);
+                    assertThat(e.getMessage()).isEqualTo("남은 업무를 확인하지 못해 업체의 관리 허브를 바꿀 수 없습니다.");
+                });
+    }
+
     // 테스트용 구현체. record의 type() 접근자가 인터페이스의 type()을 구현한다
     private record FakeChecker(String type, List<String> blockers) implements DeletionChecker {
         FakeChecker(String type, String... blockers) {
@@ -79,6 +104,29 @@ class DeletionGuardTest {
 
         @Override
         public List<String> findBlockers(DeletionTarget target, UUID id) {
+            return blockers;
+        }
+    }
+
+    // 어떤 대상으로 확인을 요청받았는지 기록한다
+    private static class RecordingChecker implements DeletionChecker {
+        private final String type;
+        private final List<String> blockers;
+        private DeletionTarget target;
+
+        RecordingChecker(String type, String... blockers) {
+            this.type = type;
+            this.blockers = List.of(blockers);
+        }
+
+        @Override
+        public String type() {
+            return type;
+        }
+
+        @Override
+        public List<String> findBlockers(DeletionTarget target, UUID id) {
+            this.target = target;
             return blockers;
         }
     }

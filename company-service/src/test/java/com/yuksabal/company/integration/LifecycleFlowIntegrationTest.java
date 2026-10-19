@@ -206,7 +206,7 @@ class LifecycleFlowIntegrationTest extends IntegrationTestSupport {
     class 허브_이전 {
 
         @Test
-        void 업체의_허브를_바꾸면_상품의_허브도_새_허브로_보인다() throws Exception {
+        void 남은_업무가_없으면_허브가_바뀌고_상품도_새_허브를_따른다() throws Exception {
             UUID companyId = createCompany(owner(null));
             UUID productId = createProduct(companyId, "고등어");
 
@@ -218,6 +218,53 @@ class LifecycleFlowIntegrationTest extends IntegrationTestSupport {
                     .andExpect(jsonPath("$.data.hubId").value(OTHER_HUB_ID.toString()));
             mockMvc.perform(getUrl("/api/v1/products?hubId=" + OTHER_HUB_ID))
                     .andExpect(jsonPath("$.data.totalElements").value(1));
+        }
+
+        @Test
+        void 재고가_남아_있으면_409이고_허브는_그대로다() throws Exception {
+            UUID companyId = createCompany(owner(null));
+            given(hubClient.getStockByCompany(companyId)).willReturn(ApiResponse.success(new InventoryStockResponse(true)));
+
+            asMaster(patchJson("/api/v1/companies/" + companyId, Map.of("hubId", OTHER_HUB_ID.toString())))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code").value("HAS_ACTIVE_WORK"))
+                    .andExpect(jsonPath("$.error.message").value("재고나 진행 중인 주문이 있어 업체의 관리 허브를 바꿀 수 없습니다."))
+                    .andExpect(jsonPath("$.error.details[*].field", containsInAnyOrder("inventory")));
+
+            mockMvc.perform(getUrl("/api/v1/companies/" + companyId))
+                    .andExpect(jsonPath("$.data.hubId").value(HUB_ID.toString()));
+        }
+
+        @Test
+        void 재고가_0이어도_진행_중_주문이_있으면_409() throws Exception {
+            // 주문이 취소되면 복원 재고가 이전 허브 재고로 돌아가므로 재고만 보면 안 된다
+            UUID companyId = createCompany(owner(null));
+            given(orderClient.getInProgressByCompany(companyId)).willReturn(ApiResponse.success(new OrderInProgressResponse(true)));
+
+            asMaster(patchJson("/api/v1/companies/" + companyId, Map.of("hubId", OTHER_HUB_ID.toString())))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.details[*].field", containsInAnyOrder("order")));
+        }
+
+        @Test
+        void 확인하지_못하면_502이고_허브는_그대로다() throws Exception {
+            UUID companyId = createCompany(owner(null));
+            given(orderClient.getInProgressByCompany(any())).willThrow(mock(RetryableException.class));
+
+            asMaster(patchJson("/api/v1/companies/" + companyId, Map.of("hubId", OTHER_HUB_ID.toString())))
+                    .andExpect(status().isBadGateway());
+
+            mockMvc.perform(getUrl("/api/v1/companies/" + companyId))
+                    .andExpect(jsonPath("$.data.hubId").value(HUB_ID.toString()));
+        }
+
+        @Test
+        void 허브를_바꾸지_않는_수정은_남은_업무와_상관없다() throws Exception {
+            UUID companyId = createCompany(owner(null));
+            given(hubClient.getStockByCompany(companyId)).willReturn(ApiResponse.success(new InventoryStockResponse(true)));
+
+            asMaster(patchJson("/api/v1/companies/" + companyId, Map.of("contactPhone", "051-000-0000")))
+                    .andExpect(status().isOk());
         }
     }
 }
