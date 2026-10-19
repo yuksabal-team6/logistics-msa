@@ -1,15 +1,20 @@
 package com.yuksabal.it.company;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.yuksabal.it.support.Gateway;
 import com.yuksabal.it.support.Gateway.Response;
 import com.yuksabal.it.support.Scenario;
+import com.yuksabal.it.support.Scenario.Member;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.net.URLEncoder;
+import java.util.Map;
 import java.util.UUID;
 
 import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // CMP: 업체·상품 시나리오 (노션 테스트 시나리오 창구)
@@ -119,5 +124,30 @@ class CompanyScenarioTest {
         // 2. 재고 그대로, 주문 저장 안 됨
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
         assertThat(s.ordersOf(s.u.token())).as("u의 주문 목록").isEmpty();
+    }
+
+    @Test
+    @DisplayName("CMP-5. 없는 허브로 업체 생성: hub의 404가 그대로 전달, 업체 생성 안 됨")
+    void cmp5_없는_허브로_업체_생성() {
+        // 사전 조건: 아직 업체를 관리하지 않는 COMPANY 회원 n
+        // (a·b는 이미 업체를 관리해서 관리자 중복 409가 허브 확인보다 먼저 걸린다)
+        Member n = s.companyManager("n");
+        String companyName = "[IT] 없는 허브 업체 " + s.suffix;
+
+        // 이렇게 하면: MASTER가 존재하지 않는 허브로 업체 생성
+        Response create = Gateway.post("/api/v1/companies", s.master, Map.of(
+                "companyName", companyName,
+                "hubId", UUID.randomUUID(),
+                "ownerId", n.userId(),
+                "address", "통합 테스트 주소"));
+
+        // 이렇게 돼야 한다
+        // 1. company가 hub 내부 API(#7)로 허브를 확인하고, hub의 404를 코드 그대로 전달
+        assertThat(create.status()).as("%s", create).isEqualTo(404);
+        assertThat(create.errorCode()).isEqualTo("RESOURCE_NOT_FOUND");
+        // 2. 업체가 만들어지지 않음
+        JsonNode found = Gateway.get("/api/v1/companies?companyName=" + URLEncoder.encode(companyName, UTF_8), s.master)
+                .expect(200).data();
+        assertThat(found.path("totalElements").asInt()).as("같은 이름 업체 수").isZero();
     }
 }
