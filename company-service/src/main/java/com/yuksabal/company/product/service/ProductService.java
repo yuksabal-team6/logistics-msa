@@ -47,6 +47,7 @@ public class ProductService {
     public ProductResponse createProduct(UUID companyId, ProductCreateRequest request, UUID userId, UserRole role) {
         Company company = findCompany(companyId);
         OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
+        validateCompanyActive(company, "비활성 업체에는 상품을 등록할 수 없습니다.");
 
         Product product = Product.builder()
                 .company(company)

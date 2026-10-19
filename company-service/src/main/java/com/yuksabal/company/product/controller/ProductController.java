@@ -46,8 +46,8 @@ public class ProductController {
     private final ProductService productService;
 
     // 생성: 201 + ApiResponse.success(data, message). MASTER 또는 해당 업체 관리자
-    @Operation(summary = "상품 생성")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {COMPANY_ACCESS_DENIED})
+    @Operation(summary = "상품 생성", description = "비활성 업체에는 등록할 수 없다 (422)")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION}, value = {COMPANY_ACCESS_DENIED})
     @PostMapping("/companies/{companyId}/products")
     public ResponseEntity<ApiResponse<ProductResponse>> createProduct(
             @PathVariable UUID companyId,
