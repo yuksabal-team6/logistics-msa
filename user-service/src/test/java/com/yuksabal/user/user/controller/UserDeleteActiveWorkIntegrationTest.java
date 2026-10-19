@@ -40,8 +40,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willReturn;
-import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -55,6 +53,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class UserDeleteActiveWorkIntegrationTest {
+
+    private static final String USERS_URL = "/api/v1/users/";
+    private static final String INTERNAL_USERS_URL = "/internal/users/";
+    private static final String ENCODED_PASSWORD = "$2a$10$abcdefghijklmnopqrstuuF7a0hJt8q4lH4mQGq3e0Wv0C9oS4w3y";
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -82,6 +84,7 @@ class UserDeleteActiveWorkIntegrationTest {
         master = save("master01", UserRole.MASTER);
         alice = save("alice01", UserRole.USER);
         owner = save("owner01", UserRole.COMPANY);
+        // 기본은 모든 서비스에 진행 중인 업무가 없다
         given(orderClient.getInProgressOrder(any(UUID.class))).willAnswer(invocation -> ApiResponse.success(
                 new OrderInProgressResponse(invocation.getArgument(0), false)));
         given(companyClient.getCompaniesByOwner(any(UUID.class))).willReturn(ApiResponse.success(List.of()));
@@ -93,7 +96,11 @@ class UserDeleteActiveWorkIntegrationTest {
 
     @Test
     void 진행_중인_업무가_없으면_삭제된다() throws Exception {
-        deleteByMaster(alice).andExpect(status().isOk());
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        result.andExpect(status().isOk());
         assertThat(userRepository.findById(alice.getId())).isEmpty();
         verify(orderClient).getInProgressOrder(alice.getId());
         verify(deliveryClient).getInProgressDelivery(alice.getId());
@@ -101,13 +108,18 @@ class UserDeleteActiveWorkIntegrationTest {
 
     @Test
     void 확인하는_동안_대상은_이미_비활성이다() throws Exception {
+        // given
         List<Boolean> activeDuringCheck = new ArrayList<>();
         given(deliveryClient.getInProgressDelivery(alice.getId())).willAnswer(invocation -> {
-            activeDuringCheck.add(userRepository.findById(alice.getId()).orElseThrow().isActive());
+            activeDuringCheck.add(isActive(alice));
             return ApiResponse.success(new DeliveryInProgressResponse(alice.getId(), false));
         });
 
-        deleteByMaster(alice).andExpect(status().isOk());
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        result.andExpect(status().isOk());
         assertThat(activeDuringCheck).containsExactly(false);
     }
 
@@ -115,32 +127,44 @@ class UserDeleteActiveWorkIntegrationTest {
     // 삭제 처리 중에는 active=false, 삭제 뒤에는 404여야 새 주문이 생기지 않는다
     @Test
     void 삭제_처리_중_내부_조회는_비활성이고_삭제_뒤에는_404() throws Exception {
+        // given
         List<String> internalDuringCheck = new ArrayList<>();
         given(orderClient.getInProgressOrder(alice.getId())).willAnswer(invocation -> {
-            MockHttpServletResponse response = mockMvc.perform(get("/internal/users/" + alice.getId()))
+            MockHttpServletResponse internalResponse = mockMvc.perform(get(INTERNAL_USERS_URL + alice.getId()))
                     .andReturn().getResponse();
-            internalDuringCheck.add(response.getStatus() + " active="
-                    + JsonPath.read(response.getContentAsString(), "$.data.active"));
+            internalDuringCheck.add(internalResponse.getStatus() + " active="
+                    + JsonPath.read(internalResponse.getContentAsString(), "$.data.active"));
             return ApiResponse.success(new OrderInProgressResponse(alice.getId(), false));
         });
 
-        deleteByMaster(alice).andExpect(status().isOk());
+        // when
+        ResultActions result = deleteByMaster(alice);
 
+        // then
+        result.andExpect(status().isOk());
         assertThat(internalDuringCheck).containsExactly("200 active=false");
-        mockMvc.perform(get("/internal/users/" + alice.getId()))
+        mockMvc.perform(get(INTERNAL_USERS_URL + alice.getId()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
     void COMPANY가_아닌_회원은_관리_업체를_조회하지_않는다() throws Exception {
-        deleteByMaster(alice).andExpect(status().isOk());
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        result.andExpect(status().isOk());
         verify(companyClient, never()).getCompaniesByOwner(any());
     }
 
     @Test
     void 관리_업체가_없는_COMPANY_회원은_삭제된다() throws Exception {
-        deleteByMaster(owner).andExpect(status().isOk());
+        // when
+        ResultActions result = deleteByMaster(owner);
+
+        // then
+        result.andExpect(status().isOk());
         verify(companyClient).getCompaniesByOwner(owner.getId());
     }
 
@@ -148,10 +172,14 @@ class UserDeleteActiveWorkIntegrationTest {
 
     @Test
     void 진행_중인_주문이_있으면_409이고_삭제되지_않는다() throws Exception {
-        given(orderClient.getInProgressOrder(alice.getId()))
-                .willReturn(ApiResponse.success(new OrderInProgressResponse(alice.getId(), true)));
+        // given
+        hasOrderInProgress(alice);
 
-        deleteByMaster(alice)
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        result
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("USER_HAS_ACTIVE_WORK"))
@@ -159,40 +187,53 @@ class UserDeleteActiveWorkIntegrationTest {
                 .andExpect(jsonPath("$.error.details[0].field").value("order"))
                 .andExpect(jsonPath("$.error.details[0].reason").value("진행 중인 주문이 있습니다."));
         // 확인 전에 비활성화했던 것을 되돌린다
-        assertThat(userRepository.findById(alice.getId())).get().extracting(User::isActive).isEqualTo(true);
+        assertThat(isActive(alice)).isTrue();
     }
 
     @Test
     void 진행_중인_배송이_있으면_409이고_삭제되지_않는다() throws Exception {
-        given(deliveryClient.getInProgressDelivery(alice.getId()))
-                .willReturn(ApiResponse.success(new DeliveryInProgressResponse(alice.getId(), true)));
+        // given
+        hasDeliveryInProgress(alice);
 
-        deleteByMaster(alice)
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        result
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("USER_HAS_ACTIVE_WORK"))
                 .andExpect(jsonPath("$.error.details[0].field").value("delivery"))
                 .andExpect(jsonPath("$.error.details[0].reason").value("진행 중인 배송이 있습니다."));
-        assertThat(userRepository.findById(alice.getId())).get().extracting(User::isActive).isEqualTo(true);
+        assertThat(isActive(alice)).isTrue();
     }
 
     @Test
     void 원래_비활성이던_회원은_막혀도_비활성으로_남는다() throws Exception {
+        // given
         User inactive = userRepository.findById(alice.getId()).orElseThrow();
         inactive.changeActive(false);
         userRepository.saveAndFlush(inactive);
-        given(orderClient.getInProgressOrder(alice.getId()))
-                .willReturn(ApiResponse.success(new OrderInProgressResponse(alice.getId(), true)));
+        hasOrderInProgress(alice);
 
-        deleteByMaster(alice).andExpect(status().isConflict());
-        assertThat(userRepository.findById(alice.getId())).get().extracting(User::isActive).isEqualTo(false);
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        result.andExpect(status().isConflict());
+        assertThat(isActive(alice)).isFalse();
     }
 
     @Test
     void 업체_관리자는_409이고_삭제되지_않는다() throws Exception {
+        // given
         UUID companyId = UUID.randomUUID();
         owns(owner, companyId);
 
-        deleteByMaster(owner)
+        // when
+        ResultActions result = deleteByMaster(owner);
+
+        // then
+        result
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("USER_HAS_ACTIVE_WORK"))
                 .andExpect(jsonPath("$.error.details[0].field").value("company"))
@@ -203,12 +244,12 @@ class UserDeleteActiveWorkIntegrationTest {
 
     @Test
     void 여러_서비스에_업무가_있으면_모두_알려준다() throws Exception {
+        // given
         owns(owner, UUID.randomUUID());
-        given(orderClient.getInProgressOrder(owner.getId()))
-                .willReturn(ApiResponse.success(new OrderInProgressResponse(owner.getId(), true)));
-        given(deliveryClient.getInProgressDelivery(owner.getId()))
-                .willReturn(ApiResponse.success(new DeliveryInProgressResponse(owner.getId(), true)));
+        hasOrderInProgress(owner);
+        hasDeliveryInProgress(owner);
 
+        // when & then
         deleteByMaster(owner)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("company", "order", "delivery")));
@@ -218,75 +259,159 @@ class UserDeleteActiveWorkIntegrationTest {
 
     @Test
     void 주문_확인이_타임아웃이면_502이고_삭제되지_않는다() throws Exception {
+        // given
         given(orderClient.getInProgressOrder(alice.getId())).willThrow(timeout());
 
-        expectDependencyFailure(deleteByMaster(alice));
-        assertThat(userRepository.findById(alice.getId())).get().extracting(User::isActive).isEqualTo(true);
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        expectDependencyFailure(result);
+        assertThat(isActive(alice)).isTrue();
     }
 
     @Test
-    void 주문_확인이_5xx나_4xx면_502() throws Exception {
+    void 주문_확인이_5xx면_502이고_삭제되지_않는다() throws Exception {
+        // given
         given(orderClient.getInProgressOrder(alice.getId()))
                 .willThrow(new FeignServerException(500, "INTERNAL_SERVER_ERROR", "서버 오류", "OrderClient#get"));
-        expectDependencyFailure(deleteByMaster(alice));
 
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        expectDependencyFailure(result);
+        assertThat(userRepository.findById(alice.getId())).isPresent();
+    }
+
+    @Test
+    void 주문_확인이_4xx여도_502이고_삭제되지_않는다() throws Exception {
         // 상대 서비스의 4xx(예: 경로 미배포 404)도 확인하지 못한 것이다. 상대 오류를 그대로 전달하지 않는다
-        willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "없음", List.of()))
-                .given(orderClient).getInProgressOrder(alice.getId());
-        expectDependencyFailure(deleteByMaster(alice));
+        // given
+        given(orderClient.getInProgressOrder(alice.getId()))
+                .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "없음", List.of()));
+
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        expectDependencyFailure(result);
         assertThat(userRepository.findById(alice.getId())).isPresent();
     }
 
     @Test
     void 주문_확인_응답이_비어_있으면_502() throws Exception {
+        // given
         given(orderClient.getInProgressOrder(alice.getId())).willReturn(ApiResponse.success(null));
 
-        expectDependencyFailure(deleteByMaster(alice));
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        expectDependencyFailure(result);
         assertThat(userRepository.findById(alice.getId())).isPresent();
     }
 
     @Test
-    void 관리_업체_조회가_실패하거나_응답이_이상하면_502() throws Exception {
+    void 관리_업체_조회가_타임아웃이면_502이고_삭제되지_않는다() throws Exception {
+        // given
         given(companyClient.getCompaniesByOwner(owner.getId())).willThrow(timeout());
-        expectDependencyFailure(deleteByMaster(owner));
 
-        willReturn(ApiResponse.success(null)).given(companyClient).getCompaniesByOwner(owner.getId());
-        expectDependencyFailure(deleteByMaster(owner));
+        // when
+        ResultActions result = deleteByMaster(owner);
 
-        willReturn(ApiResponse.success(List.of(new CompanyResponse(null))))
-                .given(companyClient).getCompaniesByOwner(owner.getId());
-        expectDependencyFailure(deleteByMaster(owner));
+        // then
+        expectDependencyFailure(result);
         assertThat(userRepository.findById(owner.getId())).isPresent();
     }
 
     @Test
-    void 배송_확인에_실패하거나_응답이_비어_있으면_502() throws Exception {
-        given(deliveryClient.getInProgressDelivery(alice.getId())).willThrow(timeout());
-        expectDependencyFailure(deleteByMaster(alice))
-                .andExpect(result -> assertThat(result.getResponse().getContentAsString()).doesNotContain("timed out"));
+    void 관리_업체_조회_응답이_비어_있으면_502이고_삭제되지_않는다() throws Exception {
+        // given
+        given(companyClient.getCompaniesByOwner(owner.getId())).willReturn(ApiResponse.success(null));
 
-        willReturn(ApiResponse.success(null)).given(deliveryClient).getInProgressDelivery(alice.getId());
-        expectDependencyFailure(deleteByMaster(alice));
-        assertThat(userRepository.findById(alice.getId())).get().extracting(User::isActive).isEqualTo(true);
+        // when
+        ResultActions result = deleteByMaster(owner);
+
+        // then
+        expectDependencyFailure(result);
+        assertThat(userRepository.findById(owner.getId())).isPresent();
     }
 
-    // ---------- 순서 ----------
+    @Test
+    void 관리_업체_조회_응답에_업체_ID가_없으면_502이고_삭제되지_않는다() throws Exception {
+        // given
+        given(companyClient.getCompaniesByOwner(owner.getId()))
+                .willReturn(ApiResponse.success(List.of(new CompanyResponse(null))));
+
+        // when
+        ResultActions result = deleteByMaster(owner);
+
+        // then
+        expectDependencyFailure(result);
+        assertThat(userRepository.findById(owner.getId())).isPresent();
+    }
 
     @Test
-    void 권한_대상_경계_조건은_업무_관계_확인보다_먼저() throws Exception {
-        mockMvc.perform(delete("/api/v1/users/" + owner.getId())
-                        .header("X-User-Id", alice.getId().toString()).header("X-User-Role", "USER"))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(delete("/api/v1/users/" + UUID.randomUUID())
-                        .header("X-User-Id", master.getId().toString()).header("X-User-Role", "MASTER"))
-                .andExpect(status().isNotFound());
-        deleteByMaster(master).andExpect(status().isUnprocessableEntity());
+    void 배송_확인이_타임아웃이면_502이고_내부_오류_메시지를_노출하지_않는다() throws Exception {
+        // given
+        given(deliveryClient.getInProgressDelivery(alice.getId())).willThrow(timeout());
 
-        verify(orderClient, never()).getInProgressOrder(any());
-        verify(companyClient, never()).getCompaniesByOwner(any());
-        verify(deliveryClient, never()).getInProgressDelivery(any());
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        expectDependencyFailure(result)
+                .andExpect(mvcResult -> assertThat(mvcResult.getResponse().getContentAsString()).doesNotContain("timed out"));
+        assertThat(isActive(alice)).isTrue();
+    }
+
+    @Test
+    void 배송_확인_응답이_비어_있으면_502이고_삭제되지_않는다() throws Exception {
+        // given
+        given(deliveryClient.getInProgressDelivery(alice.getId())).willReturn(ApiResponse.success(null));
+
+        // when
+        ResultActions result = deleteByMaster(alice);
+
+        // then
+        expectDependencyFailure(result);
+        assertThat(isActive(alice)).isTrue();
+    }
+
+    // ---------- 순서: 권한·대상·경계 조건은 업무 관계 확인보다 먼저 ----------
+
+    @Test
+    void MASTER가_아니면_업무를_확인하기_전에_403() throws Exception {
+        // when
+        ResultActions result = mockMvc.perform(delete(USERS_URL + owner.getId())
+                .header("X-User-Id", alice.getId().toString()).header("X-User-Role", "USER"));
+
+        // then
+        result.andExpect(status().isForbidden());
+        verifyActiveWorkNotChecked();
+    }
+
+    @Test
+    void 없는_회원이면_업무를_확인하기_전에_404() throws Exception {
+        // when
+        ResultActions result = deleteByMaster(UUID.randomUUID());
+
+        // then
+        result.andExpect(status().isNotFound());
+        verifyActiveWorkNotChecked();
+    }
+
+    @Test
+    void 자기_자신이면_업무를_확인하기_전에_422이고_상태도_바꾸지_않는다() throws Exception {
+        // when
+        ResultActions result = deleteByMaster(master);
+
+        // then
+        result.andExpect(status().isUnprocessableEntity());
+        verifyActiveWorkNotChecked();
         // 막힌 요청은 대상 상태를 바꾸지 않는다
-        assertThat(userRepository.findById(master.getId())).get().extracting(User::isActive).isEqualTo(true);
+        assertThat(isActive(master)).isTrue();
     }
 
     // ---------- helpers ----------
@@ -294,6 +419,22 @@ class UserDeleteActiveWorkIntegrationTest {
     private void owns(User user, UUID... companyIds) {
         List<CompanyResponse> companies = Arrays.stream(companyIds).map(CompanyResponse::new).toList();
         given(companyClient.getCompaniesByOwner(user.getId())).willReturn(ApiResponse.success(companies));
+    }
+
+    private void hasOrderInProgress(User user) {
+        given(orderClient.getInProgressOrder(user.getId()))
+                .willReturn(ApiResponse.success(new OrderInProgressResponse(user.getId(), true)));
+    }
+
+    private void hasDeliveryInProgress(User user) {
+        given(deliveryClient.getInProgressDelivery(user.getId()))
+                .willReturn(ApiResponse.success(new DeliveryInProgressResponse(user.getId(), true)));
+    }
+
+    private void verifyActiveWorkNotChecked() {
+        verify(orderClient, never()).getInProgressOrder(any());
+        verify(companyClient, never()).getCompaniesByOwner(any());
+        verify(deliveryClient, never()).getInProgressDelivery(any());
     }
 
     private ResultActions expectDependencyFailure(ResultActions result) throws Exception {
@@ -308,15 +449,24 @@ class UserDeleteActiveWorkIntegrationTest {
     }
 
     private ResultActions deleteByMaster(User target) throws Exception {
-        return mockMvc.perform(delete("/api/v1/users/" + target.getId())
+        return deleteByMaster(target.getId());
+    }
+
+    private ResultActions deleteByMaster(UUID targetId) throws Exception {
+        return mockMvc.perform(delete(USERS_URL + targetId)
                 .header("X-User-Id", master.getId().toString())
                 .header("X-User-Role", "MASTER"));
+    }
+
+    // 회원이 없으면 바로 실패한다
+    private boolean isActive(User user) {
+        return userRepository.findById(user.getId()).orElseThrow().isActive();
     }
 
     private User save(String username, UserRole role) {
         return userRepository.saveAndFlush(User.builder()
                 .username(username)
-                .password("$2a$10$abcdefghijklmnopqrstuuF7a0hJt8q4lH4mQGq3e0Wv0C9oS4w3y")
+                .password(ENCODED_PASSWORD)
                 .email(username + "@example.com")
                 .slackId("U" + username)
                 .role(role)

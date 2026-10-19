@@ -18,6 +18,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RegisterRequestValidationTest {
 
+    private static final String VALID_USERNAME = "user01";
+    private static final String VALID_PASSWORD = "Strong123!";
+    private static final String VALID_SLACK_ID = "U1";
+    private static final String VALID_EMAIL = "a@b.com";
+
     private static ValidatorFactory factory;
     private static Validator validator;
 
@@ -34,26 +39,33 @@ class RegisterRequestValidationTest {
 
     @Test
     void 정상_요청은_통과() {
-        assertThat(validator.validate(request("user01", "Strong123!", "U12345678", "user01@example.com"))).isEmpty();
+        // given
+        RegisterRequest request = request(VALID_USERNAME, VALID_PASSWORD, "U12345678", "user01@example.com");
+
+        // when & then
+        assertThat(validator.validate(request)).isEmpty();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"abcd", "user01", "abcdefghij", "1234"})
     void 아이디_규칙에_맞으면_통과(String username) {
-        assertThat(violatedFields(request(username, "Strong123!", "U1", "a@b.com"))).doesNotContain("username");
+        // when & then
+        assertThat(violatedFields(requestWithUsername(username))).doesNotContain("username");
     }
 
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"abc", "abcdefghijk", "User01", "user_01", "user 01", "유저01"})
     void 아이디_규칙에_어긋나면_실패(String username) {
-        assertThat(violatedFields(request(username, "Strong123!", "U1", "a@b.com"))).contains("username");
+        // when & then
+        assertThat(violatedFields(requestWithUsername(username))).contains("username");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"Strong123!", "Aa1!aaaa", "Aa1!aaaaaaaaaaa"})
     void 비밀번호_규칙에_맞으면_통과(String password) {
-        assertThat(violatedFields(request("user01", password, "U1", "a@b.com"))).doesNotContain("password");
+        // when & then
+        assertThat(violatedFields(requestWithPassword(password))).doesNotContain("password");
     }
 
     @ParameterizedTest
@@ -68,33 +80,64 @@ class RegisterRequestValidationTest {
             "Strong 123!"         // 공백
     })
     void 비밀번호_규칙에_어긋나면_실패(String password) {
-        assertThat(violatedFields(request("user01", password, "U1", "a@b.com"))).contains("password");
+        // when & then
+        assertThat(violatedFields(requestWithPassword(password))).contains("password");
     }
 
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"not-an-email", "a@"})
     void 이메일이_없거나_형식이_틀리면_실패(String email) {
-        assertThat(violatedFields(request("user01", "Strong123!", "U1", email))).contains("email");
+        // when & then
+        assertThat(violatedFields(requestWithEmail(email))).contains("email");
     }
 
     @Test
-    void SlackID가_없거나_100자를_넘으면_실패() {
-        assertThat(violatedFields(request("user01", "Strong123!", " ", "a@b.com"))).contains("slackId");
-        assertThat(violatedFields(request("user01", "Strong123!", "U".repeat(101), "a@b.com"))).contains("slackId");
+    void SlackID가_공백이면_실패() {
+        // when & then
+        assertThat(violatedFields(requestWithSlackId(" "))).contains("slackId");
+    }
+
+    @Test
+    void SlackID가_100자를_넘으면_실패() {
+        // given
+        String slackId101 = "U".repeat(101);
+
+        // when & then
+        assertThat(violatedFields(requestWithSlackId(slackId101))).contains("slackId");
     }
 
     @Test
     void toString에_비밀번호가_없다() {
-        assertThat(request("user01", "Strong123!", "U1", "a@b.com").toString()).doesNotContain("Strong123!");
+        // given
+        RegisterRequest request = request(VALID_USERNAME, VALID_PASSWORD, VALID_SLACK_ID, VALID_EMAIL);
+
+        // when & then
+        assertThat(request.toString()).doesNotContain(VALID_PASSWORD);
     }
 
     private RegisterRequest request(String username, String password, String slackId, String email) {
         return new RegisterRequest(username, password, slackId, email, null, null);
     }
 
+    private RegisterRequest requestWithUsername(String username) {
+        return request(username, VALID_PASSWORD, VALID_SLACK_ID, VALID_EMAIL);
+    }
+
+    private RegisterRequest requestWithPassword(String password) {
+        return request(VALID_USERNAME, password, VALID_SLACK_ID, VALID_EMAIL);
+    }
+
+    private RegisterRequest requestWithSlackId(String slackId) {
+        return request(VALID_USERNAME, VALID_PASSWORD, slackId, VALID_EMAIL);
+    }
+
+    private RegisterRequest requestWithEmail(String email) {
+        return request(VALID_USERNAME, VALID_PASSWORD, VALID_SLACK_ID, email);
+    }
+
     private Set<String> violatedFields(RegisterRequest request) {
         Set<ConstraintViolation<RegisterRequest>> violations = validator.validate(request);
-        return violations.stream().map(v -> v.getPropertyPath().toString()).collect(Collectors.toSet());
+        return violations.stream().map(violation -> violation.getPropertyPath().toString()).collect(Collectors.toSet());
     }
 }

@@ -1,5 +1,6 @@
 package com.yuksabal.user.user.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.user.support.TestJwt;
@@ -48,6 +49,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class UserActiveWorkIntegrationTest {
 
+    private static final String USERS_URL = "/api/v1/users/";
+    private static final String CHANGED_SLACK_ID = "UCHANGED";
+    private static final String DEACTIVATE_BLOCKED_MESSAGE = "진행 중인 업무가 있어 계정을 비활성화할 수 없습니다.";
+    private static final String DEACTIVATE_CHECK_FAILED_MESSAGE = "진행 중인 업무를 확인하지 못해 계정을 비활성화할 수 없습니다.";
+    private static final String ROLE_CHANGE_BLOCKED_MESSAGE = "진행 중인 업무가 있어 역할을 변경할 수 없습니다.";
+    private static final String CHANGED_DURING_CHECK_MESSAGE = "처리하는 동안 회원 정보가 변경되었습니다. 다시 시도해 주세요.";
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("jwt.secret", () -> TestJwt.randomBase64Secret(32));
@@ -55,6 +63,8 @@ class UserActiveWorkIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+    @Autowired
+    private ObjectMapper objectMapper;
     @Autowired
     private UserRepository userRepository;
     @MockBean
@@ -74,6 +84,7 @@ class UserActiveWorkIntegrationTest {
         master = save("master01", UserRole.MASTER);
         courier = save("courier01", UserRole.DELIVERY);
         alice = save("alice01", UserRole.USER);
+        // 기본: 진행 중인 배송 없음
         given(deliveryClient.getInProgressDelivery(any(UUID.class))).willAnswer(invocation -> ApiResponse.success(
                 new DeliveryInProgressResponse(invocation.getArgument(0), false)));
     }
@@ -82,7 +93,8 @@ class UserActiveWorkIntegrationTest {
 
     @Test
     void 진행_중인_배송이_없으면_비활성화된다() throws Exception {
-        active(courier, false)
+        // when & then
+        changeStatus(courier, false)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.active").value(false));
         assertThat(reload(courier).isActive()).isFalse();
@@ -91,41 +103,60 @@ class UserActiveWorkIntegrationTest {
 
     @Test
     void 진행_중인_배송이_있으면_비활성화는_409이고_활성으로_되돌린다() throws Exception {
+        // given
         hasDelivery(courier);
 
-        active(courier, false)
+        // when & then
+        changeStatus(courier, false)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("USER_HAS_ACTIVE_WORK"))
-                .andExpect(jsonPath("$.error.message").value("진행 중인 업무가 있어 계정을 비활성화할 수 없습니다."))
+                .andExpect(jsonPath("$.error.message").value(DEACTIVATE_BLOCKED_MESSAGE))
                 .andExpect(jsonPath("$.error.details[0].field").value("delivery"));
         assertThat(reload(courier).isActive()).isTrue();
     }
 
     @Test
     void 배송_확인에_실패하면_비활성화는_502이고_활성으로_되돌린다() throws Exception {
+        // given
         given(deliveryClient.getInProgressDelivery(courier.getId())).willThrow(timeout());
 
-        active(courier, false)
+        // when & then
+        changeStatus(courier, false)
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_FAILURE"))
-                .andExpect(jsonPath("$.error.message").value("진행 중인 업무를 확인하지 못해 계정을 비활성화할 수 없습니다."));
+                .andExpect(jsonPath("$.error.message").value(DEACTIVATE_CHECK_FAILED_MESSAGE));
         assertThat(reload(courier).isActive()).isTrue();
     }
 
     @Test
-    void 역할과_관계없이_배송을_확인하고_주문_업체는_확인하지_않는다() throws Exception {
+    void DELIVERY가_아닌_회원도_진행_중인_배송이_있으면_비활성화는_409() throws Exception {
+        // given
         hasDelivery(alice);
 
-        active(alice, false).andExpect(status().isConflict());
+        // when & then
+        changeStatus(alice, false).andExpect(status().isConflict());
+    }
+
+    @Test
+    void 비활성화는_주문과_업체를_확인하지_않는다() throws Exception {
+        // given
+        hasDelivery(alice);
+
+        // when
+        changeStatus(alice, false).andExpect(status().isConflict());
+
+        // then
         verify(orderClient, never()).getInProgressOrder(any());
         verify(companyClient, never()).getCompaniesByOwner(any());
     }
 
     @Test
     void 활성화는_배송을_확인하지_않는다() throws Exception {
+        // given
         deactivateDirectly(courier);
 
-        active(courier, true).andExpect(status().isOk());
+        // when & then
+        changeStatus(courier, true).andExpect(status().isOk());
         assertThat(reload(courier).isActive()).isTrue();
         verify(deliveryClient, never()).getInProgressDelivery(any());
     }
@@ -134,65 +165,86 @@ class UserActiveWorkIntegrationTest {
 
     @Test
     void 진행_중인_배송이_없으면_역할이_바뀌고_활성으로_남는다() throws Exception {
-        List<User> duringCheck = new ArrayList<>();
+        // given
+        List<User> snapshotsDuringCheck = new ArrayList<>();
         given(deliveryClient.getInProgressDelivery(courier.getId())).willAnswer(invocation -> {
-            duringCheck.add(reload(courier));
+            snapshotsDuringCheck.add(reload(courier));
             return ApiResponse.success(new DeliveryInProgressResponse(courier.getId(), false));
         });
 
-        role(courier, "USER")
+        // when
+        changeRole(courier, "USER")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.role").value("USER"))
                 .andExpect(jsonPath("$.data.active").value(true));
+
+        // then
         // 확인하는 동안은 역할을 바꾸지 않고 비활성으로만 둔다
-        assertThat(duringCheck).singleElement().satisfies(user -> {
-            assertThat(user.isActive()).isFalse();
-            assertThat(user.getRole()).isEqualTo(UserRole.DELIVERY);
+        assertThat(snapshotsDuringCheck).singleElement().satisfies(duringCheck -> {
+            assertThat(duringCheck.isActive()).isFalse();
+            assertThat(duringCheck.getRole()).isEqualTo(UserRole.DELIVERY);
         });
-        assertThat(reload(courier).getRole()).isEqualTo(UserRole.USER);
-        assertThat(reload(courier).isActive()).isTrue();
+        User reloaded = reload(courier);
+        assertThat(reloaded.getRole()).isEqualTo(UserRole.USER);
+        assertThat(reloaded.isActive()).isTrue();
     }
 
     @Test
     void 진행_중인_배송이_있으면_역할_변경은_409이고_그대로다() throws Exception {
+        // given
         hasDelivery(courier);
 
-        role(courier, "USER")
+        // when & then
+        changeRole(courier, "USER")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("USER_HAS_ACTIVE_WORK"))
-                .andExpect(jsonPath("$.error.message").value("진행 중인 업무가 있어 역할을 변경할 수 없습니다."));
-        assertThat(reload(courier).getRole()).isEqualTo(UserRole.DELIVERY);
-        assertThat(reload(courier).isActive()).isTrue();
+                .andExpect(jsonPath("$.error.message").value(ROLE_CHANGE_BLOCKED_MESSAGE));
+        User reloaded = reload(courier);
+        assertThat(reloaded.getRole()).isEqualTo(UserRole.DELIVERY);
+        assertThat(reloaded.isActive()).isTrue();
     }
 
     @Test
     void 배송_확인에_실패하면_역할_변경은_502이고_그대로다() throws Exception {
+        // given
+        // 응답 data가 비어 있으면 확인하지 못한 것으로 본다
         given(deliveryClient.getInProgressDelivery(courier.getId())).willReturn(ApiResponse.success(null));
 
-        role(courier, "COMPANY").andExpect(status().isBadGateway());
-        assertThat(reload(courier).getRole()).isEqualTo(UserRole.DELIVERY);
-        assertThat(reload(courier).isActive()).isTrue();
+        // when & then
+        changeRole(courier, "COMPANY").andExpect(status().isBadGateway());
+        User reloaded = reload(courier);
+        assertThat(reloaded.getRole()).isEqualTo(UserRole.DELIVERY);
+        assertThat(reloaded.isActive()).isTrue();
     }
 
     @Test
     void 비활성_DELIVERY는_역할이_바뀌어도_비활성으로_남는다() throws Exception {
+        // given
         deactivateDirectly(courier);
 
-        role(courier, "USER").andExpect(status().isOk());
-        assertThat(reload(courier).getRole()).isEqualTo(UserRole.USER);
-        assertThat(reload(courier).isActive()).isFalse();
+        // when & then
+        changeRole(courier, "USER").andExpect(status().isOk());
+        User reloaded = reload(courier);
+        assertThat(reloaded.getRole()).isEqualTo(UserRole.USER);
+        assertThat(reloaded.isActive()).isFalse();
+    }
 
+    @Test
+    void 비활성_DELIVERY는_역할_변경이_막혀도_비활성으로_남는다() throws Exception {
+        // given
+        deactivateDirectly(courier);
+        hasDelivery(courier);
+
+        // when & then
+        changeRole(courier, "USER").andExpect(status().isConflict());
         // 막혀도 원래 비활성이었으므로 그대로 비활성
-        User other = save("courier02", UserRole.DELIVERY);
-        deactivateDirectly(other);
-        hasDelivery(other);
-        role(other, "USER").andExpect(status().isConflict());
-        assertThat(reload(other).isActive()).isFalse();
+        assertThat(reload(courier).isActive()).isFalse();
     }
 
     @Test
     void DELIVERY가_아닌_역할_변경은_배송을_확인하지_않는다() throws Exception {
-        role(alice, "DELIVERY").andExpect(status().isOk());
+        // when & then
+        changeRole(alice, "DELIVERY").andExpect(status().isOk());
         verify(deliveryClient, never()).getInProgressDelivery(any());
     }
 
@@ -200,29 +252,35 @@ class UserActiveWorkIntegrationTest {
 
     @Test
     void 확인_중_다른_MASTER가_바꿨으면_되돌리지_않는다() throws Exception {
+        // given
         given(deliveryClient.getInProgressDelivery(courier.getId())).willAnswer(invocation -> {
             changeSlackIdByAnotherMaster(courier);
             return ApiResponse.success(new DeliveryInProgressResponse(courier.getId(), true));
         });
 
-        active(courier, false).andExpect(status().isConflict());
+        // when & then
+        changeStatus(courier, false).andExpect(status().isConflict());
         // 다른 변경을 덮어쓰지 않으려고 비활성 그대로 둔다 (MASTER가 다시 활성화)
-        assertThat(reload(courier).isActive()).isFalse();
-        assertThat(reload(courier).getSlackId()).isEqualTo("UCHANGED");
+        User reloaded = reload(courier);
+        assertThat(reloaded.isActive()).isFalse();
+        assertThat(reloaded.getSlackId()).isEqualTo(CHANGED_SLACK_ID);
     }
 
     @Test
     void 확인_중_다른_MASTER가_바꿨으면_역할_변경을_멈추고_422() throws Exception {
+        // given
         given(deliveryClient.getInProgressDelivery(courier.getId())).willAnswer(invocation -> {
             changeSlackIdByAnotherMaster(courier);
             return ApiResponse.success(new DeliveryInProgressResponse(courier.getId(), false));
         });
 
-        role(courier, "USER")
+        // when & then
+        changeRole(courier, "USER")
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error.message").value("처리하는 동안 회원 정보가 변경되었습니다. 다시 시도해 주세요."));
-        assertThat(reload(courier).getRole()).isEqualTo(UserRole.DELIVERY);
-        assertThat(reload(courier).getSlackId()).isEqualTo("UCHANGED");
+                .andExpect(jsonPath("$.error.message").value(CHANGED_DURING_CHECK_MESSAGE));
+        User reloaded = reload(courier);
+        assertThat(reloaded.getRole()).isEqualTo(UserRole.DELIVERY);
+        assertThat(reloaded.getSlackId()).isEqualTo(CHANGED_SLACK_ID);
     }
 
     // ---------- helpers ----------
@@ -234,7 +292,7 @@ class UserActiveWorkIntegrationTest {
 
     private void changeSlackIdByAnotherMaster(User target) {
         User user = reload(target);
-        user.updateProfile(null, null, "UCHANGED", null);
+        user.updateProfile(null, null, CHANGED_SLACK_ID, null);
         userRepository.saveAndFlush(user);
     }
 
@@ -250,14 +308,14 @@ class UserActiveWorkIntegrationTest {
         return new RetryableException(-1, "Read timed out", Request.HttpMethod.GET, (Long) null, request);
     }
 
-    private ResultActions active(User target, boolean active) throws Exception {
-        return mockMvc.perform(asMaster(patch("/api/v1/users/" + target.getId() + "/status"))
-                .content("{\"active\":" + active + "}"));
+    private ResultActions changeStatus(User target, boolean active) throws Exception {
+        return mockMvc.perform(asMaster(patch(USERS_URL + target.getId() + "/status"))
+                .content(objectMapper.writeValueAsString(Map.of("active", active))));
     }
 
-    private ResultActions role(User target, String role) throws Exception {
-        return mockMvc.perform(asMaster(patch("/api/v1/users/" + target.getId() + "/role"))
-                .content("{\"role\":\"" + role + "\"}"));
+    private ResultActions changeRole(User target, String role) throws Exception {
+        return mockMvc.perform(asMaster(patch(USERS_URL + target.getId() + "/role"))
+                .content(objectMapper.writeValueAsString(Map.of("role", role))));
     }
 
     private MockHttpServletRequestBuilder asMaster(MockHttpServletRequestBuilder request) {
