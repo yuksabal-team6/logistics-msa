@@ -600,8 +600,10 @@ class InventoryControllerTest {
     }
 
     @Test
-    void 재고가_있으면_company_호출_없이_수량을_늘리고_INBOUND_로그를_남긴다() throws Exception {
+    void 재고가_있으면_상품_활성_확인_후_수량을_늘리고_INBOUND_로그를_남긴다() throws Exception {
         given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
         given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(seoulInventory(150)));
 
@@ -613,11 +615,45 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.data.quantity").value(150));
 
         then(inventoryRepository).should().increaseQuantity(eq(INVENTORY_ID), eq(50), any(LocalDateTime.class), eq(USER_ID));
-        then(companyClient).should(never()).getProduct(any(UUID.class));
+        then(inventoryRepository).should(never()).saveAndFlush(any(Inventory.class));
         InventoryLog log = savedLog();
         assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.INBOUND);
         assertThat(log.getQuantity()).isEqualTo(50);
         assertThat(log.getOrderId()).isNull();
+    }
+
+    // 업체가 비활성이면 상품도 비활성이라 (company #139) 비활성 업체의 상품도 여기서 막힌다
+    @Test
+    void 재고가_있어도_비활성_상품이면_422를_반환한다() throws Exception {
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, false)));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.message").value("비활성 상품은 입고할 수 없습니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("productId"));
+
+        then(inventoryRepository).should(never()).increaseQuantity(any(UUID.class), anyInt(), any(LocalDateTime.class), any(UUID.class));
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
+    @Test
+    void 재고가_없고_비활성_상품이면_422를_반환한다() throws Exception {
+        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, false)));
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.details[0].field").value("productId"));
+
+        then(inventoryRepository).should(never()).saveAndFlush(any(Inventory.class));
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
     }
 
     @Test
@@ -625,7 +661,7 @@ class InventoryControllerTest {
         given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
-                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID)));
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
         given(inventoryRepository.saveAndFlush(any(Inventory.class))).willAnswer(invocation -> {
             Inventory inventory = invocation.getArgument(0);
             ReflectionTestUtils.setField(inventory, "id", INVENTORY_ID);
@@ -652,7 +688,7 @@ class InventoryControllerTest {
         given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
-                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, busanId)));
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, busanId, true)));
 
         mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
                 .andExpect(status().isUnprocessableEntity())
@@ -699,7 +735,7 @@ class InventoryControllerTest {
         given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
-                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID)));
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
         given(inventoryRepository.saveAndFlush(any(Inventory.class))).willThrow(new DataIntegrityViolationException(
                 "duplicate key",
                 new ConstraintViolationException("duplicate key", new SQLException(), "uk_inventories_hub_id_product_id")));
