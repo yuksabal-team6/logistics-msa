@@ -17,7 +17,8 @@ import static com.yuksabal.it.support.Scenario.SEOUL_HUB;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // DLV: 배송 시나리오 (노션 테스트 시나리오 창구)
-// 배송·경로 기록 상태는 MASTER가 바꾼다 (MASTER는 담당자가 아니어도 변경 가능)
+// 배송·경로 기록 상태 변경은 대부분 MASTER가 하고 (MASTER는 담당자가 아니어도 변경 가능),
+// 담당자 권한이 필요한 시나리오(DLV-6)는 배송 기사가 한다
 class DeliveryScenarioTest {
 
     private Scenario s;
@@ -192,5 +193,56 @@ class DeliveryScenarioTest {
 
         assertThat(delivery.status()).as("%s", delivery).isEqualTo(200);
         assertThat(delivery.data().hasNonNull("deliveryManagerId")).as("%s", delivery).isFalse();
+    }
+
+    @Test
+    @DisplayName("DLV-6. 출발 후 주문 취소")
+    void dlv6_출발_후_주문_취소() {
+        // 배송 기사 d를 만든다 (역할을 바꾼 뒤 로그인해야 토큰에 DELIVERY가 담긴다)
+        String username = "d" + s.suffix;
+        UUID driverId = Gateway.post("/api/v1/auth/register", null, Map.of(
+                        "username", username,
+                        "password", "ItUser12!",
+                        "slackId", "it-" + username,
+                        "email", username + "@it.test"))
+                .expect(201).uuid("userId");
+        Gateway.patch("/api/v1/users/" + driverId + "/role", s.master, Map.of("role", "DELIVERY")).expect(200);
+        String d = new Scenario.Member(driverId, username).token();
+
+        // 1. 회원 u가 A(서울) → B(부산)로 P 1개 주문
+        String u = s.u.token();
+        Response order = s.order(u, 1).expect(201);
+        UUID orderId = order.uuid("orderId");
+        String deliveries = "/api/v1/deliveries/" + order.uuid("deliveryId");
+        String route = deliveries + "/routes/"
+                + Gateway.get(deliveries + "/routes", s.master).expect(200).data().get(0).path("routeLogId").asText();
+
+        // 2. MASTER: R의 담당자를 d로 지정
+        Gateway.patch(route + "/manager", s.master, Map.of("deliveryManagerId", driverId)).expect(200);
+
+        // 3. d: R을 IN_TRANSIT으로 변경 (출발). 배송 D도 IN_TRANSIT이 된다
+        Gateway.patch(route + "/status", d, Map.of("routeStatus", "IN_TRANSIT")).expect(200);
+
+        // 4. 출발 허브(서울)의 P 재고를 기억
+        int stockBefore = s.stockOfP();
+
+        // 5. u: 주문 취소 → 경로 기록이 출발해 409
+        Response cancel = Gateway.post("/api/v1/orders/" + orderId + "/cancel", u, null);
+
+        assertThat(cancel.status()).as("%s", cancel).isEqualTo(409);
+        assertThat(cancel.error().path("code").asText()).isEqualTo("INVALID_STATUS_TRANSITION");
+
+        // 6. 주문은 CONFIRMED + 보상 NOT_REQUIRED로 되돌아가고, D는 IN_TRANSIT 그대로, 재고는 복원되지 않음
+        Response orderAfter = Gateway.get("/api/v1/orders/" + orderId, u);
+
+        assertThat(orderAfter.status()).as("%s", orderAfter).isEqualTo(200);
+        assertThat(orderAfter.data().path("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(orderAfter.data().path("compensationStatus").asText()).isEqualTo("NOT_REQUIRED");
+
+        Response delivery = Gateway.get(deliveries, s.master);
+
+        assertThat(delivery.status()).as("%s", delivery).isEqualTo(200);
+        assertThat(delivery.data().path("deliveryStatus").asText()).isEqualTo("IN_TRANSIT");
+        assertThat(s.stockOfP()).isEqualTo(stockBefore);
     }
 }
