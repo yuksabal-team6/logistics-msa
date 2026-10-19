@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
 import java.util.UUID;
 
 import static com.yuksabal.it.support.Scenario.BUSAN_HUB;
@@ -92,5 +93,21 @@ class OrderScenarioTest {
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK - 2);
         JsonNode delivery = Gateway.get("/api/v1/deliveries/" + order.uuid("deliveryId"), s.master).expect(200).data();
         assertThat(delivery.path("deliveryStatus").asText()).isEqualTo("READY");
+    }
+
+    @Test
+    @DisplayName("ORD-16. 정지된 회원 주문: 403, 주문 저장 안 됨, 재고 그대로")
+    void ord16_정지된_회원_주문() {
+        // 정지 전에 받은 토큰은 만료 전까지 게이트웨이를 통과한다 → order가 user #8로 활성 여부를 다시 확인해야 막힌다
+        String token = s.u.token();
+        Gateway.patch("/api/v1/users/" + s.u.userId() + "/status", s.master, Map.of("active", false)).expect(200);
+
+        Response order = s.order(token, 2);
+
+        assertThat(order.status()).as("%s", order).isEqualTo(403);
+        assertThat(order.error().path("message").asText()).isEqualTo("비활성화된 회원은 주문할 수 없습니다.");
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+        JsonNode orders = Gateway.get("/api/v1/orders?size=100", token).expect(200).data().path("items");
+        assertThat(orders).as("u의 주문 목록 (주문자 확인이 저장 전이라 남지 않음)").isEmpty();
     }
 }
