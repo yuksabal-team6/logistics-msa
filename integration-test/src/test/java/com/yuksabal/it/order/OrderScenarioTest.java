@@ -8,6 +8,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
 import static com.yuksabal.it.support.Scenario.BUSAN_HUB;
 import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
 import static com.yuksabal.it.support.Scenario.SEOUL_HUB;
@@ -38,5 +40,21 @@ class OrderScenarioTest {
         assertThat(delivery.path("departureHubId").asText()).isEqualTo(SEOUL_HUB.toString());
         assertThat(delivery.path("destinationHubId").asText()).isEqualTo(BUSAN_HUB.toString());
         assertThat(delivery.path("deliveryStatus").asText()).isEqualTo("READY");
+    }
+
+    @Test
+    @DisplayName("ORD-2. 요청 업체 관리자 주문 취소: CANCELLED + 보상 COMPLETED, 재고 복원, 배송 취소")
+    void ord2_요청_업체_관리자_주문_취소() {
+        Response order = s.order(s.u.token(), 2).expect(201);
+        UUID orderId = order.uuid("orderId");
+
+        Response cancel = Gateway.post("/api/v1/orders/" + orderId + "/cancel", s.b.token(), null);
+
+        assertThat(cancel.status()).as("%s", cancel).isEqualTo(200);
+        assertThat(cancel.data().path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(cancel.data().path("compensationStatus").asText()).isEqualTo("COMPLETED");
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+        JsonNode delivery = Gateway.get("/api/v1/deliveries/" + order.uuid("deliveryId"), s.master).expect(200).data();
+        assertThat(delivery.path("deliveryStatus").asText()).isEqualTo("CANCELLED");
     }
 }
