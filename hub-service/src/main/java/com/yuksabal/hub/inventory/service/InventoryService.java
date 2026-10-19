@@ -16,8 +16,10 @@ import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
+import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryLogResponse;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.dto.response.InventoryStockResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
 import com.yuksabal.hub.inventory.entity.InventoryChangeType;
 import com.yuksabal.hub.inventory.entity.InventoryLog;
@@ -129,6 +131,15 @@ public class InventoryService {
             validateCompanyOwner(inventory.getCompanyId(), userId);
         }
         return InventoryResponse.from(inventory);
+    }
+
+    // company-service가 상품·업체 삭제 전에 호출한다 (내부 API, #137). 남은 수량이 0보다 큰 재고가 있으면 true
+    // 수량 0인 재고는 이력이라 false. 재고가 없는 상품·업체도 404가 아니라 false
+    public InventoryStockResponse hasStock(InventoryStockRequest request) {
+        boolean hasStock = request.productId() != null
+                ? inventoryRepository.existsByProductIdAndQuantityGreaterThan(request.productId(), 0)
+                : inventoryRepository.existsByCompanyIdAndQuantityGreaterThan(request.companyId(), 0);
+        return new InventoryStockResponse(hasStock);
     }
 
     // 관리자가 실사 결과로 재고 수량을 직접 바꾼다 (MASTER). 조회할 때 본 수량과 현재 수량이 같을 때만 조정한다

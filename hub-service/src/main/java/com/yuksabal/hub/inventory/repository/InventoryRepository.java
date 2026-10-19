@@ -25,6 +25,12 @@ public interface InventoryRepository extends
     // 한 허브에 같은 상품 재고는 하나다
     Optional<Inventory> findByHubIdAndProductId(UUID hubId, UUID productId);
 
+    // 상품·업체 삭제 전 재고 확인 (내부 API). 업체 허브가 바뀌면 같은 상품 재고가 여러 건일 수 있어 exists로 본다
+    // 삭제된 재고는 @SQLRestriction으로 제외된다
+    boolean existsByProductIdAndQuantityGreaterThan(UUID productId, int quantity);
+
+    boolean existsByCompanyIdAndQuantityGreaterThan(UUID companyId, int quantity);
+
     // 주문 차감·복원이 로그를 확인하기 전에 재고 행을 잠근다 (SELECT ... FOR UPDATE, 비관적 락)
     // 같은 재고의 차감·복원은 여기서 줄을 서서, 뒤에 온 요청은 앞 요청이 커밋한 로그를 보고 판단한다
     @Lock(LockModeType.PESSIMISTIC_WRITE)
