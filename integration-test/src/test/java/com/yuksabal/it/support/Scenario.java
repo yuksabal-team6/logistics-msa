@@ -146,15 +146,17 @@ public final class Scenario {
         return new Member(userId, username);
     }
 
-    // 업체 관리자는 USER로 가입한 뒤 MASTER가 역할을 COMPANY로 바꾼다
-    private Member companyManager(String name) {
+    // 아직 업체를 관리하지 않는 COMPANY 회원을 새로 만든다 (업체 생성·관리자 교체 시나리오용)
+    // 업체 관리자는 USER로 가입한 뒤 MASTER가 역할을 COMPANY로 바꾼다. name은 회원끼리 구분하는 한 글자 (예: "n")
+    public Member companyManager(String name) {
         Member member = register(name);
         Gateway.patch("/api/v1/users/" + member.userId() + "/role", master, Map.of("role", "COMPANY")).expect(200);
         return member;
     }
 
-    // 업체를 만든 직후에는 관리자의 소속(company_id)이 비어 있어 MASTER가 회원 수정으로 지정한다
-    private void assignCompany(Member member, UUID companyId) {
+    // 회원의 소속 업체 지정 PATCH /api/v1/users/{id} (MASTER)
+    // 업체를 만든 직후에는 관리자의 소속(company_id)이 비어 있어 이걸로 지정한다. 관리자 교체 전 새 관리자를 그 업체 소속으로 만들 때도 쓴다
+    public void assignCompany(Member member, UUID companyId) {
         Gateway.patch("/api/v1/users/" + member.userId(), master, Map.of("companyId", companyId)).expect(200);
     }
 
