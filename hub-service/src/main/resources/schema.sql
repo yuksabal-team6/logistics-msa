@@ -23,3 +23,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_inventory_logs_order_id_change_type
 CREATE UNIQUE INDEX IF NOT EXISTS uk_inventories_hub_id_product_id
     ON hub_service.p_inventories (hub_id, product_id)
     WHERE deleted_at IS NULL;
+
+-- 재고 수량은 0 이상이다. 차감 UPDATE 조건(quantity >= :quantity)과 입고·조정 DTO 검증이 막지만, DB에서도 보장한다
+-- PostgreSQL은 ADD CONSTRAINT IF NOT EXISTS가 없어 지우고 다시 만든다 (change_type 제약과 같은 TODO 대상)
+-- 음수 재고가 이미 있으면 제약 생성이 실패해 앱이 시작되지 않으므로, 먼저 정리해야 한다
+ALTER TABLE hub_service.p_inventories DROP CONSTRAINT IF EXISTS ck_inventories_quantity_non_negative;
+ALTER TABLE hub_service.p_inventories ADD CONSTRAINT ck_inventories_quantity_non_negative
+    CHECK (quantity >= 0);
