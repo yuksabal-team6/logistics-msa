@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.UUID;
 
 import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +37,41 @@ class CompanyScenarioTest {
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
         JsonNode orders = Gateway.get("/api/v1/orders?size=100", s.u.token()).expect(200).data().path("items");
         assertThat(orders).as("u의 주문 목록").isEmpty();
+    }
+
+    @Test
+    @DisplayName("CMP-2. 진행 중 주문이 있는 회원, 상품, 업체 삭제: 409 → 주문 취소 후 회원·업체 200, 상품은 재고가 남아 409")
+    void cmp2_진행_중_주문이_있는_회원_상품_업체_삭제() {
+        UUID orderId = s.order(s.u.token(), 2).expect(201).uuid("orderId");
+        String user = "/api/v1/users/" + s.u.userId();
+        String product = "/api/v1/products/" + s.productP;
+        String companyB = "/api/v1/companies/" + s.companyB;
+        // 상품·업체는 비활성 상태에서만 삭제할 수 있다 (활성이면 422라 남은 업무 확인까지 가지 않는다)
+        Gateway.patch(product + "/status", s.master, Map.of("active", false)).expect(200);
+        Gateway.patch(companyB + "/status", s.master, Map.of("active", false)).expect(200);
+
+        // 1. 진행 중 주문이 있으면 회원·상품·업체(요청 업체 B) 모두 409
+        Response userDelete = Gateway.delete(user, s.master);
+        Response productDelete = Gateway.delete(product, s.master);
+        Response companyDelete = Gateway.delete(companyB, s.master);
+
+        assertThat(userDelete.status()).as("%s", userDelete).isEqualTo(409);
+        assertThat(productDelete.status()).as("%s", productDelete).isEqualTo(409);
+        assertThat(productDelete.errorFields()).as("%s", productDelete).containsExactlyInAnyOrder("inventory", "order");
+        assertThat(companyDelete.status()).as("%s", companyDelete).isEqualTo(409);
+        assertThat(companyDelete.errorFields()).as("%s", companyDelete).containsExactly("order");
+
+        // 2. 주문을 취소하면 회원·업체는 삭제된다. 상품은 서울 허브 재고 10개가 남아 있어 409 (inventory)
+        Gateway.post("/api/v1/orders/" + orderId + "/cancel", s.master, null).expect(200);
+
+        Response userRetry = Gateway.delete(user, s.master);
+        Response companyRetry = Gateway.delete(companyB, s.master);
+        Response productRetry = Gateway.delete(product, s.master);
+
+        assertThat(userRetry.status()).as("%s", userRetry).isEqualTo(200);
+        assertThat(companyRetry.status()).as("%s", companyRetry).isEqualTo(200);
+        assertThat(productRetry.status()).as("%s", productRetry).isEqualTo(409);
+        assertThat(productRetry.errorFields()).as("%s", productRetry).containsExactly("inventory");
     }
 
     @Test
