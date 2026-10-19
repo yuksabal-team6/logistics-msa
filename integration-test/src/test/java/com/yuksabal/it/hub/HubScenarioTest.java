@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -239,5 +240,39 @@ class HubScenarioTest {
         assertThat(adjusts).as("조정 이력").hasSize(1);
         assertThat(adjusts.get(0).path("changeType").asText()).isEqualTo("ADJUST_INCREASE");
         assertThat(adjusts.get(0).path("quantity").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("HUB-13. 주문 차감과 입고가 동시에: 모두 성공, 매번 재고 = 시작 + 입고 − 차감 (갱신 손실 없음)")
+    void hub13_주문_차감과_입고가_동시에() {
+        // 사전 조건: 공통 준비 (서울 허브 P 재고 10개), 주문자 u (Idempotency-Key는 요청마다 다르게)
+        String inventoryId = s.inventoryOfP().path("inventoryId").asText();
+        String uToken = s.u.token();
+        Map<String, Object> inboundOne = Map.of("hubId", Scenario.SEOUL_HUB, "productId", s.productP, "quantity", 1);
+        int rounds = 3;
+        int each = 5;
+
+        for (int round = 1; round <= rounds; round++) {
+            // 이렇게 하면: P 1개 주문 5건과 서울 허브 P 1개 입고 5건을 동시에 보낸다 (경합은 한 번에 안 날 수 있어 3번 반복)
+            List<Supplier<Response>> requests = new ArrayList<>();
+            for (int i = 0; i < each; i++) {
+                requests.add(() -> s.order(uToken, 1));
+                requests.add(() -> Gateway.post("/api/v1/inventories/inbound", s.master, inboundOne));
+            }
+            List<Response> responses = Concurrently.run(requests);
+
+            // 이렇게 돼야 한다
+            // 1. 10건 모두 성공 (주문 201, 입고 200)
+            assertThat(Concurrently.count(responses, 201)).as("%d회차 %s", round, responses).isEqualTo(each);
+            assertThat(Concurrently.count(responses, 200)).as("%d회차 %s", round, responses).isEqualTo(each);
+            // 2. 재고 = 10 + 입고 5 − 차감 5 = 10
+            //    (차감은 행 잠금 뒤 조건부 UPDATE, 입고는 quantity = quantity + n UPDATE라 서로의 변경을 덮어쓰지 않는다
+            //     → 한쪽이 읽은 값으로 덮어쓰면 변경 하나가 사라져 10이 아니게 된다)
+            assertThat(s.stockOfP()).as("%d회차 재고", round).isEqualTo(INITIAL_STOCK);
+        }
+        // 3. 이력 건수가 요청 수와 같다: 차감 5 × 3회, 입고 처음 1 + 5 × 3회
+        List<String> types = s.changeTypesOf(inventoryId);
+        assertThat(Collections.frequency(types, "DECREASE")).isEqualTo(each * rounds);
+        assertThat(Collections.frequency(types, "INBOUND")).isEqualTo(1 + each * rounds);
     }
 }
