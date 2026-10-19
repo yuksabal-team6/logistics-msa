@@ -126,6 +126,48 @@ class HubScenarioTest {
     }
 
     @Test
+    @DisplayName("HUB-7. 같은 허브에 상품 동시 첫 입고: 늦은 쪽 409(INVENTORY_CREATE_CONFLICT) 후 다시 입고, 재고 행 1개, 수량 15")
+    void hub7_같은_허브에_상품_동시_첫_입고() {
+        // 사전 조건: 재고가 없는 공통 준비 (A의 관리 허브는 서울, P는 활성, 재고 행 없음)
+        Scenario noStock = new Scenario(false);
+        String inbound = "/api/v1/inventories/inbound";
+        Map<Integer, Map<String, Object>> bodies = Map.of(
+                10, Map.of("hubId", Scenario.SEOUL_HUB, "productId", noStock.productP, "quantity", 10),
+                5, Map.of("hubId", Scenario.SEOUL_HUB, "productId", noStock.productP, "quantity", 5));
+
+        // 이렇게 하면
+        // 1. MASTER 두 명(같은 토큰으로 대신)이 서울 허브에 P를 각각 10개, 5개 동시에 입고
+        List<Response> first = Concurrently.run(
+                () -> Gateway.post(inbound, noStock.master, bodies.get(10)),
+                () -> Gateway.post(inbound, noStock.master, bodies.get(5)));
+        // 2. 409를 받은 쪽이 같은 수량으로 다시 입고 (이번에는 이미 생긴 재고 행의 수량을 늘린다)
+        List<Response> retries = new ArrayList<>();
+        int[] quantities = {10, 5};
+        for (int i = 0; i < first.size(); i++) {
+            if (first.get(i).status() == 409) {
+                retries.add(Gateway.post(inbound, noStock.master, bodies.get(quantities[i])));
+            }
+        }
+        // 3. P 재고 조회 (상품으로 거른 재고 목록으로 행 수까지 확인)
+        Response rows = Gateway.get("/api/v1/inventories?productId=" + noStock.productP, noStock.master);
+
+        // 이렇게 돼야 한다
+        // 1. 둘 다 재고 행을 새로 만들려다 (hub_id, product_id) 유니크 인덱스에 걸린 쪽은 500이 아니라 409 INVENTORY_CREATE_CONFLICT
+        //    (먼저 만든 쪽이 커밋한 뒤 출발했다면 둘 다 200일 수도 있다 → 응답 조합이 아니라 최종 데이터로 확인한다)
+        assertThat(first).as("%s", first).allSatisfy(r -> assertThat(r.status()).isIn(200, 409));
+        first.stream().filter(r -> r.status() == 409)
+                .forEach(r -> assertThat(r.errorCode()).isEqualTo("INVENTORY_CREATE_CONFLICT"));
+        // 2. 다시 입고는 200
+        assertThat(retries).as("%s", retries).allSatisfy(r -> assertThat(r.status()).isEqualTo(200));
+        // 3. 재고 행 1개, 수량 15, 입고 이력 2건
+        assertThat(rows.status()).as("%s", rows).isEqualTo(200);
+        assertThat(rows.data().path("items")).as("P의 재고 행").hasSize(1);
+        JsonNode inventory = rows.data().path("items").get(0);
+        assertThat(inventory.path("quantity").asInt()).isEqualTo(15);
+        assertThat(noStock.changeTypesOf(inventory.path("inventoryId").asText())).containsExactly("INBOUND", "INBOUND");
+    }
+
+    @Test
     @DisplayName("HUB-10. 관리 허브 변경 후 상품별 재고 조회: 새 관리 허브의 재고 1건으로 응답 (이전 허브 0개 행은 이력)")
     void hub10_관리_허브_변경_후_상품별_재고_조회() {
         // 사전 조건: 공통 준비 (A는 서울 허브, 서울 허브 P 재고 10개)
