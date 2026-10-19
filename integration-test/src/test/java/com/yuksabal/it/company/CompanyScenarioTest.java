@@ -358,6 +358,37 @@ class CompanyScenarioTest {
         assertThat(found.status()).as("%s", found).isEqualTo(404);
     }
 
+    @Test
+    @DisplayName("CMP-15. 남은 업무 없는 업체 삭제 후 조회·주문·관리자 회원 삭제: 200 → 업체·상품 404 → 주문 404 → 관리자 삭제 200")
+    void cmp15_남은_업무_없는_업체_삭제_후_조회_주문_관리자_회원_삭제() {
+        // 사전 조건: 재고가 없는 공통 준비 (A에 상품 P만 있고 재고·진행 중 주문 없음) + A 비활성화 (업체는 비활성일 때만 삭제 가능)
+        Scenario noStock = new Scenario(false);
+        noStock.deactivateCompany(noStock.companyA);
+
+        // 이렇게 하면 (1): MASTER가 A 삭제
+        Response delete = Gateway.delete("/api/v1/companies/" + noStock.companyA, noStock.master);
+
+        // 이렇게 돼야 한다 (1): 200, 업체와 소속 상품이 함께 삭제되어 둘 다 404
+        assertThat(delete.status()).as("%s", delete).isEqualTo(200);
+        Response companyFound = Gateway.get("/api/v1/companies/" + noStock.companyA, noStock.master);
+        Response productFound = Gateway.get("/api/v1/products/" + noStock.productP, noStock.master);
+        assertThat(companyFound.status()).as("%s", companyFound).isEqualTo(404);
+        assertThat(productFound.status()).as("%s", productFound).isEqualTo(404);
+
+        // 이렇게 하면 (2): u가 삭제된 P를 주문
+        Response order = noStock.order(noStock.u.token(), 2);
+
+        // 이렇게 돼야 한다 (2): order가 company #1의 404를 그대로 전달, 주문 저장 안 됨
+        assertThat(order.status()).as("%s", order).isEqualTo(404);
+        assertThat(noStock.ordersOf(noStock.u.token())).as("u의 주문 목록").isEmpty();
+
+        // 이렇게 하면 (3): MASTER가 A의 관리자였던 a를 삭제
+        Response userDelete = Gateway.delete("/api/v1/users/" + noStock.a.userId(), noStock.master);
+
+        // 이렇게 돼야 한다 (3): user가 company #11로 관리 업체를 확인 → 삭제된 업체는 빠져 관리 업체 없음 → 200
+        assertThat(userDelete.status()).as("%s", userDelete).isEqualTo(200);
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
