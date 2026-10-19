@@ -173,12 +173,96 @@ class OrderInternalControllerIntegrationTest {
     }
 
     @Test
-    void ordererId가_없으면_400() throws Exception {
+    void 파라미터가_없으면_400() throws Exception {
         mockMvc.perform(get("/internal/orders/in-progress"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.error.details[0].field").value("ordererId"))
-                .andExpect(jsonPath("$.error.details[0].reason").value("필수값입니다."));
+                .andExpect(jsonPath("$.error.message").value("ordererId, productId, companyId 중 하나만 보내 주세요."));
+    }
+
+    @Test
+    void 파라미터를_두_개_이상_보내면_400() throws Exception {
+        mockMvc.perform(get("/internal/orders/in-progress")
+                        .param("ordererId", UUID.randomUUID().toString())
+                        .param("productId", UUID.randomUUID().toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void 회원으로_물으면_ordererId만_응답에_있음() throws Exception {
+        UUID ordererId = UUID.randomUUID();
+
+        inProgress(ordererId)
+                .andExpect(jsonPath("$.data.ordererId").value(ordererId.toString()))
+                .andExpect(jsonPath("$.data.productId").doesNotExist())
+                .andExpect(jsonPath("$.data.companyId").doesNotExist());
+    }
+
+    // ===== 상품, 업체 진행 중 주문 존재 여부 (company 삭제 전 확인) =====
+
+    @Test
+    void 상품의_진행_중_주문이_있으면_true() throws Exception {
+        Order order = save(UUID.randomUUID(), OrderStatus.CONFIRMED, CompensationStatus.NOT_REQUIRED);
+
+        query("productId", order.getProductId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.productId").value(order.getProductId().toString()))
+                .andExpect(jsonPath("$.data.ordererId").doesNotExist())
+                .andExpect(jsonPath("$.data.hasInProgressOrder").value(true));
+    }
+
+    @Test
+    void 상품의_주문이_끝났거나_다른_상품이면_false() throws Exception {
+        Order completed = save(UUID.randomUUID(), OrderStatus.COMPLETED, CompensationStatus.NOT_REQUIRED);
+        save(UUID.randomUUID(), OrderStatus.CONFIRMED, CompensationStatus.NOT_REQUIRED);
+
+        query("productId", completed.getProductId())
+                .andExpect(jsonPath("$.data.hasInProgressOrder").value(false));
+    }
+
+    @Test
+    void 업체가_공급_업체인_진행_중_주문이_있으면_true() throws Exception {
+        Order order = save(UUID.randomUUID(), OrderStatus.CONFIRMED, CompensationStatus.NOT_REQUIRED);
+
+        query("companyId", order.getSupplierCompanyId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.companyId").value(order.getSupplierCompanyId().toString()))
+                .andExpect(jsonPath("$.data.hasInProgressOrder").value(true));
+    }
+
+    @Test
+    void 업체가_요청_업체인_진행_중_주문이_있어도_true() throws Exception {
+        Order order = save(UUID.randomUUID(), OrderStatus.CONFIRMED, CompensationStatus.NOT_REQUIRED);
+
+        query("companyId", order.getRequestCompanyId())
+                .andExpect(jsonPath("$.data.hasInProgressOrder").value(true));
+    }
+
+    @Test
+    void 업체의_주문이_끝났거나_관계없는_업체면_false() throws Exception {
+        Order completed = save(UUID.randomUUID(), OrderStatus.COMPLETED, CompensationStatus.NOT_REQUIRED);
+        save(UUID.randomUUID(), OrderStatus.CONFIRMED, CompensationStatus.NOT_REQUIRED);
+
+        query("companyId", completed.getSupplierCompanyId())
+                .andExpect(jsonPath("$.data.hasInProgressOrder").value(false));
+        query("companyId", UUID.randomUUID())
+                .andExpect(jsonPath("$.data.hasInProgressOrder").value(false));
+    }
+
+    @Test
+    void 보상이_안_끝난_취소_주문도_업체_진행_중() throws Exception {
+        Order order = save(UUID.randomUUID(), OrderStatus.CANCELLED, CompensationStatus.FAILED);
+
+        query("companyId", order.getRequestCompanyId())
+                .andExpect(jsonPath("$.data.hasInProgressOrder").value(true));
+    }
+
+    @Test
+    void productId_형식이_틀리면_400() throws Exception {
+        mockMvc.perform(get("/internal/orders/in-progress").param("productId", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -188,6 +272,10 @@ class OrderInternalControllerIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.error.details[0].field").value("ordererId"))
                 .andExpect(jsonPath("$.error.details[0].reason").value("형식이 올바르지 않습니다."));
+    }
+
+    private ResultActions query(String name, UUID value) throws Exception {
+        return mockMvc.perform(get("/internal/orders/in-progress").param(name, value.toString()));
     }
 
     private ResultActions inProgress(UUID ordererId) throws Exception {
