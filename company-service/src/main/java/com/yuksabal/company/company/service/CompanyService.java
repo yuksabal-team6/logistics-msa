@@ -9,6 +9,7 @@ import com.yuksabal.company.company.client.UserClient;
 import com.yuksabal.company.company.client.dto.response.UserResponse;
 import com.yuksabal.company.company.dto.request.CompanyCreateRequest;
 import com.yuksabal.company.company.dto.request.CompanySearchRequest;
+import com.yuksabal.company.company.dto.request.CompanyStatusRequest;
 import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
 import com.yuksabal.company.company.dto.response.CompanyInternalResponse;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
@@ -33,6 +34,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
+import static com.yuksabal.company.company.repository.CompanySpecification.activeEquals;
 import static com.yuksabal.company.company.repository.CompanySpecification.companyNameContains;
 import static com.yuksabal.company.company.repository.CompanySpecification.hubIdEquals;
 
@@ -97,7 +99,8 @@ public class CompanyService {
     public PageResponse<CompanyResponse> getCompanies(CompanySearchRequest request, Pageable pageable) {
         Specification<Company> spec = Specification
                 .where(companyNameContains(request.companyName()))
-                .and(hubIdEquals(request.hubId()));
+                .and(hubIdEquals(request.hubId()))
+                .and(activeEquals(request.active()));
 
         Page<Company> companies = companyRepository.findAll(spec, toStablePageable(pageable, SORTABLE_FIELDS));
 
@@ -145,6 +148,30 @@ public class CompanyService {
         if (ownerChanged) {
             company.changeOwner(request.ownerId());
         }
+
+        // 변경 감지는 커밋 때 UPDATE하므로, 응답의 updatedAt을 채우려고 먼저 반영한다
+        companyRepository.flush();
+        return CompanyResponse.from(company);
+    }
+
+    // 활성화·비활성화는 MASTER만 (삭제와 같은 권한). 이미 같은 상태면 바꾸지 않고 200
+    // 비활성화하면 소속 상품도 함께 비활성화한다 → "활성 상품은 항상 활성 업체에 속한다"
+    // 새 주문·입고 차단은 order·hub가 #1·#2의 active로 판단하고, 진행 중인 주문·배송은 그대로 진행된다
+    @Transactional
+    public CompanyResponse changeCompanyStatus(UUID companyId, CompanyStatusRequest request, UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(FORBIDDEN);
+        }
+
+        Company company = findCompany(companyId);
+        if (company.isActive() == request.active()) {
+            return CompanyResponse.from(company);
+        }
+
+        if (!request.active()) {
+            productService.deactivateAllByCompany(companyId);
+        }
+        company.changeActive(request.active());
 
         // 변경 감지는 커밋 때 UPDATE하므로, 응답의 updatedAt을 채우려고 먼저 반영한다
         companyRepository.flush();

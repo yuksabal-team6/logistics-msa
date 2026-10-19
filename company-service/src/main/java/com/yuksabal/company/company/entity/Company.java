@@ -11,6 +11,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.util.UUID;
@@ -48,6 +49,12 @@ public class Company extends BaseEntity {
     @Column(length = 30)
     private String contactPhone;
 
+    // 거래 가능 여부. 비활성이면 새 주문·입고·상품 등록을 막고, 진행 중인 주문·배송은 그대로 진행된다
+    // ddl-auto update로 컬럼이 추가될 때 기존 업체가 활성으로 채워지도록 DB 기본값을 둔다
+    @ColumnDefault("true")
+    @Column(nullable = false)
+    private boolean isActive = true;
+
     @Builder
     public Company(UUID hubId, UUID ownerId, String companyName, String businessNumber, String address,
                    String contactPhone) {
@@ -83,6 +90,11 @@ public class Company extends BaseEntity {
     // 업체 관리자 교체. 권한(MASTER만)과 새 관리자 소속 확인은 서비스에서 한다
     public void changeOwner(UUID ownerId) {
         this.ownerId = ownerId;
+    }
+
+    // 활성화·비활성화. 권한(MASTER만)과 소속 상품 연쇄 비활성화는 서비스에서 한다
+    public void changeActive(boolean active) {
+        this.isActive = active;
     }
 
     public void delete(UUID deletedBy) {

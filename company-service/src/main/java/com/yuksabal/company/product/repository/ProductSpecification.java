@@ -19,6 +19,13 @@ public class ProductSpecification {
                         : cb.like(root.get("productName"), LikeUtils.contains(productName), LikeUtils.ESCAPE_CHAR);
     }
 
+    public static Specification<Product> activeEquals(Boolean active) {
+        return (root, query, cb) ->
+                active == null
+                        ? null
+                        : cb.equal(root.get("isActive"), active);
+    }
+
     // company.id는 상품 테이블의 FK(company_id)라 업체 조인 없이 비교된다
     public static Specification<Product> companyIdEquals(UUID companyId) {
         return (root, query, cb) ->
