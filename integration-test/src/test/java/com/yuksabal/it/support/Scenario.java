@@ -3,6 +3,8 @@ package com.yuksabal.it.support;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.yuksabal.it.support.Gateway.Response;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -102,9 +104,23 @@ public final class Scenario {
 
     // ---- 재고·배송 ----
 
-    // 서울 허브의 P 재고 수량 GET /api/v1/inventories/products/{P}
+    // P의 재고 (MASTER) GET /api/v1/inventories/products/{P} → data (inventoryId, hubId, quantity)
+    // 상품 재고는 업체 관리 허브 한 곳에만 있어 단건으로 응답한다
+    public JsonNode inventoryOfP() {
+        return Gateway.get("/api/v1/inventories/products/" + productP, master).expect(200).data();
+    }
+
+    // P의 재고 수량
     public int stockOfP() {
-        return Gateway.get("/api/v1/inventories/products/" + productP, master).expect(200).data().path("quantity").asInt();
+        return inventoryOfP().path("quantity").asInt();
+    }
+
+    // 재고 변경 이력의 종류 목록 (MASTER) GET /api/v1/inventories/logs?inventoryId= → changeType (INBOUND, DECREASE, ...)
+    public List<String> changeTypesOf(String inventoryId) {
+        List<String> types = new ArrayList<>();
+        Gateway.get("/api/v1/inventories/logs?size=100&inventoryId=" + inventoryId, master).expect(200)
+                .data().path("items").forEach(log -> types.add(log.path("changeType").asText()));
+        return types;
     }
 
     // 배송 단건 조회 (MASTER) GET /api/v1/deliveries/{deliveryId} → data
