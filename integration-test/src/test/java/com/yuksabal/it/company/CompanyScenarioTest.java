@@ -389,6 +389,27 @@ class CompanyScenarioTest {
         assertThat(userDelete.status()).as("%s", userDelete).isEqualTo(200);
     }
 
+    // CMP-16(hub 장애 중 상품 삭제)은 hub 컨테이너를 멈춰야 해서 수동 확인 대상 (#167)
+
+    @Test
+    @DisplayName("CMP-17. 업체를 관리 중인 회원 삭제: 409, 회원은 활성 그대로 (관리자 a 유지)")
+    void cmp17_업체를_관리_중인_회원_삭제() {
+        // 사전 조건: 공통 준비 (a는 A의 관리자, 진행 중 주문 없음)
+
+        // 이렇게 하면: MASTER가 a 삭제
+        Response delete = Gateway.delete("/api/v1/users/" + s.a.userId(), s.master);
+
+        // 이렇게 돼야 한다
+        // 1. user가 company #11(관리자 ID로 업체 조회)로 관리 중인 업체를 확인해 409
+        assertThat(delete.status()).as("%s", delete).isEqualTo(409);
+        // 2. user는 삭제할 때 먼저 비활성화하고 확인한다 → 막혔으면 원래대로 활성으로 되돌려야 한다 (로그인·상품 수정 가능)
+        Response update = Gateway.patch("/api/v1/products/" + s.productP, s.a.token(), Map.of("unitPrice", 6000));
+        assertThat(update.status()).as("%s", update).isEqualTo(200);
+        // 3. A의 관리자는 a 그대로
+        assertThat(Gateway.get("/api/v1/companies/" + s.companyA, s.master).expect(200).data().path("ownerId").asText())
+                .isEqualTo(s.a.userId().toString());
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
