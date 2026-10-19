@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -109,5 +110,22 @@ class OrderScenarioTest {
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
         JsonNode orders = Gateway.get("/api/v1/orders?size=100", token).expect(200).data().path("items");
         assertThat(orders).as("u의 주문 목록 (주문자 확인이 저장 전이라 남지 않음)").isEmpty();
+    }
+
+    @Test
+    @DisplayName("ORD-17. 공급 업체 상품이 아닌 상품으로 주문: 400, 주문 저장 안 됨, 재고 그대로")
+    void ord17_공급_업체_상품이_아닌_상품으로_주문() {
+        // P는 A의 상품인데 공급 업체를 B로 적는다 → order가 company #1의 companyId와 비교해 막는다
+        Map<String, Object> body = new HashMap<>(s.orderBody(2));
+        body.put("supplierCompanyId", s.companyB);
+
+        Response order = Gateway.postWithIdempotencyKey("/api/v1/orders", s.u.token(), body, UUID.randomUUID());
+
+        assertThat(order.status()).as("%s", order).isEqualTo(400);
+        assertThat(order.error().path("message").asText()).isEqualTo("공급 업체의 상품이 아닙니다.");
+        assertThat(order.errorFields()).containsExactly("productId");
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+        JsonNode orders = Gateway.get("/api/v1/orders?size=100", s.u.token()).expect(200).data().path("items");
+        assertThat(orders).as("u의 주문 목록").isEmpty();
     }
 }
