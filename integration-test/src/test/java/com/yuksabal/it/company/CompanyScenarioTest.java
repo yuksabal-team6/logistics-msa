@@ -206,6 +206,26 @@ class CompanyScenarioTest {
         assertThat(byNewOwner.status()).as("%s", byNewOwner).isEqualTo(200);
     }
 
+    @Test
+    @DisplayName("CMP-11. 업체 비활성화 후 그 업체 상품 입고: 상품도 비활성, 입고 422, 재고 그대로")
+    void cmp11_업체_비활성화_후_그_업체_상품_입고() {
+        // 사전 조건: 공급 업체 A 비활성화
+        s.deactivateCompany(s.companyA);
+
+        // 이렇게 하면: MASTER가 서울 허브에 P를 5개 입고
+        Response inbound = Gateway.post("/api/v1/inventories/inbound", s.master,
+                Map.of("hubId", Scenario.SEOUL_HUB, "productId", s.productP, "quantity", 5));
+
+        // 이렇게 돼야 한다
+        // 1. company: 업체를 비활성화하면 소속 상품도 비활성
+        assertThat(Gateway.get("/api/v1/products/" + s.productP, s.master).expect(200).data().path("active").asBoolean())
+                .as("P의 활성 여부").isFalse();
+        // 2. hub: company 내부 API(#1)의 active=false를 보고 입고를 막는다
+        assertThat(inbound.status()).as("%s", inbound).isEqualTo(422);
+        // 3. hub: 재고 그대로
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
