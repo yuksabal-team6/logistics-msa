@@ -95,11 +95,14 @@ public class ProductService {
     // 비활성 업체의 상품은 활성화할 수 없다 (422) → "활성 상품은 항상 활성 업체에 속한다"
     @Transactional
     public ProductResponse changeProductStatus(UUID productId, ProductStatusRequest request, UUID userId, UserRole role) {
-        Product product = findProduct(productId);
-        // 업체 비활성화와 겹치지 않도록 업체 행을 잠근 뒤 상태를 확인한다 (#147)
-        // 업체를 먼저 읽으면 영속성 컨텍스트에 잠금 전 상태가 남으므로, 업체 필드를 읽기 전에 ID로 잠금 조회한다
-        Company company = findCompanyForUpdate(product.getCompany().getId());
+        // 업체 비활성화와 겹치지 않도록 업체 행을 잠근 뒤 상품·업체 상태를 확인한다 (#147)
+        // 상품이나 업체를 먼저 읽으면 영속성 컨텍스트에 잠금 전 상태가 남아, 잠금을 기다리는 동안 업체 비활성화가 바꾼 상태를 놓친다
+        // → 업체 ID만 조회 → 업체 잠금 → 상품 조회 순서로 읽는다
+        UUID companyId = productRepository.findCompanyIdById(productId)
+                .orElseThrow(ProductService::productNotFound);
+        Company company = findCompanyForUpdate(companyId);
         OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
+        Product product = findProduct(productId);
 
         if (product.isActive() == request.active()) {
             return ProductResponse.from(product);
@@ -146,10 +149,11 @@ public class ProductService {
     // 삭제된 상품은 @SQLRestriction으로 조회되지 않아 없는 상품과 같이 404. 조회·수정·삭제 공용
     private Product findProduct(UUID productId) {
         return productRepository.findById(productId)
-                .orElseThrow(() -> new BusinessException(
-                        RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 상품입니다.",
-                        "productId"));
+                .orElseThrow(ProductService::productNotFound);
+    }
+
+    private static BusinessException productNotFound() {
+        return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 상품입니다.", "productId");
     }
 
     // 비활성 업체에는 활성 상품이 있으면 안 된다 (상품 등록·활성화 공용)
