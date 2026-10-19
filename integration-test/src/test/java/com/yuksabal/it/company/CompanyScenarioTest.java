@@ -337,6 +337,27 @@ class CompanyScenarioTest {
         Gateway.get("/api/v1/products/" + s.productP, s.master).expect(200);
     }
 
+    @Test
+    @DisplayName("CMP-14. 수량 0 재고만 있는 상품 삭제: 200 (재고 0은 이력, 완료된 주문은 진행 중 아님)")
+    void cmp14_수량_0_재고만_있는_상품_삭제() {
+        // 사전 조건: u가 P를 10개 모두 주문하고 배송 완료까지 진행 → 서울 재고 0, 주문 COMPLETED
+        Response order = s.order(s.u.token(), INITIAL_STOCK).expect(201);
+        s.completeDelivery(order.uuid("deliveryId"));
+        assertThat(s.stockOfP()).as("사전 조건: 서울 재고").isZero();
+        assertThat(s.orderDetail(order.uuid("orderId")).path("status").asText()).as("사전 조건: 주문 상태").isEqualTo("COMPLETED");
+        s.deactivateProduct();
+
+        // 이렇게 하면: MASTER가 P 삭제
+        Response delete = Gateway.delete("/api/v1/products/" + s.productP, s.master);
+
+        // 이렇게 돼야 한다
+        // 1. hub: 수량 0인 재고는 이력이라 hasStock=false, order: COMPLETED는 진행 중 주문이 아님 → 200
+        assertThat(delete.status()).as("%s", delete).isEqualTo(200);
+        // 2. 상품 조회 404 (Soft Delete)
+        Response found = Gateway.get("/api/v1/products/" + s.productP, s.master);
+        assertThat(found.status()).as("%s", found).isEqualTo(404);
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
