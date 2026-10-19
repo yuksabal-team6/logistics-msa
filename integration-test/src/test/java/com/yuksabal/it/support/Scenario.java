@@ -146,8 +146,9 @@ public final class Scenario {
         return new Member(userId, username);
     }
 
-    // 업체 관리자는 USER로 가입한 뒤 MASTER가 역할을 COMPANY로 바꾼다
-    private Member companyManager(String name) {
+    // 아직 업체를 관리하지 않는 COMPANY 회원을 새로 만든다 (업체 생성·관리자 교체 시나리오용)
+    // 업체 관리자는 USER로 가입한 뒤 MASTER가 역할을 COMPANY로 바꾼다. name은 회원끼리 구분하는 한 글자 (예: "n")
+    public Member companyManager(String name) {
         Member member = register(name);
         Gateway.patch("/api/v1/users/" + member.userId() + "/role", master, Map.of("role", "COMPANY")).expect(200);
         return member;
