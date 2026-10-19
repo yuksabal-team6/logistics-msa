@@ -31,10 +31,12 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
+import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
+import static com.yuksabal.company.global.exception.CompanyErrorCode.HAS_ACTIVE_WORK;
 
 // 생성만 업체 하위 경로(/companies/{companyId}/products), 이후는 상품 ID 경로(/products/{productId})
 @Tag(name = "Product", description = "상품 API")
@@ -117,8 +119,10 @@ public class ProductController {
     }
 
     // 삭제: 200 + ApiResponse.success(null, message). MASTER 또는 소속 업체 관리자, 응답 data 없음
-    @Operation(summary = "상품 삭제")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {COMPANY_ACCESS_DENIED})
+    @Operation(summary = "상품 삭제",
+            description = "비활성 상품만 삭제 가능(422). 허브 재고나 진행 중인 주문이 있으면 409, 확인하지 못하면 502")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE},
+            value = {COMPANY_ACCESS_DENIED, HAS_ACTIVE_WORK})
     @DeleteMapping("/products/{productId}")
     public ResponseEntity<ApiResponse<Void>> deleteProduct(
             @PathVariable UUID productId,

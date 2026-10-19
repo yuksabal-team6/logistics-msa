@@ -1,4 +1,4 @@
-package com.yuksabal.company.company.client.dto.response;
+package com.yuksabal.company.global.client.dto.response;
 
 import java.util.UUID;
 
