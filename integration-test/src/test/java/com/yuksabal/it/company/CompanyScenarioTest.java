@@ -52,4 +52,19 @@ class CompanyScenarioTest {
         JsonNode orders = Gateway.get("/api/v1/orders?size=100", s.u.token()).expect(200).data().path("items");
         assertThat(orders).as("u의 주문 목록").isEmpty();
     }
+
+    @Test
+    @DisplayName("CMP-4. 비활성 요청 업체로 주문: 422(요청 업체), 주문 저장 안 됨, 재고 그대로")
+    void cmp4_비활성_요청_업체로_주문() {
+        Gateway.patch("/api/v1/companies/" + s.companyB + "/status", s.master, Map.of("active", false)).expect(200);
+
+        Response order = s.order(s.u.token(), 2);
+
+        assertThat(order.status()).as("%s", order).isEqualTo(422);
+        // 공급 업체 A·상품 P는 활성이라 요청 업체 확인에서 걸린다
+        assertThat(order.errorFields()).containsExactly("requestCompanyId");
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+        JsonNode orders = Gateway.get("/api/v1/orders?size=100", s.u.token()).expect(200).data().path("items");
+        assertThat(orders).as("u의 주문 목록").isEmpty();
+    }
 }
