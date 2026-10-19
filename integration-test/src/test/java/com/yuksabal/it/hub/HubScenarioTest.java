@@ -47,4 +47,25 @@ class HubScenarioTest {
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
         assertThat(s.changeTypesOf(inventoryId)).containsExactly("INBOUND");
     }
+
+    @Test
+    @DisplayName("HUB-2. 관리 허브가 아닌 허브로 첫 입고: 422(hubId), 재고 생성 안 됨")
+    void hub2_관리_허브가_아닌_허브로_첫_입고() {
+        // 사전 조건: 재고가 없는 공통 준비 (A의 관리 허브는 서울, P는 활성, 재고 행 없음)
+        Scenario noStock = new Scenario(false);
+
+        // 이렇게 하면: MASTER가 부산 허브에 P를 10개 입고
+        Response inbound = Gateway.post("/api/v1/inventories/inbound", noStock.master,
+                Map.of("hubId", Scenario.BUSAN_HUB, "productId", noStock.productP, "quantity", INITIAL_STOCK));
+
+        // 이렇게 돼야 한다
+        // 1. hub가 company #1의 hubId(업체 관리 허브 = 서울)와 요청 허브(부산)를 비교해 422, details에 관리 허브 ID
+        assertThat(inbound.status()).as("%s", inbound).isEqualTo(422);
+        assertThat(inbound.errorMessage()).isEqualTo("상품 업체의 관리 허브에만 입고할 수 있습니다.");
+        assertThat(inbound.errorFields()).containsExactly("hubId");
+        assertThat(inbound.error().path("details").get(0).path("reason").asText()).contains(Scenario.SEOUL_HUB.toString());
+        // 2. P의 재고 행이 만들어지지 않음 (상품별 재고 조회 404)
+        Response stock = Gateway.get("/api/v1/inventories/products/" + noStock.productP, noStock.master);
+        assertThat(stock.status()).as("%s", stock).isEqualTo(404);
+    }
 }
