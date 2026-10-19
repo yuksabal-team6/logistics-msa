@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.yuksabal.it.support.Scenario.BUSAN_HUB;
+import static com.yuksabal.it.support.Scenario.SEOUL_HUB;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // DLV: 배송 시나리오 (노션 테스트 시나리오 창구)
@@ -46,5 +48,35 @@ class DeliveryScenarioTest {
         assertThat(completed.data().path("deliveryStatus").asText()).isEqualTo("COMPLETED");
         JsonNode orderAfter = Gateway.get("/api/v1/orders/" + order.uuid("orderId"), s.master).expect(200).data();
         assertThat(orderAfter.path("status").asText()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    @DisplayName("DLV-2. 다른 허브 주문의 배송 생성")
+    void dlv2_다른_허브_주문의_배송_생성() {
+        // 1. 회원이 A(서울) → B(부산)로 P 1개 주문
+        Response order = s.order(s.u.token(), 1);
+
+        assertThat(order.status()).as("%s", order).isEqualTo(201);
+        assertThat(order.data().path("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(order.data().hasNonNull("deliveryId")).as("%s", order).isTrue();
+        String deliveries = "/api/v1/deliveries/" + order.uuid("deliveryId");
+
+        // 2. 배송 상세: READY, 서울 → 부산
+        Response delivery = Gateway.get(deliveries, s.master);
+
+        assertThat(delivery.status()).as("%s", delivery).isEqualTo(200);
+        assertThat(delivery.data().path("deliveryStatus").asText()).isEqualTo("READY");
+        assertThat(delivery.data().path("departureHubId").asText()).isEqualTo(SEOUL_HUB.toString());
+        assertThat(delivery.data().path("destinationHubId").asText()).isEqualTo(BUSAN_HUB.toString());
+
+        // 3. 경로 기록 목록: 허브 → 허브 1건, READY, 예상 거리·시간 있음
+        Response routes = Gateway.get(deliveries + "/routes", s.master);
+
+        assertThat(routes.status()).as("%s", routes).isEqualTo(200);
+        assertThat(routes.data()).hasSize(1);
+        JsonNode route = routes.data().get(0);
+        assertThat(route.path("routeStatus").asText()).isEqualTo("READY");
+        assertThat(route.hasNonNull("expectedDistanceKm")).as("%s", route).isTrue();
+        assertThat(route.hasNonNull("expectedDurationMinutes")).as("%s", route).isTrue();
     }
 }
