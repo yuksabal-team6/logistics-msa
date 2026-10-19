@@ -31,8 +31,9 @@ public class OrderDeletionChecker implements DeletionChecker {
             case PRODUCT -> orderClient.getInProgressByProduct(id);
             case COMPANY -> orderClient.getInProgressByCompany(id);
         };
-        if (response == null || response.data() == null) {
-            throw new BusinessException(DEPENDENCY_FAILURE);   // 응답이 비어 있으면 확인하지 못한 것으로 보고 막는다
+        // 응답이나 필드가 비어 있으면(계약 불일치 포함) 확인하지 못한 것으로 보고 막는다
+        if (response == null || response.data() == null || response.data().hasInProgressOrder() == null) {
+            throw new BusinessException(DEPENDENCY_FAILURE);
         }
         return response.data().hasInProgressOrder() ? List.of("진행 중인 주문이 있습니다.") : List.of();
     }

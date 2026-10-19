@@ -30,8 +30,9 @@ public class InventoryDeletionChecker implements DeletionChecker {
             case PRODUCT -> hubClient.getStockByProduct(id);
             case COMPANY -> hubClient.getStockByCompany(id);
         };
-        if (response == null || response.data() == null) {
-            throw new BusinessException(DEPENDENCY_FAILURE);   // 응답이 비어 있으면 확인하지 못한 것으로 보고 막는다
+        // 응답이나 필드가 비어 있으면(계약 불일치 포함) 확인하지 못한 것으로 보고 막는다
+        if (response == null || response.data() == null || response.data().hasStock() == null) {
+            throw new BusinessException(DEPENDENCY_FAILURE);
         }
         return response.data().hasStock() ? List.of("허브에 재고가 남아 있습니다.") : List.of();
     }

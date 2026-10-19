@@ -86,8 +86,12 @@ public class CompanyController {
     }
 
     // 수정: 200 + ApiResponse.success(data, message). 보낸 필드만 수정, 허브·관리자 변경은 MASTER만
-    @Operation(summary = "업체 수정")
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE}, value = {COMPANY_ACCESS_DENIED})
+    // 관리 허브 변경은 업체 상품의 재고·진행 중 주문이 남아 있으면 409 (#161)
+    @Operation(summary = "업체 수정",
+            description = "보낸 필드만 수정한다. 관리 허브·관리자 변경은 MASTER만 가능. "
+                    + "관리 허브는 업체 상품의 허브 재고나 공급·요청 업체로 걸린 진행 중 주문이 남아 있으면 바꿀 수 없다(409), 확인하지 못하면 502")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DUPLICATE_RESOURCE, BUSINESS_RULE_VIOLATION, DEPENDENCY_FAILURE},
+            value = {COMPANY_ACCESS_DENIED, HAS_ACTIVE_WORK})
     @PatchMapping("/{companyId}")
     public ResponseEntity<ApiResponse<CompanyResponse>> updateCompany(
             @PathVariable UUID companyId,
