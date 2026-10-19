@@ -8,7 +8,7 @@ import java.util.UUID;
 // 요청에 보낸 파라미터 하나만 값이 있고 나머지는 null
 @Schema(description = "진행 중 주문 존재 여부 응답 (내부 API)")
 public record OrderInProgressResponse(
-        @Schema(description = "회원 ID (주문자). ordererId로 물었을 때만", example = "10000000-0000-4000-8000-000000000001")
+        @Schema(description = "회원 ID (주문자). ordererId로 물었을 때만", example = "10000000-0000-4000-8000-000000000001", nullable = true)
         UUID ordererId,
 
         @Schema(description = "상품 ID. productId로 물었을 때만", example = "40000000-0000-4000-8000-000000000001", nullable = true)
