@@ -13,6 +13,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
 
@@ -48,6 +49,10 @@ class InventoryInternalControllerTest {
 
     @MockBean
     private CompanyClient companyClient;
+
+    // InventoryService 생성자 주입용 (재고 확인은 트랜잭션 템플릿을 쓰지 않는다)
+    @MockBean
+    private TransactionTemplate transactionTemplate;
 
     // JpaAuditingConfig가 요구하는 JPA 메타모델 (WebMvcTest에는 JPA가 없다)
     @MockBean
