@@ -124,4 +124,53 @@ class DeliveryScenarioTest {
         assertThat(routes.status()).as("%s", routes).isEqualTo(200);
         assertThat(routes.data()).as("%s", routes).isEmpty();
     }
+
+    @Test
+    @DisplayName("DLV-4. 주문자만 배송 조회")
+    void dlv4_주문자만_배송_조회() {
+        String u = s.u.token();
+        String b = s.b.token(); // 주문자가 아닌 수령 업체 B 관리자
+
+        // 1. 회원 u가 A(서울) → B(부산)로 P 1개 주문
+        Response order = s.order(u, 1).expect(201);
+        String deliveryId = order.uuid("deliveryId").toString();
+        String deliveries = "/api/v1/deliveries/" + deliveryId;
+
+        // 2. u: 배송 상세, 경로 기록 목록, 경로 기록 상세 모두 200
+        Response delivery = Gateway.get(deliveries, u);
+
+        assertThat(delivery.status()).as("%s", delivery).isEqualTo(200);
+
+        Response routes = Gateway.get(deliveries + "/routes", u);
+
+        assertThat(routes.status()).as("%s", routes).isEqualTo(200);
+        assertThat(routes.data()).as("%s", routes).hasSize(1);
+
+        Response route = Gateway.get(deliveries + "/routes/" + routes.data().get(0).path("routeLogId").asText(), u);
+
+        assertThat(route.status()).as("%s", route).isEqualTo(200);
+
+        // 3. u: 배송 목록에 D 있음 (다른 배송이 섞여 있을 수 있어 개수는 보지 않는다)
+        Response uList = Gateway.get("/api/v1/deliveries?size=100", u);
+
+        assertThat(uList.status()).as("%s", uList).isEqualTo(200);
+        assertThat(uList.data().path("items").findValuesAsText("deliveryId")).as("%s", uList).contains(deliveryId);
+
+        // 4. b: 배송 상세, 경로 기록 목록 모두 403
+        Response bDelivery = Gateway.get(deliveries, b);
+
+        assertThat(bDelivery.status()).as("%s", bDelivery).isEqualTo(403);
+        assertThat(bDelivery.error().path("code").asText()).isEqualTo("DELIVERY_ACCESS_DENIED");
+
+        Response bRoutes = Gateway.get(deliveries + "/routes", b);
+
+        assertThat(bRoutes.status()).as("%s", bRoutes).isEqualTo(403);
+        assertThat(bRoutes.error().path("code").asText()).isEqualTo("DELIVERY_ACCESS_DENIED");
+
+        // 5. b: 배송 목록에 D 없음
+        Response bList = Gateway.get("/api/v1/deliveries?size=100", b);
+
+        assertThat(bList.status()).as("%s", bList).isEqualTo(200);
+        assertThat(bList.data().path("items").findValuesAsText("deliveryId")).as("%s", bList).doesNotContain(deliveryId);
+    }
 }
