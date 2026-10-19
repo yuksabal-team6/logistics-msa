@@ -29,6 +29,7 @@ docker compose -f docker-compose.yml -f docker-compose.it.yml up -d --build
    - ORD → `order/OrderScenarioTest`, DLV → `delivery/DeliveryScenarioTest`, CMP → `company/CompanyScenarioTest`,
      USE → `user/UserScenarioTest`, HUB → `hub/HubScenarioTest`
    - 커밋은 시나리오 하나당 하나 (메시지에 노션 이름, 예: `[test] ORD-1 회원 주문 생성 시나리오 추가 #167`)
+   - 클래스 안의 메서드는 노션 번호순으로 둔다 (작업 순서와 상관없이 번호 자리에 끼워 넣기)
 2. 테스트 본문은 노션 본문과 같은 순서로 주석을 단다: `// 사전 조건` → `// 이렇게 하면` → `// 이렇게 돼야 한다`
    - "이렇게 돼야 한다"는 응답 → 다른 서비스 데이터(재고·주문·배송) 순서로 확인하고, 줄마다 무엇을 확인하는지 적는다
    - 왜 그 결과가 나오는지(확인 순서, 어느 서비스가 막는지)가 코드만으로 안 보이면 주석으로 남긴다
