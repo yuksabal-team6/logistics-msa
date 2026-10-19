@@ -52,6 +52,7 @@ public class DeliveryService {
     private final HubClient hubClient;
     private final OrderClient orderClient;
     private final DeliveryManagerValidator deliveryManagerValidator;
+    private final DeliveryReadPolicy deliveryReadPolicy;
     private final TransactionTemplate transactionTemplate;
 
     // 내부 API #5. 배송과 경로 기록을 한 트랜잭션으로 저장
@@ -117,18 +118,16 @@ public class DeliveryService {
     }
 
     // 삭제된 배송은 @SQLRestriction으로 조회되지 않아 없는 배송과 같이 404.
-    // DELIVERY는 본인 담당 배송이 아니면 403
+    // 조회 권한이 없으면 403 (DeliveryReadPolicy)
     @Transactional(readOnly = true)
     public DeliveryResponse getDelivery(UUID deliveryId, UUID userId, UserRole role) {
         Delivery delivery = findDelivery(deliveryId);
 
-        if (role == UserRole.DELIVERY && !isManagedBy(delivery, userId)) {
-            throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED);
-        }
+        deliveryReadPolicy.checkReadable(delivery, userId, role);
         return DeliveryResponse.from(delivery);
     }
 
-    // DELIVERY는 본인 담당 배송만, 그 외 역할은 전체 조회
+    // MASTER는 전체, 그 외에는 본인이 주문한 배송만. DELIVERY는 본인 담당 배송도 (DeliverySpecification.readableBy)
     @Transactional(readOnly = true)
     public PageResponse<DeliveryResponse> getDeliveries(DeliverySearchRequest request, Pageable pageable,
                                                         UUID userId, UserRole role) {
@@ -238,23 +237,13 @@ public class DeliveryService {
                         "deliveryId"));
     }
 
-    // MASTER는 전체, DELIVERY는 배송(허브→업체) 담당자 본인만. 경로 기록 담당자는 불가라 조회용 isManagedBy를 쓰지 않는다
+    // MASTER는 전체, DELIVERY는 배송(허브→업체) 담당자 본인만. 경로 기록 담당자·주문자는 불가라 조회 권한(DeliveryReadPolicy)을 쓰지 않는다
     private boolean canChangeStatus(Delivery delivery, UUID userId, UserRole role) {
         return switch (role) {
             case MASTER -> true;
             case DELIVERY -> userId.equals(delivery.getDeliveryManagerId());
             case USER, COMPANY -> false;
         };
-    }
-
-    // 배송(허브→업체) 담당자 또는 경로 기록(허브→허브) 담당자가 본인인지 확인한다.
-    private boolean isManagedBy(Delivery delivery, UUID userId) {
-        if (userId.equals(delivery.getDeliveryManagerId())) {
-            return true;
-        }
-        return deliveryRouteLogRepository.findByDeliveryId(delivery.getId())
-                .map(routeLog -> userId.equals(routeLog.getDeliveryManagerId()))
-                .orElse(false);
     }
 
 }

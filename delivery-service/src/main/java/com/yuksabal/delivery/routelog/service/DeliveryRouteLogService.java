@@ -6,6 +6,7 @@ import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
 import com.yuksabal.delivery.delivery.service.DeliveryManagerValidator;
+import com.yuksabal.delivery.delivery.service.DeliveryReadPolicy;
 import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import com.yuksabal.delivery.routelog.dto.request.RouteLogStatusUpdateRequest;
 import com.yuksabal.delivery.routelog.dto.response.DeliveryRouteLogResponse;
@@ -27,16 +28,17 @@ public class DeliveryRouteLogService {
     private final DeliveryRepository deliveryRepository;
     private final DeliveryRouteLogRepository deliveryRouteLogRepository;
     private final DeliveryManagerValidator deliveryManagerValidator;
+    private final DeliveryReadPolicy deliveryReadPolicy;
     private final TransactionTemplate transactionTemplate;
 
     // 배송당 경로 기록은 0~1건이라 페이징 없이 목록으로 응답한다. 같은 허브 배송이면 빈 목록 (결정 #12, #16)
-    // 권한은 배송 상세 조회와 같다: DELIVERY는 배송 담당자 또는 경로 기록 담당자만
+    // 권한은 배송 상세 조회와 같다 (DeliveryReadPolicy)
     @Transactional(readOnly = true)
     public List<DeliveryRouteLogResponse> getRouteLogs(UUID deliveryId, UUID userId, UserRole role) {
         Delivery delivery = findDelivery(deliveryId);
         Optional<DeliveryRouteLog> routeLog = deliveryRouteLogRepository.findByDeliveryId(delivery.getId());
 
-        checkReadable(delivery, routeLog.orElse(null), userId, role);
+        deliveryReadPolicy.checkReadable(delivery, routeLog, userId, role);
         return routeLog.stream()
                 .map(DeliveryRouteLogResponse::from)
                 .toList();
@@ -47,7 +49,7 @@ public class DeliveryRouteLogService {
         Delivery delivery = findDelivery(deliveryId);
         DeliveryRouteLog routeLog = findRouteLog(delivery, routeLogId);
 
-        checkReadable(delivery, routeLog, userId, role);
+        deliveryReadPolicy.checkReadable(delivery, Optional.of(routeLog), userId, role);
         return DeliveryRouteLogResponse.from(routeLog);
     }
 
@@ -109,18 +111,6 @@ public class DeliveryRouteLogService {
                         CommonErrorCode.RESOURCE_NOT_FOUND,
                         "존재하지 않거나 삭제된 배송 경로 기록입니다.",
                         "routeLogId"));
-    }
-
-    // DeliveryService.isManagedBy와 같은 기준. 경로 기록은 이미 조회했으므로 다시 조회하지 않는다
-    private void checkReadable(Delivery delivery, DeliveryRouteLog routeLog, UUID userId, UserRole role) {
-        if (role != UserRole.DELIVERY) {
-            return;
-        }
-        boolean managed = userId.equals(delivery.getDeliveryManagerId())
-                || (routeLog != null && userId.equals(routeLog.getDeliveryManagerId()));
-        if (!managed) {
-            throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED);
-        }
     }
 
     // MASTER는 전체, DELIVERY는 경로 기록(허브→허브) 담당자 본인만. 배송(허브→업체) 담당자는 불가 (배송 상태 변경과 반대)
