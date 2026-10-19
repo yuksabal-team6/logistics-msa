@@ -14,6 +14,10 @@ import java.util.List;
 import java.util.UUID;
 
 // 게이트웨이(기본 http://localhost:8080)로 실제 HTTP 요청을 보낸다. 토큰은 호출하는 쪽이 넘긴다 (null이면 헤더 없음)
+//
+// 응답(Response)을 다루는 방법은 두 가지
+// - 준비 단계: .expect(200) → 기대와 다르면 요청·응답을 메시지에 담아 바로 멈춘다 ("준비가 잘못돼서 실패"가 바로 보인다)
+// - 확인 단계: 변수로 받아 assertThat(r.status()).as("%s", r) ... → 실패하면 응답 본문 전체가 메시지에 나온다
 public final class Gateway {
 
     private static final String BASE_URL = System.getProperty("it.baseUrl", "http://localhost:8080");
@@ -91,6 +95,16 @@ public final class Gateway {
 
         public UUID uuid(String field) {
             return UUID.fromString(data().path(field).asText());
+        }
+
+        // 실패 응답의 error.code (예: "INSUFFICIENT_STOCK")
+        public String errorCode() {
+            return error().path("code").asText();
+        }
+
+        // 실패 응답의 error.message
+        public String errorMessage() {
+            return error().path("message").asText();
         }
 
         // 실패 응답 details의 field 목록 (예: 409 HAS_ACTIVE_WORK → ["inventory", "order"])

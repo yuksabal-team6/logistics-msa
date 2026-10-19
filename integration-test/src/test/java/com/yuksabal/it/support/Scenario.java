@@ -1,16 +1,21 @@
 package com.yuksabal.it.support;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.yuksabal.it.support.Gateway.Response;
 
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
-// 시나리오 공통 준비 (노션 ORD 시나리오의 "공통 준비")
+// 시나리오 공통 준비 (노션 ORD-1의 "공통 준비")와 시나리오에서 자주 쓰는 요청 모음
+//
+// 만들어지는 데이터 (new Scenario() 할 때마다 새로 만든다)
 // - 공급 업체 A (서울 허브), 요청 업체 B (부산 허브)
 // - A의 상품 P, 서울 허브에 P 재고 10개
 // - 회원 u (USER), A 관리자 a (COMPANY, A 소속), B 관리자 b (COMPANY, B 소속)
-// 개발 DB를 함께 쓰므로 매번 새로 만들고, 이름에 [IT] 접두사를 붙여 구분한다
+//
+// 개발 DB를 함께 쓰므로 이름에 [IT] 접두사와 임의 문자열을 붙여 다른 데이터와 겹치지 않게 한다
+// 요청 도우미는 준비 단계용이라 실패하면 바로 멈춘다 (.expect). 확인할 요청은 테스트에서 Gateway로 직접 보내 결과를 검사한다
 public final class Scenario {
 
     // hub-service 초기 데이터의 고정 ID
@@ -44,14 +49,15 @@ public final class Scenario {
         productP = Gateway.post("/api/v1/companies/" + companyA + "/products", master,
                         Map.of("productName", "[IT] 상품 P " + suffix, "description", "통합 테스트", "unitPrice", 5000))
                 .expect(201).uuid("productId");
+        // 입고는 상품 업체의 관리 허브(서울)에만 할 수 있다 (#175)
         Gateway.post("/api/v1/inventories/inbound", master,
                         Map.of("hubId", SEOUL_HUB, "productId", productP, "quantity", INITIAL_STOCK))
                 .expect(200);
     }
 
-    // ---- 시나리오에서 쓰는 요청 ----
+    // ---- 주문 ----
 
-    // u가 A의 P를 B로 주문하는 기본 요청 본문
+    // B가 A의 상품 P를 주문하는 기본 요청 본문. 값 하나만 바꾸려면 new HashMap<>(orderBody(n))으로 복사해서 쓴다
     public Map<String, Object> orderBody(int quantity) {
         return Map.of(
                 "requestCompanyId", companyB,
@@ -62,16 +68,73 @@ public final class Scenario {
                 "deliveryAddress", "부산광역시 중구 중앙대로 1");
     }
 
+    // 주문 생성 POST /api/v1/orders (Idempotency-Key는 매번 새로). 결과를 검사하려고 Response를 그대로 돌려준다
     public Response order(String token, int quantity) {
         return Gateway.postWithIdempotencyKey("/api/v1/orders", token, orderBody(quantity), UUID.randomUUID());
     }
 
+    // 주문 취소 POST /api/v1/orders/{orderId}/cancel. 권한에 따라 결과가 달라서 Response를 그대로 돌려준다
+    public Response cancel(UUID orderId, String token) {
+        return Gateway.post("/api/v1/orders/" + orderId + "/cancel", token, null);
+    }
+
+    // 주문 단건 조회 (MASTER) GET /api/v1/orders/{orderId} → data
+    public JsonNode orderDetail(UUID orderId) {
+        return Gateway.get("/api/v1/orders/" + orderId, master).expect(200).data();
+    }
+
+    // 그 토큰 주인의 주문 목록 GET /api/v1/orders → data.items (MASTER가 아니면 본인 주문만 나온다)
+    public JsonNode ordersOf(String token) {
+        return Gateway.get("/api/v1/orders?size=100", token).expect(200).data().path("items");
+    }
+
+    // ---- 재고·배송 ----
+
+    // 서울 허브의 P 재고 수량 GET /api/v1/inventories/products/{P}
     public int stockOfP() {
         return Gateway.get("/api/v1/inventories/products/" + productP, master).expect(200).data().path("quantity").asInt();
     }
 
+    // 배송 단건 조회 (MASTER) GET /api/v1/deliveries/{deliveryId} → data
+    public JsonNode delivery(UUID deliveryId) {
+        return Gateway.get("/api/v1/deliveries/" + deliveryId, master).expect(200).data();
+    }
+
+    // 서울 → 부산 배송을 끝까지 진행한다 (MASTER는 담당자가 아니어도 상태를 바꿀 수 있다)
+    // 1. 허브 → 허브 경로 기록: READY → IN_TRANSIT → ARRIVED (도착 시 실제 거리 필수)
+    // 2. 허브 → 업체 배송: ARRIVED_AT_HUB → DELIVERING → COMPLETED
+    // 배송이 COMPLETED가 되면 delivery가 order에 알려 주문도 COMPLETED가 된다
+    public void completeDelivery(UUID deliveryId) {
+        String delivery = "/api/v1/deliveries/" + deliveryId;
+        String routeLogId = Gateway.get(delivery + "/routes", master).expect(200).data().get(0).path("routeLogId").asText();
+        String route = delivery + "/routes/" + routeLogId + "/status";
+
+        Gateway.patch(route, master, Map.of("routeStatus", "IN_TRANSIT")).expect(200);
+        Gateway.patch(route, master, Map.of("routeStatus", "ARRIVED", "actualDistanceKm", 325.5)).expect(200);
+        Gateway.patch(delivery + "/status", master, Map.of("deliveryStatus", "DELIVERING")).expect(200);
+        Gateway.patch(delivery + "/status", master, Map.of("deliveryStatus", "COMPLETED")).expect(200);
+    }
+
+    // ---- 상태 변경 (MASTER) ----
+
+    // 업체 비활성화 PATCH /api/v1/companies/{id}/status. 소속 상품도 함께 비활성이 된다
+    public void deactivateCompany(UUID companyId) {
+        Gateway.patch("/api/v1/companies/" + companyId + "/status", master, Map.of("active", false)).expect(200);
+    }
+
+    // 상품 P 비활성화 PATCH /api/v1/products/{P}/status (업체 A는 활성 그대로)
+    public void deactivateProduct() {
+        Gateway.patch("/api/v1/products/" + productP + "/status", master, Map.of("active", false)).expect(200);
+    }
+
+    // 회원 비활성화(정지) PATCH /api/v1/users/{id}/status. 이미 받은 토큰은 만료 전까지 게이트웨이를 통과한다
+    public void deactivateUser(Member member) {
+        Gateway.patch("/api/v1/users/" + member.userId() + "/status", master, Map.of("active", false)).expect(200);
+    }
+
     // ---- 준비 단계 ----
 
+    // 회원가입은 항상 USER로 만들어진다
     private Member register(String name) {
         String username = name + suffix;
         UUID userId = Gateway.post("/api/v1/auth/register", null, Map.of(
@@ -83,6 +146,7 @@ public final class Scenario {
         return new Member(userId, username);
     }
 
+    // 업체 관리자는 USER로 가입한 뒤 MASTER가 역할을 COMPANY로 바꾼다
     private Member companyManager(String name) {
         Member member = register(name);
         Gateway.patch("/api/v1/users/" + member.userId() + "/role", master, Map.of("role", "COMPANY")).expect(200);
@@ -113,6 +177,7 @@ public final class Scenario {
         return sb.toString();
     }
 
+    // 시나리오 속 회원. token()을 부를 때마다 로그인한다 (회원을 정지하기 전에 미리 받아 둘 수도 있다)
     public record Member(UUID userId, String username) {
 
         public String token() {
