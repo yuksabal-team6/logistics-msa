@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -78,5 +79,49 @@ class DeliveryScenarioTest {
         assertThat(route.path("routeStatus").asText()).isEqualTo("READY");
         assertThat(route.hasNonNull("expectedDistanceKm")).as("%s", route).isTrue();
         assertThat(route.hasNonNull("expectedDurationMinutes")).as("%s", route).isTrue();
+    }
+
+    @Test
+    @DisplayName("DLV-3. 같은 허브 주문의 배송 생성")
+    void dlv3_같은_허브_주문의_배송_생성() {
+        // 공통 준비에는 같은 허브 업체가 없어 서울 허브 수령 업체 C를 만든다 (한 회원은 업체 하나만 관리해 관리자 c도 새로 만든다)
+        String username = "c" + s.suffix;
+        UUID ownerC = Gateway.post("/api/v1/auth/register", null, Map.of(
+                        "username", username,
+                        "password", "ItUser12!",
+                        "slackId", "it-" + username,
+                        "email", username + "@it.test"))
+                .expect(201).uuid("userId");
+        Gateway.patch("/api/v1/users/" + ownerC + "/role", s.master, Map.of("role", "COMPANY")).expect(200);
+        UUID companyC = Gateway.post("/api/v1/companies", s.master, Map.of(
+                        "companyName", "[IT] 수령 업체 C " + s.suffix,
+                        "hubId", SEOUL_HUB,
+                        "ownerId", ownerC,
+                        "address", "통합 테스트 주소"))
+                .expect(201).uuid("companyId");
+
+        // 1. 회원이 A(서울) → C(서울)로 P 1개 주문
+        Map<String, Object> body = new HashMap<>(s.orderBody(1));
+        body.put("requestCompanyId", companyC);
+        Response order = Gateway.postWithIdempotencyKey("/api/v1/orders", s.u.token(), body, UUID.randomUUID());
+
+        assertThat(order.status()).as("%s", order).isEqualTo(201);
+        assertThat(order.data().path("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(order.data().hasNonNull("deliveryId")).as("%s", order).isTrue();
+        String deliveries = "/api/v1/deliveries/" + order.uuid("deliveryId");
+
+        // 2. 배송 상세: READY, 서울 → 서울
+        Response delivery = Gateway.get(deliveries, s.master);
+
+        assertThat(delivery.status()).as("%s", delivery).isEqualTo(200);
+        assertThat(delivery.data().path("deliveryStatus").asText()).isEqualTo("READY");
+        assertThat(delivery.data().path("departureHubId").asText()).isEqualTo(SEOUL_HUB.toString());
+        assertThat(delivery.data().path("destinationHubId").asText()).isEqualTo(SEOUL_HUB.toString());
+
+        // 3. 경로 기록 목록: 같은 허브라 0건
+        Response routes = Gateway.get(deliveries + "/routes", s.master);
+
+        assertThat(routes.status()).as("%s", routes).isEqualTo(200);
+        assertThat(routes.data()).as("%s", routes).isEmpty();
     }
 }
