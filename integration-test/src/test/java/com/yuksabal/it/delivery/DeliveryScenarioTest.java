@@ -173,4 +173,24 @@ class DeliveryScenarioTest {
         assertThat(bList.status()).as("%s", bList).isEqualTo(200);
         assertThat(bList.data().path("items").findValuesAsText("deliveryId")).as("%s", bList).doesNotContain(deliveryId);
     }
+
+    @Test
+    @DisplayName("DLV-5. USER 회원을 배송 담당자로 지정")
+    void dlv5_USER_회원을_배송_담당자로_지정() {
+        // 1. 회원 u가 A(서울) → B(부산)로 P 1개 주문
+        Response order = s.order(s.u.token(), 1).expect(201);
+        String deliveries = "/api/v1/deliveries/" + order.uuid("deliveryId");
+
+        // 2. MASTER: D의 배송 담당자를 u(USER)로 지정 → user 내부 API로 역할을 확인해 422
+        Response assign = Gateway.patch(deliveries + "/manager", s.master, Map.of("deliveryManagerId", s.u.userId()));
+
+        assertThat(assign.status()).as("%s", assign).isEqualTo(422);
+        assertThat(assign.error().path("code").asText()).isEqualTo("BUSINESS_RULE_VIOLATION");
+
+        // 3. MASTER: D 상세에 담당자가 지정되지 않음
+        Response delivery = Gateway.get(deliveries, s.master);
+
+        assertThat(delivery.status()).as("%s", delivery).isEqualTo(200);
+        assertThat(delivery.data().hasNonNull("deliveryManagerId")).as("%s", delivery).isFalse();
+    }
 }
