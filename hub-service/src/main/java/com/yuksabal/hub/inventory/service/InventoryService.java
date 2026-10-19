@@ -172,7 +172,8 @@ public class InventoryService {
     }
 
     // 허브에 상품을 입고한다 (MASTER). 재고가 있으면 수량을 늘리고, 없으면 새로 만든다
-    // 재고가 있으면 처음 만들 때 상품·허브를 확인했으므로 company-service를 호출하지 않는다
+    // 상품 활성 상태는 바뀔 수 있어 재고 유무와 관계없이 입고마다 company #1로 확인한다 (#139)
+    // 업체를 비활성화하면 소속 상품도 비활성화되므로 상품 active만 보면 비활성 업체 상품도 막힌다
     @Transactional
     public InventoryResponse inbound(InventoryInboundRequest request, UUID userId, UserRole role) {
         if (role != UserRole.MASTER) {
@@ -184,9 +185,17 @@ public class InventoryService {
                         "존재하지 않는 허브입니다.",
                         "hubId"));
 
+        ProductResponse product = findProduct(request.productId());
+        if (!product.active()) {
+            throw new BusinessException(
+                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
+                    "비활성 상품은 입고할 수 없습니다.",
+                    "productId");
+        }
+
         Inventory inventory = inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
                 .map(existing -> increaseInventory(existing, request.quantity(), userId))
-                .orElseGet(() -> createInventory(hub, request));
+                .orElseGet(() -> createInventory(hub, product, request));
 
         inventoryLogRepository.save(InventoryLog.builder()
                 .inventory(inventory)
@@ -204,8 +213,7 @@ public class InventoryService {
 
     // 상품 업체의 관리 허브에만 재고를 만든다 (상품 재고는 업체 관리 허브 한 곳에만 둔다)
     // 같은 허브·상품을 동시에 처음 입고하면 늦은 쪽이 (hub_id, product_id) 유니크 인덱스 위반으로 실패해 409로 응답한다
-    private Inventory createInventory(Hub hub, InventoryInboundRequest request) {
-        ProductResponse product = findProduct(request.productId());
+    private Inventory createInventory(Hub hub, ProductResponse product, InventoryInboundRequest request) {
         if (!hub.getId().equals(product.hubId())) {
             throw new BusinessException(
                     CommonErrorCode.BUSINESS_RULE_VIOLATION,
