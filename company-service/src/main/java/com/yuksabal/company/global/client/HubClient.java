@@ -18,11 +18,11 @@ public interface HubClient {
     @GetMapping("/internal/hubs/{hubId}")
     ApiResponse<HubResponse> getHub(@PathVariable("hubId") UUID hubId);
 
-    // 계약 가정 (#137): 이 상품의 허브 재고가 남아 있는지 (상품 삭제 전 확인)
+    // hub 재고 확인 내부 API (#146): 이 상품의 허브 재고가 남아 있는지 (상품 삭제 전 확인)
     @GetMapping("/internal/inventories/stock")
     ApiResponse<InventoryStockResponse> getStockByProduct(@RequestParam("productId") UUID productId);
 
-    // 계약 가정 (#137): 이 업체 상품들의 허브 재고가 하나라도 남아 있는지 (업체 삭제 전 확인)
+    // hub 재고 확인 내부 API (#146): 이 업체 상품들의 허브 재고가 하나라도 남아 있는지 (업체 삭제 전 확인)
     @GetMapping("/internal/inventories/stock")
     ApiResponse<InventoryStockResponse> getStockByCompany(@RequestParam("companyId") UUID companyId);
 }
