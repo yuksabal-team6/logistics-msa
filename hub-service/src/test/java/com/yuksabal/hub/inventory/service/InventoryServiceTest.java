@@ -483,11 +483,11 @@ class InventoryServiceTest {
             assertThat(savedLog().getChangeType()).isEqualTo(InventoryChangeType.INBOUND);
         }
 
+        // 재고 행 유무와 관계없이 DB 작업 전에 확인한다 (#175). 허브 변경 후 이전 허브에 남은 수량 0 재고로 입고되는 것도 막힌다
         @Test
-        void 상품_업체의_관리_허브가_아니면_422이고_재고와_로그를_만들지_않는다() {
-            givenActiveProduct(BUSAN_ID);
-            givenTransactionRuns();
-            given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
+        void 상품_업체의_관리_허브가_아니면_422이고_DB_작업을_하지_않는다() {
+            given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+            given(companyClient.getProduct(PRODUCT_ID)).willReturn(ApiResponse.success(product(BUSAN_ID, true)));
 
             assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -495,8 +495,7 @@ class InventoryServiceTest {
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId");
                     });
 
-            then(inventoryRepository).should(never()).saveAndFlush(any(Inventory.class));
-            verifyNoInteractions(inventoryLogRepository);
+            verifyNoInteractions(transactionTemplate);
         }
 
         // 같은 허브·상품을 동시에 처음 입고해 다른 요청이 먼저 재고를 만든 경우
