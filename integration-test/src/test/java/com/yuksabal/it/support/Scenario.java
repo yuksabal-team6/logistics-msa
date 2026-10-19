@@ -11,7 +11,7 @@ import java.util.concurrent.ThreadLocalRandom;
 //
 // 만들어지는 데이터 (new Scenario() 할 때마다 새로 만든다)
 // - 공급 업체 A (서울 허브), 요청 업체 B (부산 허브)
-// - A의 상품 P, 서울 허브에 P 재고 10개
+// - A의 상품 P, 서울 허브에 P 재고 10개 (new Scenario(false)면 재고 없음)
 // - 회원 u (USER), A 관리자 a (COMPANY, A 소속), B 관리자 b (COMPANY, B 소속)
 //
 // 개발 DB를 함께 쓰므로 이름에 [IT] 접두사와 임의 문자열을 붙여 다른 데이터와 겹치지 않게 한다
@@ -21,6 +21,7 @@ public final class Scenario {
     // hub-service 초기 데이터의 고정 ID
     public static final UUID SEOUL_HUB = UUID.fromString("00000000-0000-0000-0000-000000000001");
     public static final UUID BUSAN_HUB = UUID.fromString("00000000-0000-0000-0000-000000000004");
+    public static final UUID GYEONGGI_NORTH_HUB = UUID.fromString("00000000-0000-0000-0000-000000000002");
     public static final int INITIAL_STOCK = 10;
 
     // 테스트 회원 비밀번호 (회원가입 규칙: 8~15자, 대·소문자·숫자·특수문자)
@@ -37,6 +38,11 @@ public final class Scenario {
     public final UUID productP;
 
     public Scenario() {
+        this(true);
+    }
+
+    // withStock = false면 서울 허브에 입고하지 않는다 (재고가 없는 업체로 시작하는 시나리오용, 예: 관리 허브 변경)
+    public Scenario(boolean withStock) {
         u = register("u");
         a = companyManager("a");
         b = companyManager("b");
@@ -49,9 +55,15 @@ public final class Scenario {
         productP = Gateway.post("/api/v1/companies/" + companyA + "/products", master,
                         Map.of("productName", "[IT] 상품 P " + suffix, "description", "통합 테스트", "unitPrice", 5000))
                 .expect(201).uuid("productId");
-        // 입고는 상품 업체의 관리 허브(서울)에만 할 수 있다 (#175)
+        if (withStock) {
+            inbound(SEOUL_HUB, INITIAL_STOCK);
+        }
+    }
+
+    // P 입고 POST /api/v1/inventories/inbound (MASTER). 입고는 상품 업체의 관리 허브에만 할 수 있다 (#175)
+    public void inbound(UUID hubId, int quantity) {
         Gateway.post("/api/v1/inventories/inbound", master,
-                        Map.of("hubId", SEOUL_HUB, "productId", productP, "quantity", INITIAL_STOCK))
+                        Map.of("hubId", hubId, "productId", productP, "quantity", quantity))
                 .expect(200);
     }
 
