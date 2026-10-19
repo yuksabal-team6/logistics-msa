@@ -2,13 +2,20 @@ package com.yuksabal.it.hub;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.yuksabal.it.support.Gateway;
+import com.yuksabal.it.support.Concurrently;
 import com.yuksabal.it.support.Gateway.Response;
 import com.yuksabal.it.support.Scenario;
+import com.yuksabal.it.support.Scenario.Member;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.function.Supplier;
 
 import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // 시나리오마다 공통 준비(업체 A·B, 상품 P, 재고 10개, 회원 u·a·b)를 새로 만든다 (Scenario 참고)
 //
 // hub는 입고·재고 조회 때 company 내부 API(#1 상품)로 상품의 활성 여부·업체·관리 허브를 확인한다
+// 동시 요청 시나리오(HUB-5, 7, 13, 14)는 어느 요청이 먼저 처리될지 매번 달라서, 성공·실패 건수와 최종 데이터(재고·이력·주문 상태)를 확인한다
 class HubScenarioTest {
 
     private Scenario s;
@@ -88,6 +96,80 @@ class HubScenarioTest {
     }
 
     @Test
+    @DisplayName("HUB-5 · ORD-21. 마지막 재고에 주문 2건 동시: 1건 201, 1건 409(INSUFFICIENT_STOCK), 재고 0 (음수 없음)")
+    void hub5_ord21_마지막_재고에_주문_2건_동시() {
+        // 사전 조건: 재고가 없는 공통 준비 + 서울 허브에 P 1개 입고, 주문자 u·v (토큰은 출발 전에 미리 받는다)
+        Scenario last = new Scenario(false);
+        last.inbound(Scenario.SEOUL_HUB, 1);
+        String inventoryId = last.inventoryOfP().path("inventoryId").asText();
+        Member v = last.user("v");
+        String uToken = last.u.token();
+        String vToken = v.token();
+
+        // 이렇게 하면: u와 v가 P를 1개씩 동시에 주문 (Idempotency-Key는 각자 다르게)
+        List<Response> orders = Concurrently.run(() -> last.order(uToken, 1), () -> last.order(vToken, 1));
+
+        // 이렇게 돼야 한다
+        // 1. 하나는 201 CONFIRMED, 하나는 hub의 재고 부족(409 INSUFFICIENT_STOCK)을 order가 그대로 전달
+        //    (hub가 재고 행을 잠그고(SELECT ... FOR UPDATE) 수량이 충분할 때만 차감해서, 뒤 요청은 0개를 보고 실패한다)
+        assertThat(Concurrently.count(orders, 201)).as("%s", orders).isEqualTo(1);
+        assertThat(Concurrently.count(orders, 409)).as("%s", orders).isEqualTo(1);
+        Response failed = orders.stream().filter(r -> r.status() == 409).findFirst().orElseThrow();
+        assertThat(failed.errorCode()).isEqualTo("INSUFFICIENT_STOCK");
+        // 2. hub: 재고 0 (음수가 아님), 차감 이력 1건
+        assertThat(last.stockOfP()).isZero();
+        assertThat(Collections.frequency(last.changeTypesOf(inventoryId), "DECREASE")).isEqualTo(1);
+        // 3. order: CONFIRMED 1건, 재고 부족 쪽은 PENDING으로 저장된 뒤 FAILED + 보상 불필요(NOT_REQUIRED)로 남는다 (ORD-4와 같음)
+        List<String> results = new ArrayList<>();
+        for (String token : List.of(uToken, vToken)) {
+            last.ordersOf(token).forEach(o -> results.add(o.path("status").asText() + " / " + o.path("compensationStatus").asText()));
+        }
+        assertThat(results).containsExactlyInAnyOrder("CONFIRMED / NOT_REQUIRED", "FAILED / NOT_REQUIRED");
+    }
+
+    @Test
+    @DisplayName("HUB-7. 같은 허브에 상품 동시 첫 입고: 늦은 쪽 409(INVENTORY_CREATE_CONFLICT) 후 다시 입고, 재고 행 1개, 수량 15")
+    void hub7_같은_허브에_상품_동시_첫_입고() {
+        // 사전 조건: 재고가 없는 공통 준비 (A의 관리 허브는 서울, P는 활성, 재고 행 없음)
+        Scenario noStock = new Scenario(false);
+        String inbound = "/api/v1/inventories/inbound";
+        Map<Integer, Map<String, Object>> bodies = Map.of(
+                10, Map.of("hubId", Scenario.SEOUL_HUB, "productId", noStock.productP, "quantity", 10),
+                5, Map.of("hubId", Scenario.SEOUL_HUB, "productId", noStock.productP, "quantity", 5));
+
+        // 이렇게 하면
+        // 1. MASTER 두 명(같은 토큰으로 대신)이 서울 허브에 P를 각각 10개, 5개 동시에 입고
+        List<Response> first = Concurrently.run(
+                () -> Gateway.post(inbound, noStock.master, bodies.get(10)),
+                () -> Gateway.post(inbound, noStock.master, bodies.get(5)));
+        // 2. 409를 받은 쪽이 같은 수량으로 다시 입고 (이번에는 이미 생긴 재고 행의 수량을 늘린다)
+        List<Response> retries = new ArrayList<>();
+        int[] quantities = {10, 5};
+        for (int i = 0; i < first.size(); i++) {
+            if (first.get(i).status() == 409) {
+                retries.add(Gateway.post(inbound, noStock.master, bodies.get(quantities[i])));
+            }
+        }
+        // 3. P 재고 조회 (상품으로 거른 재고 목록으로 행 수까지 확인)
+        Response rows = Gateway.get("/api/v1/inventories?productId=" + noStock.productP, noStock.master);
+
+        // 이렇게 돼야 한다
+        // 1. 둘 다 재고 행을 새로 만들려다 (hub_id, product_id) 유니크 인덱스에 걸린 쪽은 500이 아니라 409 INVENTORY_CREATE_CONFLICT
+        //    (먼저 만든 쪽이 커밋한 뒤 출발했다면 둘 다 200일 수도 있다 → 응답 조합이 아니라 최종 데이터로 확인한다)
+        assertThat(first).as("%s", first).allSatisfy(r -> assertThat(r.status()).isIn(200, 409));
+        first.stream().filter(r -> r.status() == 409)
+                .forEach(r -> assertThat(r.errorCode()).isEqualTo("INVENTORY_CREATE_CONFLICT"));
+        // 2. 다시 입고는 200
+        assertThat(retries).as("%s", retries).allSatisfy(r -> assertThat(r.status()).isEqualTo(200));
+        // 3. 재고 행 1개, 수량 15, 입고 이력 2건
+        assertThat(rows.status()).as("%s", rows).isEqualTo(200);
+        assertThat(rows.data().path("items")).as("P의 재고 행").hasSize(1);
+        JsonNode inventory = rows.data().path("items").get(0);
+        assertThat(inventory.path("quantity").asInt()).isEqualTo(15);
+        assertThat(noStock.changeTypesOf(inventory.path("inventoryId").asText())).containsExactly("INBOUND", "INBOUND");
+    }
+
+    @Test
     @DisplayName("HUB-10. 관리 허브 변경 후 상품별 재고 조회: 새 관리 허브의 재고 1건으로 응답 (이전 허브 0개 행은 이력)")
     void hub10_관리_허브_변경_후_상품별_재고_조회() {
         // 사전 조건: 공통 준비 (A는 서울 허브, 서울 허브 P 재고 10개)
@@ -117,5 +199,125 @@ class HubScenarioTest {
         assertThat(byMaster.path("quantity").asInt()).isEqualTo(5);
         assertThat(byOwner.status()).as("%s", byOwner).isEqualTo(200);
         assertThat(byOwner.data().path("hubId").asText()).isEqualTo(Scenario.BUSAN_HUB.toString());
+    }
+
+    @Test
+    @DisplayName("HUB-11. 재고 수량 조정 중 다른 변경이 끼어듦: 조회 때 본 수량으로 조정하면 409(INVENTORY_QUANTITY_CONFLICT), 현재 수량으로 다시 조정하면 200")
+    void hub11_재고_수량_조정_중_다른_변경이_끼어듦() {
+        // 사전 조건: 공통 준비 (서울 허브 P 재고 10개)
+        String inventory = "/api/v1/inventories/";
+
+        // 이렇게 하면
+        // 1. MASTER가 P 재고를 조회 (수량 10)
+        JsonNode seen = s.inventoryOfP();
+        String inventoryId = seen.path("inventoryId").asText();
+        // 2. 그 사이 u가 P를 3개 주문 (재고 7)
+        Response order = s.order(s.u.token(), 3);
+        // 3. MASTER가 1번에서 본 수량(10)을 기준으로 8개로 조정
+        Response stale = Gateway.patch(inventory + inventoryId, s.master, Map.of("expectedQuantity", INITIAL_STOCK, "quantity", 8));
+        // 4. MASTER가 현재 수량(7)을 기준으로 다시 8개로 조정
+        Response retry = Gateway.patch(inventory + inventoryId, s.master, Map.of("expectedQuantity", 7, "quantity", 8));
+
+        // 이렇게 돼야 한다
+        // 1. 조회 수량 10
+        assertThat(seen.path("quantity").asInt()).isEqualTo(INITIAL_STOCK);
+        // 2. 주문 성공, 재고 7 (order → hub 차감)
+        assertThat(order.status()).as("%s", order).isEqualTo(201);
+        // 3. 본 수량(10)과 현재 수량(7)이 달라 409, details에 현재 수량. 조정이 반영되지 않아 재고 7 그대로
+        //    (409가 아니라 200이면 주문 차감 3개가 덮여 재고가 8이 된다)
+        assertThat(stale.status()).as("%s", stale).isEqualTo(409);
+        assertThat(stale.errorCode()).isEqualTo("INVENTORY_QUANTITY_CONFLICT");
+        assertThat(stale.errorFields()).containsExactly("quantity");
+        assertThat(stale.error().path("details").get(0).path("reason").asText()).isEqualTo("현재 재고는 7개입니다.");
+        // 4. 다시 조정 200, 재고 8. 이력은 입고·차감 뒤에 늘린 조정(ADJUST_INCREASE, 1개) 1건만 (3번의 조정 이력은 없음)
+        assertThat(retry.status()).as("%s", retry).isEqualTo(200);
+        assertThat(s.stockOfP()).isEqualTo(8);
+        List<JsonNode> adjusts = new ArrayList<>();
+        s.logsOf(inventoryId).forEach(log -> {
+            if (log.path("changeType").asText().startsWith("ADJUST")) {
+                adjusts.add(log);
+            }
+        });
+        assertThat(adjusts).as("조정 이력").hasSize(1);
+        assertThat(adjusts.get(0).path("changeType").asText()).isEqualTo("ADJUST_INCREASE");
+        assertThat(adjusts.get(0).path("quantity").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("HUB-13. 주문 차감과 입고가 동시에: 모두 성공, 매번 재고 = 시작 + 입고 − 차감 (갱신 손실 없음)")
+    void hub13_주문_차감과_입고가_동시에() {
+        // 사전 조건: 공통 준비 (서울 허브 P 재고 10개), 주문자 u (Idempotency-Key는 요청마다 다르게)
+        String inventoryId = s.inventoryOfP().path("inventoryId").asText();
+        String uToken = s.u.token();
+        Map<String, Object> inboundOne = Map.of("hubId", Scenario.SEOUL_HUB, "productId", s.productP, "quantity", 1);
+        int rounds = 3;
+        int each = 5;
+
+        for (int round = 1; round <= rounds; round++) {
+            // 이렇게 하면: P 1개 주문 5건과 서울 허브 P 1개 입고 5건을 동시에 보낸다 (경합은 한 번에 안 날 수 있어 3번 반복)
+            List<Supplier<Response>> requests = new ArrayList<>();
+            for (int i = 0; i < each; i++) {
+                requests.add(() -> s.order(uToken, 1));
+                requests.add(() -> Gateway.post("/api/v1/inventories/inbound", s.master, inboundOne));
+            }
+            List<Response> responses = Concurrently.run(requests);
+
+            // 이렇게 돼야 한다
+            // 1. 10건 모두 성공 (주문 201, 입고 200)
+            assertThat(Concurrently.count(responses, 201)).as("%d회차 %s", round, responses).isEqualTo(each);
+            assertThat(Concurrently.count(responses, 200)).as("%d회차 %s", round, responses).isEqualTo(each);
+            // 2. 재고 = 10 + 입고 5 − 차감 5 = 10
+            //    (차감은 행 잠금 뒤 조건부 UPDATE, 입고는 quantity = quantity + n UPDATE라 서로의 변경을 덮어쓰지 않는다
+            //     → 한쪽이 읽은 값으로 덮어쓰면 변경 하나가 사라져 10이 아니게 된다)
+            assertThat(s.stockOfP()).as("%d회차 재고", round).isEqualTo(INITIAL_STOCK);
+        }
+        // 3. 이력 건수가 요청 수와 같다: 차감 5 × 3회, 입고 처음 1 + 5 × 3회
+        List<String> types = s.changeTypesOf(inventoryId);
+        assertThat(Collections.frequency(types, "DECREASE")).isEqualTo(each * rounds);
+        assertThat(Collections.frequency(types, "INBOUND")).isEqualTo(1 + each * rounds);
+    }
+
+    @Test
+    @DisplayName("HUB-14 · ORD-9. 같은 주문 동시 취소 2번: 1건 200, 1건 409(INVALID_STATUS_TRANSITION), 재고 복원 1번만")
+    void hub14_ord9_같은_주문_동시_취소_2번() {
+        // 사전 조건: 공통 준비 + u의 주문 O (P 3개, CONFIRMED, 재고 7)
+        String inventoryId = s.inventoryOfP().path("inventoryId").asText();
+        String uToken = s.u.token();
+        Response order = s.order(uToken, 3).expect(201);
+        UUID orderId = order.uuid("orderId");
+
+        // 이렇게 하면
+        // 1. u가 O 취소를 동시에 2번 보낸다
+        List<Response> cancels = Concurrently.run(() -> s.cancel(orderId, uToken), () -> s.cancel(orderId, uToken));
+        // 2. 같은 취소를 한 번 더 보낸다 (순차)
+        Response again = s.cancel(orderId, uToken);
+        // 3. O의 상태, P 재고와 이력 조회
+        JsonNode detail = s.orderDetail(orderId);
+
+        // 이렇게 돼야 한다
+        // 1. 1건 200, 1건 409 INVALID_STATUS_TRANSITION
+        //    (order가 주문 행을 잠그고 CONFIRMED → CANCELLED로 바꿔서, 뒤 요청은 이미 CANCELLED인 주문을 보고 거절된다)
+        assertThat(Concurrently.count(cancels, 200)).as("%s", cancels).isEqualTo(1);
+        assertThat(Concurrently.count(cancels, 409)).as("%s", cancels).isEqualTo(1);
+        Response rejected = cancels.stream().filter(r -> r.status() == 409).findFirst().orElseThrow();
+        assertThat(rejected.errorCode()).isEqualTo("INVALID_STATUS_TRANSITION");
+        // 2. 다시 취소도 409
+        assertThat(again.status()).as("%s", again).isEqualTo(409);
+        // 3. order: CANCELLED + 보상 COMPLETED
+        assertThat(detail.path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(detail.path("compensationStatus").asText()).isEqualTo("COMPLETED");
+        // 4. hub: 재고 10 (13이면 두 번 복원), 복원 이력(RESTORE) 1건, 수량 3
+        //    (order가 막지 못해도 hub는 (order_id, RESTORE) 유니크로 두 번째 복원을 변경 없이 넘긴다: 두 겹 방어)
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+        List<JsonNode> restores = new ArrayList<>();
+        s.logsOf(inventoryId).forEach(log -> {
+            if (log.path("changeType").asText().equals("RESTORE")) {
+                restores.add(log);
+            }
+        });
+        assertThat(restores).as("복원 이력").hasSize(1);
+        assertThat(restores.get(0).path("quantity").asInt()).isEqualTo(3);
+        // 5. delivery: 배송 CANCELLED
+        assertThat(s.delivery(order.uuid("deliveryId")).path("deliveryStatus").asText()).isEqualTo("CANCELLED");
     }
 }

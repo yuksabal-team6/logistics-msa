@@ -1,14 +1,17 @@
 package com.yuksabal.it.order;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.yuksabal.it.support.Concurrently;
 import com.yuksabal.it.support.Gateway;
 import com.yuksabal.it.support.Gateway.Response;
 import com.yuksabal.it.support.Scenario;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -67,6 +70,30 @@ class OrderScenarioTest {
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
         // 3. delivery: 배송 CANCELLED
         assertThat(s.delivery(order.uuid("deliveryId")).path("deliveryStatus").asText()).isEqualTo("CANCELLED");
+    }
+
+    @Test
+    @DisplayName("ORD-3. 완료 주문 삭제: 200, 이후 조회 404")
+    void ord3_완료_주문_삭제() {
+        // 사전 조건: DLV-1처럼 배송을 끝까지 진행해 COMPLETED가 된 u의 주문 O
+        // (배송 COMPLETED → delivery가 order 내부 API #10으로 알려 주문도 COMPLETED. CONFIRMED 주문은 삭제할 수 없다)
+        Response order = s.order(s.u.token(), 2).expect(201);
+        UUID orderId = order.uuid("orderId");
+        s.completeDelivery(order.uuid("deliveryId"));
+        assertThat(s.orderDetail(orderId).path("status").asText()).as("사전 조건: O의 상태").isEqualTo("COMPLETED");
+
+        // 이렇게 하면
+        // 1. MASTER가 O를 삭제
+        Response delete = Gateway.delete("/api/v1/orders/" + orderId, s.master);
+        // 2. O를 조회
+        Response after = Gateway.get("/api/v1/orders/" + orderId, s.master);
+
+        // 이렇게 돼야 한다
+        // 1. 200
+        assertThat(delete.status()).as("%s", delete).isEqualTo(200);
+        // 2. 삭제된 주문은 조회되지 않는다: 404 RESOURCE_NOT_FOUND
+        assertThat(after.status()).as("%s", after).isEqualTo(404);
+        assertThat(after.errorCode()).isEqualTo("RESOURCE_NOT_FOUND");
     }
 
     @Test
@@ -151,5 +178,44 @@ class OrderScenarioTest {
         // 2. 재고 그대로, 주문 저장 안 됨
         assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
         assertThat(s.ordersOf(s.u.token())).as("u의 주문 목록").isEmpty();
+    }
+
+    // 실패: 취소가 잠깐 CANCELLED로 저장한 사이 배송 완료 알림(#10)이 거절되고, 취소도 되돌려져 주문이 CONFIRMED로 남는다 (#196)
+    @Disabled("#196 배송 완료와 주문 취소가 동시에 오면 주문이 CONFIRMED로 남음")
+    @Test
+    @DisplayName("ORD-22. 배송 완료와 주문 취소 동시: 주문과 배송 상태가 서로 맞음 (배송 출발 후라 취소 409, 배송·주문 COMPLETED)")
+    void ord22_배송_완료와_주문_취소_동시() {
+        // 사전 조건: 공통 준비, u의 CONFIRMED 주문 O, 배송이 업체 배송 중(DELIVERING)
+        // 경합은 한 번에 안 날 수 있어 주문 5건(P 1개씩)으로 5번 반복한다
+        String uToken = s.u.token();
+        int rounds = 5;
+
+        for (int round = 1; round <= rounds; round++) {
+            Response order = s.order(uToken, 1).expect(201);
+            UUID orderId = order.uuid("orderId");
+            UUID deliveryId = order.uuid("deliveryId");
+            s.startDelivering(deliveryId);
+
+            // 이렇게 하면: 배송 완료(MASTER)와 u의 주문 취소를 동시에 보낸다
+            List<Response> responses = Concurrently.run(
+                    () -> s.requestDeliveryComplete(deliveryId),
+                    () -> s.cancel(orderId, uToken));
+            Response complete = responses.get(0);
+            Response cancel = responses.get(1);
+
+            // 이렇게 돼야 한다: 주문과 배송 상태가 둘 중 하나로 맞아야 한다
+            // - 배송 COMPLETED + 주문 COMPLETED, 재고 그대로 (취소 409)
+            // - 배송 CANCELLED + 주문 CANCELLED, 재고 복원 (완료 409)
+            // 배송은 허브 출발 전(READY)에만 취소할 수 있어, DELIVERING인 지금은 앞쪽만 가능하다
+            // 1. 배송 완료 200, 취소 409 (order가 CANCELLED로 바꾼 뒤 delivery가 배송 취소를 거절 → CONFIRMED로 되돌림)
+            assertThat(complete.status()).as("%d회차 %s", round, complete).isEqualTo(200);
+            assertThat(cancel.status()).as("%d회차 %s", round, cancel).isEqualTo(409);
+            // 2. delivery: COMPLETED
+            assertThat(s.delivery(deliveryId).path("deliveryStatus").asText()).as("%d회차 배송", round).isEqualTo("COMPLETED");
+            // 3. order: COMPLETED (CONFIRMED로 남으면, 취소 중 잠깐 CANCELLED였던 사이에 배송 완료 알림(#10)이 거절된 것)
+            assertThat(s.orderDetail(orderId).path("status").asText()).as("%d회차 주문", round).isEqualTo("COMPLETED");
+        }
+        // 4. hub: 취소가 반영되지 않았으니 재고는 주문한 만큼만 빠진 채 그대로 (10 − 1 × 5)
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK - rounds);
     }
 }
