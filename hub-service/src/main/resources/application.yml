@@ -11,13 +11,14 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
-  # 초기 데이터(data.sql): 허브 17개 + 허브 간 경로 272개
+  # schema.sql: 엔티티로 표현할 수 없는 CHECK 제약·부분 유니크 인덱스
+  # data.sql: 초기 데이터 (허브 17개 + 허브 간 경로 272개)
   sql:
     init:
       mode: always
       encoding: UTF-8  # SQL 파일을 OS 기본 인코딩이 아닌 UTF-8로 읽는다
   jpa:
-    # Hibernate가 테이블을 만든 뒤에 data.sql 실행
+    # Hibernate가 테이블을 만든 뒤에 schema.sql → data.sql 순서로 실행
     defer-datasource-initialization: true
     open-in-view: false
     hibernate:
