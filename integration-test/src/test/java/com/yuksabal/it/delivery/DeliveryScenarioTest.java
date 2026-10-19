@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.yuksabal.it.support.Gateway;
 import com.yuksabal.it.support.Gateway.Response;
 import com.yuksabal.it.support.Scenario;
+import com.yuksabal.it.support.Scenario.Member;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -238,5 +240,41 @@ class DeliveryScenarioTest {
         assertThat(delivery.status()).as("%s", delivery).isEqualTo(200);
         assertThat(delivery.data().path("deliveryStatus").asText()).isEqualTo("IN_TRANSIT");
         assertThat(s.stockOfP()).isEqualTo(stockBefore);
+    }
+
+    // DLV-7(order 장애 중 배송 완료)은 order 컨테이너를 멈춰야 해서 수동 확인 대상 (#167)
+
+    @Test
+    @DisplayName("DLV-8. 진행 중 배송 담당자 회원 삭제: 삭제·비활성화·역할 변경 모두 409(USER_HAS_ACTIVE_WORK), 회원 그대로")
+    void dlv8_진행_중_배송_담당자_회원_삭제() {
+        // 사전 조건: u의 CONFIRMED 주문 O와 배송 D(READY), 배송 기사 d1(DELIVERY, 활성)을 D의 배송 담당자로 지정
+        Response order = s.order(s.u.token(), 1).expect(201);
+        Member d1 = s.deliveryDriver("d");
+        Gateway.patch("/api/v1/deliveries/" + order.uuid("deliveryId") + "/manager", s.master,
+                Map.of("deliveryManagerId", d1.userId())).expect(200);
+        String user = "/api/v1/users/" + d1.userId();
+
+        // 이렇게 하면
+        // 1. MASTER가 d1을 삭제
+        Response delete = Gateway.delete(user, s.master);
+        // 2. MASTER가 d1을 비활성화
+        Response deactivate = Gateway.patch(user + "/status", s.master, Map.of("active", false));
+        // 3. MASTER가 d1의 역할을 USER로 변경
+        Response changeRole = Gateway.patch(user + "/role", s.master, Map.of("role", "USER"));
+        // 4. MASTER가 d1을 조회
+        Response after = Gateway.get(user, s.master);
+
+        // 이렇게 돼야 한다
+        // 1~3. user가 delivery 내부 API로 d1이 맡은 진행 중 배송을 확인해 셋 다 409, details에 delivery
+        //      (역할이 바뀌거나 비활성이 되면 맡은 배송을 진행할 수 없어 삭제와 같이 막는다)
+        for (Response r : List.of(delete, deactivate, changeRole)) {
+            assertThat(r.status()).as("%s", r).isEqualTo(409);
+            assertThat(r.errorCode()).isEqualTo("USER_HAS_ACTIVE_WORK");
+            assertThat(r.errorFields()).containsExactly("delivery");
+        }
+        // 4. 200, 활성 상태·DELIVERY 역할 그대로
+        assertThat(after.status()).as("%s", after).isEqualTo(200);
+        assertThat(after.data().path("active").asBoolean()).isTrue();
+        assertThat(after.data().path("role").asText()).isEqualTo("DELIVERY");
     }
 }
