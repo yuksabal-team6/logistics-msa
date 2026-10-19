@@ -115,11 +115,17 @@ public final class Scenario {
         return inventoryOfP().path("quantity").asInt();
     }
 
-    // 재고 변경 이력의 종류 목록 (MASTER) GET /api/v1/inventories/logs?inventoryId= → changeType (INBOUND, DECREASE, ...)
+    // 재고 변경 이력 (MASTER) GET /api/v1/inventories/logs?inventoryId= → data.items (changeType, quantity, orderId, ...)
+    public JsonNode logsOf(String inventoryId) {
+        return Gateway.get("/api/v1/inventories/logs?size=100&inventoryId=" + inventoryId, master).expect(200)
+                .data().path("items");
+    }
+
+    // 재고 변경 이력의 종류 목록 → changeType (INBOUND, DECREASE, RESTORE, ADJUST_INCREASE, ADJUST_DECREASE)
+    // 건수를 셀 때는 Collections.frequency(changeTypesOf(id), "DECREASE")
     public List<String> changeTypesOf(String inventoryId) {
         List<String> types = new ArrayList<>();
-        Gateway.get("/api/v1/inventories/logs?size=100&inventoryId=" + inventoryId, master).expect(200)
-                .data().path("items").forEach(log -> types.add(log.path("changeType").asText()));
+        logsOf(inventoryId).forEach(log -> types.add(log.path("changeType").asText()));
         return types;
     }
 
@@ -128,11 +134,10 @@ public final class Scenario {
         return Gateway.get("/api/v1/deliveries/" + deliveryId, master).expect(200).data();
     }
 
-    // 서울 → 부산 배송을 끝까지 진행한다 (MASTER는 담당자가 아니어도 상태를 바꿀 수 있다)
+    // 서울 → 부산 배송을 업체 배송 중(DELIVERING)까지 진행한다 (MASTER는 담당자가 아니어도 상태를 바꿀 수 있다)
     // 1. 허브 → 허브 경로 기록: READY → IN_TRANSIT → ARRIVED (도착 시 실제 거리 필수)
-    // 2. 허브 → 업체 배송: ARRIVED_AT_HUB → DELIVERING → COMPLETED
-    // 배송이 COMPLETED가 되면 delivery가 order에 알려 주문도 COMPLETED가 된다
-    public void completeDelivery(UUID deliveryId) {
+    // 2. 허브 → 업체 배송: ARRIVED_AT_HUB → DELIVERING
+    public void startDelivering(UUID deliveryId) {
         String delivery = "/api/v1/deliveries/" + deliveryId;
         String routeLogId = Gateway.get(delivery + "/routes", master).expect(200).data().get(0).path("routeLogId").asText();
         String route = delivery + "/routes/" + routeLogId + "/status";
@@ -140,7 +145,18 @@ public final class Scenario {
         Gateway.patch(route, master, Map.of("routeStatus", "IN_TRANSIT")).expect(200);
         Gateway.patch(route, master, Map.of("routeStatus", "ARRIVED", "actualDistanceKm", 325.5)).expect(200);
         Gateway.patch(delivery + "/status", master, Map.of("deliveryStatus", "DELIVERING")).expect(200);
-        Gateway.patch(delivery + "/status", master, Map.of("deliveryStatus", "COMPLETED")).expect(200);
+    }
+
+    // 배송 완료 요청 PATCH /api/v1/deliveries/{id}/status COMPLETED (DELIVERING에서만). 동시 요청 시나리오에서 결과를 보려고 Response를 돌려준다
+    // 배송이 COMPLETED가 되면 delivery가 order에 알려(내부 API #10) 주문도 COMPLETED가 된다
+    public Response requestDeliveryComplete(UUID deliveryId) {
+        return Gateway.patch("/api/v1/deliveries/" + deliveryId + "/status", master, Map.of("deliveryStatus", "COMPLETED"));
+    }
+
+    // 서울 → 부산 배송을 끝까지 진행한다 (DELIVERING까지 진행 → COMPLETED)
+    public void completeDelivery(UUID deliveryId) {
+        startDelivering(deliveryId);
+        requestDeliveryComplete(deliveryId).expect(200);
     }
 
     // ---- 상태 변경 (MASTER) ----
@@ -172,6 +188,11 @@ public final class Scenario {
                         "email", username + "@it.test"))
                 .expect(201).uuid("userId");
         return new Member(userId, username);
+    }
+
+    // USER 회원을 새로 만든다 (u 말고 주문자가 더 필요한 시나리오용, 예: 두 회원이 동시에 주문). name은 회원끼리 구분하는 한 글자 (예: "v")
+    public Member user(String name) {
+        return register(name);
     }
 
     // 아직 업체를 관리하지 않는 COMPANY 회원을 새로 만든다 (업체 생성·관리자 교체 시나리오용)
