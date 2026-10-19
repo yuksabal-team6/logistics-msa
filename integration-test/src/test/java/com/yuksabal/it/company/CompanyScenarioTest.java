@@ -248,6 +248,32 @@ class CompanyScenarioTest {
         assertThat(newOrder.errorFields()).containsExactly("supplierCompanyId");
     }
 
+    @Test
+    @DisplayName("CMP-8. 남은 업무 없는 업체의 관리 허브 변경 후 주문: 200, 새 주문의 출발 허브가 새 허브")
+    void cmp8_남은_업무_없는_업체의_관리_허브_변경_후_주문() {
+        // 사전 조건: 재고가 없는 공통 준비 (A는 서울 허브, P 재고 없음, 진행 중 주문 없음)
+        Scenario noStock = new Scenario(false);
+
+        // 이렇게 하면
+        // 1. MASTER가 A의 관리 허브를 서울 → 경기 북부로 변경
+        Response change = Gateway.patch("/api/v1/companies/" + noStock.companyA, noStock.master,
+                Map.of("hubId", Scenario.GYEONGGI_NORTH_HUB));
+        // 2. 새 관리 허브(경기 북부)에 P를 10개 입고하고, u가 P를 2개 주문
+        noStock.inbound(Scenario.GYEONGGI_NORTH_HUB, INITIAL_STOCK);
+        Response order = noStock.order(noStock.u.token(), 2);
+
+        // 이렇게 돼야 한다
+        // 1. company: 재고·진행 중 주문이 없어 허브 변경 200
+        assertThat(change.status()).as("%s", change).isEqualTo(200);
+        assertThat(change.data().path("hubId").asText()).isEqualTo(Scenario.GYEONGGI_NORTH_HUB.toString());
+        // 2. order: 공급 업체의 새 허브에서 출고 → 201, 경기 북부 재고 10 → 8
+        assertThat(order.status()).as("%s", order).isEqualTo(201);
+        assertThat(noStock.stockOfP()).isEqualTo(INITIAL_STOCK - 2);
+        // 3. delivery: 출발 허브가 경기 북부 (order가 company #2로 받은 공급 업체의 현재 허브)
+        assertThat(noStock.delivery(order.uuid("deliveryId")).path("departureHubId").asText())
+                .isEqualTo(Scenario.GYEONGGI_NORTH_HUB.toString());
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
