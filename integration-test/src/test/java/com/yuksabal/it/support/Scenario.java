@@ -154,8 +154,9 @@ public final class Scenario {
         return member;
     }
 
-    // 업체를 만든 직후에는 관리자의 소속(company_id)이 비어 있어 MASTER가 회원 수정으로 지정한다
-    private void assignCompany(Member member, UUID companyId) {
+    // 회원의 소속 업체 지정 PATCH /api/v1/users/{id} (MASTER)
+    // 업체를 만든 직후에는 관리자의 소속(company_id)이 비어 있어 이걸로 지정한다. 관리자 교체 전 새 관리자를 그 업체 소속으로 만들 때도 쓴다
+    public void assignCompany(Member member, UUID companyId) {
         Gateway.patch("/api/v1/users/" + member.userId(), master, Map.of("companyId", companyId)).expect(200);
     }
 
