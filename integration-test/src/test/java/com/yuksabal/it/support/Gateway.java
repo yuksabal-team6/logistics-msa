@@ -9,6 +9,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 // 게이트웨이(기본 http://localhost:8080)로 실제 HTTP 요청을 보낸다. 토큰은 호출하는 쪽이 넘긴다 (null이면 헤더 없음)
@@ -89,6 +91,13 @@ public final class Gateway {
 
         public UUID uuid(String field) {
             return UUID.fromString(data().path(field).asText());
+        }
+
+        // 실패 응답 details의 field 목록 (예: 409 HAS_ACTIVE_WORK → ["inventory", "order"])
+        public List<String> errorFields() {
+            List<String> fields = new ArrayList<>();
+            error().path("details").forEach(detail -> fields.add(detail.path("field").asText()));
+            return fields;
         }
 
         // 기대한 상태 코드가 아니면 요청·응답을 담아 바로 실패시킨다 (준비 단계에서 쓴다)
