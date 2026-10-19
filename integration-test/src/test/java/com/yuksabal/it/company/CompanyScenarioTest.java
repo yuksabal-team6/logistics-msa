@@ -317,6 +317,99 @@ class CompanyScenarioTest {
         assertThat(newOrder.errorFields()).containsExactly("supplierCompanyId");
     }
 
+    @Test
+    @DisplayName("CMP-13. 재고가 남은 상품 삭제: 409(inventory), 상품 그대로")
+    void cmp13_재고가_남은_상품_삭제() {
+        // 사전 조건: 공통 준비 (서울 허브에 P 재고 10개, 진행 중 주문 없음) + P 비활성화 (상품은 비활성일 때만 삭제 가능)
+        s.deactivateProduct();
+
+        // 이렇게 하면: MASTER가 P 삭제
+        Response delete = Gateway.delete("/api/v1/products/" + s.productP, s.master);
+
+        // 이렇게 돼야 한다
+        // 1. company가 hub 재고 확인(GET /internal/inventories/stock?productId=)으로 남은 재고를 보고 409
+        //    (재고는 허브에 실제로 있는 물건이라 기록을 지우면 안 된다)
+        assertThat(delete.status()).as("%s", delete).isEqualTo(409);
+        assertThat(delete.errorCode()).isEqualTo("HAS_ACTIVE_WORK");
+        assertThat(delete.errorMessage()).isEqualTo("재고나 진행 중인 주문이 있어 상품을 삭제할 수 없습니다.");
+        assertThat(delete.errorFields()).containsExactly("inventory");
+        // 2. 상품은 삭제되지 않음
+        Gateway.get("/api/v1/products/" + s.productP, s.master).expect(200);
+    }
+
+    @Test
+    @DisplayName("CMP-14. 수량 0 재고만 있는 상품 삭제: 200 (재고 0은 이력, 완료된 주문은 진행 중 아님)")
+    void cmp14_수량_0_재고만_있는_상품_삭제() {
+        // 사전 조건: u가 P를 10개 모두 주문하고 배송 완료까지 진행 → 서울 재고 0, 주문 COMPLETED
+        Response order = s.order(s.u.token(), INITIAL_STOCK).expect(201);
+        s.completeDelivery(order.uuid("deliveryId"));
+        assertThat(s.stockOfP()).as("사전 조건: 서울 재고").isZero();
+        assertThat(s.orderDetail(order.uuid("orderId")).path("status").asText()).as("사전 조건: 주문 상태").isEqualTo("COMPLETED");
+        s.deactivateProduct();
+
+        // 이렇게 하면: MASTER가 P 삭제
+        Response delete = Gateway.delete("/api/v1/products/" + s.productP, s.master);
+
+        // 이렇게 돼야 한다
+        // 1. hub: 수량 0인 재고는 이력이라 hasStock=false, order: COMPLETED는 진행 중 주문이 아님 → 200
+        assertThat(delete.status()).as("%s", delete).isEqualTo(200);
+        // 2. 상품 조회 404 (Soft Delete)
+        Response found = Gateway.get("/api/v1/products/" + s.productP, s.master);
+        assertThat(found.status()).as("%s", found).isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("CMP-15. 남은 업무 없는 업체 삭제 후 조회·주문·관리자 회원 삭제: 200 → 업체·상품 404 → 주문 404 → 관리자 삭제 200")
+    void cmp15_남은_업무_없는_업체_삭제_후_조회_주문_관리자_회원_삭제() {
+        // 사전 조건: 재고가 없는 공통 준비 (A에 상품 P만 있고 재고·진행 중 주문 없음) + A 비활성화 (업체는 비활성일 때만 삭제 가능)
+        Scenario noStock = new Scenario(false);
+        noStock.deactivateCompany(noStock.companyA);
+
+        // 이렇게 하면 (1): MASTER가 A 삭제
+        Response delete = Gateway.delete("/api/v1/companies/" + noStock.companyA, noStock.master);
+
+        // 이렇게 돼야 한다 (1): 200, 업체와 소속 상품이 함께 삭제되어 둘 다 404
+        assertThat(delete.status()).as("%s", delete).isEqualTo(200);
+        Response companyFound = Gateway.get("/api/v1/companies/" + noStock.companyA, noStock.master);
+        Response productFound = Gateway.get("/api/v1/products/" + noStock.productP, noStock.master);
+        assertThat(companyFound.status()).as("%s", companyFound).isEqualTo(404);
+        assertThat(productFound.status()).as("%s", productFound).isEqualTo(404);
+
+        // 이렇게 하면 (2): u가 삭제된 P를 주문
+        Response order = noStock.order(noStock.u.token(), 2);
+
+        // 이렇게 돼야 한다 (2): order가 company #1의 404를 그대로 전달, 주문 저장 안 됨
+        assertThat(order.status()).as("%s", order).isEqualTo(404);
+        assertThat(noStock.ordersOf(noStock.u.token())).as("u의 주문 목록").isEmpty();
+
+        // 이렇게 하면 (3): MASTER가 A의 관리자였던 a를 삭제
+        Response userDelete = Gateway.delete("/api/v1/users/" + noStock.a.userId(), noStock.master);
+
+        // 이렇게 돼야 한다 (3): user가 company #11로 관리 업체를 확인 → 삭제된 업체는 빠져 관리 업체 없음 → 200
+        assertThat(userDelete.status()).as("%s", userDelete).isEqualTo(200);
+    }
+
+    // CMP-16(hub 장애 중 상품 삭제)은 hub 컨테이너를 멈춰야 해서 수동 확인 대상 (#167)
+
+    @Test
+    @DisplayName("CMP-17. 업체를 관리 중인 회원 삭제: 409, 회원은 활성 그대로 (관리자 a 유지)")
+    void cmp17_업체를_관리_중인_회원_삭제() {
+        // 사전 조건: 공통 준비 (a는 A의 관리자, 진행 중 주문 없음)
+
+        // 이렇게 하면: MASTER가 a 삭제
+        Response delete = Gateway.delete("/api/v1/users/" + s.a.userId(), s.master);
+
+        // 이렇게 돼야 한다
+        // 1. user가 company #11(관리자 ID로 업체 조회)로 관리 중인 업체를 확인해 409
+        assertThat(delete.status()).as("%s", delete).isEqualTo(409);
+        // 2. user는 삭제할 때 먼저 비활성화하고 확인한다 → 막혔으면 원래대로 활성으로 되돌려야 한다 (로그인·상품 수정 가능)
+        Response update = Gateway.patch("/api/v1/products/" + s.productP, s.a.token(), Map.of("unitPrice", 6000));
+        assertThat(update.status()).as("%s", update).isEqualTo(200);
+        // 3. A의 관리자는 a 그대로
+        assertThat(Gateway.get("/api/v1/companies/" + s.companyA, s.master).expect(200).data().path("ownerId").asText())
+                .isEqualTo(s.a.userId().toString());
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
