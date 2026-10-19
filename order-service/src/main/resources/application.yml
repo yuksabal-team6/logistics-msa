@@ -53,7 +53,7 @@ slack:
   # 수동 처리, 확인 필요 알림 (#order-admin-noti). 비면 webhook-url로 보냄
   admin-webhook-url: ${SLACK_ADMIN_WEBHOOK_URL:}
 
-# order 로그 레벨. 기본 DEBUG(주문 생성, 취소 단계 로그 확인용), 운영에서는 ORDER_LOG_LEVEL=INFO로 낮춤
+# order 로그 레벨. 기본 INFO(주문 결과만), 단계별 로그를 보려면 ORDER_LOG_LEVEL=DEBUG
 logging:
   level:
-    com.yuksabal.order: ${ORDER_LOG_LEVEL:DEBUG}
+    com.yuksabal.order: ${ORDER_LOG_LEVEL:INFO}

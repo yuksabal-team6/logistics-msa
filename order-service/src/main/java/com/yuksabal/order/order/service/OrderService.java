@@ -146,7 +146,7 @@ public class OrderService {
     }
 
     /**
-     * 특정 상품의 진행 중 주문 존재 여부를 응답한다.
+     * 특정 상품의 진행 중 주문 존재 여부를 확인한다.
      * company에서 상품 삭제 전 확인한다.
      *
      * @param productId 진행 중 주문 존재 여부를 확인할 상품 ID
@@ -159,7 +159,7 @@ public class OrderService {
     }
 
     /**
-     * 업체의 진행 중 주문 존재 여부를 응답한다.
+     * 업체의 진행 중 주문 존재 여부를 확인한다.
      * company에서 업체 삭제 전 확인한다. (공급, 요청 업체 모두 확인)
      *
      * @param companyId 진행 중 주문 존재 여부를 확인할 업체 ID
