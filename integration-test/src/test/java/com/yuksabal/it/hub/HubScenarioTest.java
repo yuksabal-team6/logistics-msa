@@ -198,4 +198,46 @@ class HubScenarioTest {
         assertThat(byOwner.status()).as("%s", byOwner).isEqualTo(200);
         assertThat(byOwner.data().path("hubId").asText()).isEqualTo(Scenario.BUSAN_HUB.toString());
     }
+
+    @Test
+    @DisplayName("HUB-11. 재고 수량 조정 중 다른 변경이 끼어듦: 조회 때 본 수량으로 조정하면 409(INVENTORY_QUANTITY_CONFLICT), 현재 수량으로 다시 조정하면 200")
+    void hub11_재고_수량_조정_중_다른_변경이_끼어듦() {
+        // 사전 조건: 공통 준비 (서울 허브 P 재고 10개)
+        String inventory = "/api/v1/inventories/";
+
+        // 이렇게 하면
+        // 1. MASTER가 P 재고를 조회 (수량 10)
+        JsonNode seen = s.inventoryOfP();
+        String inventoryId = seen.path("inventoryId").asText();
+        // 2. 그 사이 u가 P를 3개 주문 (재고 7)
+        Response order = s.order(s.u.token(), 3);
+        // 3. MASTER가 1번에서 본 수량(10)을 기준으로 8개로 조정
+        Response stale = Gateway.patch(inventory + inventoryId, s.master, Map.of("expectedQuantity", INITIAL_STOCK, "quantity", 8));
+        // 4. MASTER가 현재 수량(7)을 기준으로 다시 8개로 조정
+        Response retry = Gateway.patch(inventory + inventoryId, s.master, Map.of("expectedQuantity", 7, "quantity", 8));
+
+        // 이렇게 돼야 한다
+        // 1. 조회 수량 10
+        assertThat(seen.path("quantity").asInt()).isEqualTo(INITIAL_STOCK);
+        // 2. 주문 성공, 재고 7 (order → hub 차감)
+        assertThat(order.status()).as("%s", order).isEqualTo(201);
+        // 3. 본 수량(10)과 현재 수량(7)이 달라 409, details에 현재 수량. 조정이 반영되지 않아 재고 7 그대로
+        //    (409가 아니라 200이면 주문 차감 3개가 덮여 재고가 8이 된다)
+        assertThat(stale.status()).as("%s", stale).isEqualTo(409);
+        assertThat(stale.errorCode()).isEqualTo("INVENTORY_QUANTITY_CONFLICT");
+        assertThat(stale.errorFields()).containsExactly("quantity");
+        assertThat(stale.error().path("details").get(0).path("reason").asText()).isEqualTo("현재 재고는 7개입니다.");
+        // 4. 다시 조정 200, 재고 8. 이력은 입고·차감 뒤에 늘린 조정(ADJUST_INCREASE, 1개) 1건만 (3번의 조정 이력은 없음)
+        assertThat(retry.status()).as("%s", retry).isEqualTo(200);
+        assertThat(s.stockOfP()).isEqualTo(8);
+        List<JsonNode> adjusts = new ArrayList<>();
+        s.logsOf(inventoryId).forEach(log -> {
+            if (log.path("changeType").asText().startsWith("ADJUST")) {
+                adjusts.add(log);
+            }
+        });
+        assertThat(adjusts).as("조정 이력").hasSize(1);
+        assertThat(adjusts.get(0).path("changeType").asText()).isEqualTo("ADJUST_INCREASE");
+        assertThat(adjusts.get(0).path("quantity").asInt()).isEqualTo(1);
+    }
 }
