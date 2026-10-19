@@ -163,7 +163,8 @@ public class CompanyService {
             throw new BusinessException(FORBIDDEN);
         }
 
-        Company company = findCompany(companyId);
+        // 상품 등록·활성화와 겹치지 않도록 업체 행을 잠근 뒤 상태를 확인한다 (#147)
+        Company company = findCompanyForUpdate(companyId);
         if (company.isActive() == request.active()) {
             return CompanyResponse.from(company);
         }
@@ -193,6 +194,15 @@ public class CompanyService {
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404. 조회·수정·삭제 공용
     private Company findCompany(UUID companyId) {
         return companyRepository.findById(companyId)
+                .orElseThrow(() -> new BusinessException(
+                        RESOURCE_NOT_FOUND,
+                        "존재하지 않거나 삭제된 업체입니다.",
+                        "companyId"));
+    }
+
+    // 업체 상태 변경 전용. 업체 행을 잠그고 조회한다 (404는 findCompany와 같음)
+    private Company findCompanyForUpdate(UUID companyId) {
+        return companyRepository.findByIdForUpdate(companyId)
                 .orElseThrow(() -> new BusinessException(
                         RESOURCE_NOT_FOUND,
                         "존재하지 않거나 삭제된 업체입니다.",
