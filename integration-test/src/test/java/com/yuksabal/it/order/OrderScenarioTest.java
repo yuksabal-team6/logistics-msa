@@ -75,4 +75,22 @@ class OrderScenarioTest {
         assertThat(orders.get(0).path("status").asText()).isEqualTo("FAILED");
         assertThat(orders.get(0).path("compensationStatus").asText()).isEqualTo("NOT_REQUIRED");
     }
+
+    @Test
+    @DisplayName("ORD-5. 다른 업체 관리자 주문 취소: 403, 주문·재고·배송 그대로")
+    void ord5_다른_업체_관리자_주문_취소() {
+        Response order = s.order(s.u.token(), 2).expect(201);
+
+        // a는 공급 업체 A의 관리자지만 요청 업체(B) 관리자가 아니라 취소할 수 없다
+        // (취소는 주문자, 요청 업체 관리자, MASTER만. 요청 업체 관리자는 order가 company #2의 ownerId로 확인)
+        Response cancel = Gateway.post("/api/v1/orders/" + order.uuid("orderId") + "/cancel", s.a.token(), null);
+
+        assertThat(cancel.status()).as("%s", cancel).isEqualTo(403);
+        assertThat(cancel.error().path("message").asText()).isEqualTo("주문자, 요청 업체 관리자, MASTER만 주문을 취소할 수 있습니다.");
+        JsonNode orderAfter = Gateway.get("/api/v1/orders/" + order.uuid("orderId"), s.master).expect(200).data();
+        assertThat(orderAfter.path("status").asText()).isEqualTo("CONFIRMED");
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK - 2);
+        JsonNode delivery = Gateway.get("/api/v1/deliveries/" + order.uuid("deliveryId"), s.master).expect(200).data();
+        assertThat(delivery.path("deliveryStatus").asText()).isEqualTo("READY");
+    }
 }
