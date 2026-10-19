@@ -29,8 +29,14 @@ docker compose -f docker-compose.yml -f docker-compose.it.yml up -d --build
    - ORD → `order/OrderScenarioTest`, DLV → `delivery/DeliveryScenarioTest`, CMP → `company/CompanyScenarioTest`,
      USE → `user/UserScenarioTest`, HUB → `hub/HubScenarioTest`
    - 커밋은 시나리오 하나당 하나 (메시지에 노션 이름, 예: `[test] ORD-1 회원 주문 생성 시나리오 추가 #167`)
-2. 기대와 다르면 서비스별 버그 이슈를 만들고 `@Disabled("#이슈번호")`로 표시한 뒤 머지한다.
-3. 노션 시나리오 상태를 통과 / 이슈 생성으로 바꾼다.
+2. 테스트 본문은 노션 본문과 같은 순서로 주석을 단다: `// 사전 조건` → `// 이렇게 하면` → `// 이렇게 돼야 한다`
+   - "이렇게 돼야 한다"는 응답 → 다른 서비스 데이터(재고·주문·배송) 순서로 확인하고, 줄마다 무엇을 확인하는지 적는다
+   - 왜 그 결과가 나오는지(확인 순서, 어느 서비스가 막는지)가 코드만으로 안 보이면 주석으로 남긴다
+   - 준비 요청은 `.expect(200)`, 확인할 요청은 변수로 받아 `assertThat(r.status()).as("%s", r)`
+   - 자주 쓰는 요청은 `Scenario` 도우미를 쓴다: `order`, `cancel`, `orderDetail`, `ordersOf`, `stockOfP`, `delivery`, `completeDelivery`, `deactivateCompany`, `deactivateProduct`, `deactivateUser`
+   - 오류 응답은 `errorCode()`, `errorMessage()`, `errorFields()`로 읽는다
+3. 기대와 다르면 서비스별 버그 이슈를 만들고 `@Disabled("#이슈번호")`로 표시한 뒤 머지한다.
+4. 노션 시나리오 상태를 통과 / 이슈 생성으로 바꾼다.
 
 ## 알아 둘 것
 
