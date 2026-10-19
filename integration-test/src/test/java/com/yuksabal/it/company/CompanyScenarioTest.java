@@ -295,6 +295,28 @@ class CompanyScenarioTest {
                 .isEqualTo(Scenario.SEOUL_HUB.toString());
     }
 
+    @Test
+    @DisplayName("CMP-10. 재고는 0이지만 진행 중 주문이 있는 업체의 관리 허브 변경: 409(order만), 허브 그대로")
+    void cmp10_재고는_0이지만_진행_중_주문이_있는_업체의_관리_허브_변경() {
+        // 사전 조건: u가 P를 10개 모두 주문 → 서울 재고 0, 주문 O는 CONFIRMED (진행 중)
+        s.order(s.u.token(), INITIAL_STOCK).expect(201);
+        assertThat(s.stockOfP()).as("사전 조건: 서울 재고").isZero();
+
+        // 이렇게 하면: MASTER가 A의 관리 허브를 서울 → 경기 북부로 변경
+        Response change = Gateway.patch("/api/v1/companies/" + s.companyA, s.master,
+                Map.of("hubId", Scenario.GYEONGGI_NORTH_HUB));
+
+        // 이렇게 돼야 한다
+        // 1. 409, details는 order만 (수량 0인 재고는 이력이라 inventory로 막지 않는다)
+        //    재고만 확인하면 놓치는 경우: O가 취소되면 복원 재고가 차감했던 서울 재고 행으로 돌아가 갇힌다 (#161)
+        assertThat(change.status()).as("%s", change).isEqualTo(409);
+        assertThat(change.errorCode()).isEqualTo("HAS_ACTIVE_WORK");
+        assertThat(change.errorFields()).containsExactly("order");
+        // 2. A의 관리 허브는 서울 그대로
+        assertThat(Gateway.get("/api/v1/companies/" + s.companyA, s.master).expect(200).data().path("hubId").asText())
+                .isEqualTo(Scenario.SEOUL_HUB.toString());
+    }
+
     // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
     private Map<String, Object> companyBody(Member owner, String label) {
         return Map.of(
