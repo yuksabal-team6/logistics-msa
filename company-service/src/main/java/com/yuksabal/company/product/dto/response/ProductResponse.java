@@ -24,6 +24,9 @@ public record ProductResponse(
         @Schema(description = "단가 (원 단위 정수)", example = "35000")
         Long unitPrice,
 
+        @Schema(description = "활성 여부. 비활성이면 새 주문·입고 불가", example = "true")
+        boolean active,
+
         @Schema(description = "생성일시", example = "2026-10-15T15:30:00")
         LocalDateTime createdAt,
 
@@ -38,6 +41,7 @@ public record ProductResponse(
                 product.getProductName(),
                 product.getDescription(),
                 product.getUnitPrice(),
+                product.isActive(),
                 product.getCreatedAt(),
                 product.getUpdatedAt()
         );

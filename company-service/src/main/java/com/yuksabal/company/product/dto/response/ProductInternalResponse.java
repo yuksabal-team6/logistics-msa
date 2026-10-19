@@ -22,7 +22,10 @@ public record ProductInternalResponse(
         UUID companyId,
 
         @Schema(description = "공급 업체의 관리 허브 ID", example = "00000000-0000-0000-0000-000000000004")
-        UUID hubId
+        UUID hubId,
+
+        @Schema(description = "활성 여부. false면 새 주문·입고를 받지 않는다 (업체가 비활성이면 상품도 비활성)", example = "true")
+        boolean active
 ) {
 
     public static ProductInternalResponse from(Product product) {
@@ -31,7 +34,8 @@ public record ProductInternalResponse(
                 product.getProductName(),
                 product.getUnitPrice(),
                 product.getCompany().getId(),
-                product.getCompany().getHubId()
+                product.getCompany().getHubId(),
+                product.isActive()
         );
     }
 }

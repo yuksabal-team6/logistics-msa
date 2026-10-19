@@ -22,7 +22,10 @@ public record CompanyInternalResponse(
         String address,
 
         @Schema(description = "업체 관리자 회원 ID", example = "10000000-0000-4000-8000-000000000001")
-        UUID ownerId
+        UUID ownerId,
+
+        @Schema(description = "활성 여부. false면 새 주문(공급·요청 업체)을 받지 않는다", example = "true")
+        boolean active
 ) {
 
     public static CompanyInternalResponse from(Company company) {
@@ -31,7 +34,8 @@ public record CompanyInternalResponse(
                 company.getCompanyName(),
                 company.getHubId(),
                 company.getAddress(),
-                company.getOwnerId()
+                company.getOwnerId(),
+                company.isActive()
         );
     }
 }

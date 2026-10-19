@@ -30,6 +30,9 @@ public record CompanyResponse(
         @Schema(description = "연락처 (선택)", example = "051-123-4567")
         String contactPhone,
 
+        @Schema(description = "활성 여부. 비활성이면 새 주문·입고·상품 등록 불가", example = "true")
+        boolean active,
+
         @Schema(description = "생성일시", example = "2026-10-14T15:30:00")
         LocalDateTime createdAt,
 
@@ -46,6 +49,7 @@ public record CompanyResponse(
                 company.getBusinessNumber(),
                 company.getAddress(),
                 company.getContactPhone(),
+                company.isActive(),
                 company.getCreatedAt(),
                 company.getUpdatedAt()
         );
