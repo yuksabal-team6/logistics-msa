@@ -33,7 +33,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -62,6 +64,7 @@ public class InventoryService {
     private final InventoryLogRepository inventoryLogRepository;
     private final HubRepository hubRepository;
     private final CompanyClient companyClient;
+    private final TransactionTemplate transactionTemplate;
 
     // 전체 재고 목록은 MASTER만 조회할 수 있다. 없는 허브·상품 ID는 에러 없이 빈 목록
     public PageResponse<InventoryResponse> getInventories(InventorySearchRequest request, Pageable pageable, UserRole role) {
@@ -121,6 +124,8 @@ public class InventoryService {
     // 상품별 재고는 MASTER 또는 해당 상품의 업체(COMPANY)가 조회할 수 있다.
     // 상품 재고는 업체 관리 허브 한 곳에만 생겨 0~1건이라 단건으로 응답하고, 없으면 404
     // COMPANY는 재고의 업체를 알아야 소유권을 판단할 수 있어 조회 후에 403을 확인한다
+    // company 호출(#2)을 기다리는 동안 DB 커넥션을 잡지 않도록 트랜잭션 없이 실행한다 (재고 조회는 Repository가 짧게 처리)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public InventoryResponse getInventoryByProduct(UUID productId, UUID userId, UserRole role) {
         if (role != UserRole.MASTER && role != UserRole.COMPANY) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
@@ -185,16 +190,19 @@ public class InventoryService {
     // 허브에 상품을 입고한다 (MASTER). 재고가 있으면 수량을 늘리고, 없으면 새로 만든다
     // 상품 활성 상태는 바뀔 수 있어 재고 유무와 관계없이 입고마다 company #1로 확인한다 (#139)
     // 업체를 비활성화하면 소속 상품도 비활성화되므로 상품 active만 보면 비활성 업체 상품도 막힌다
-    @Transactional
+    // company 호출(#1)은 트랜잭션 밖에서 하고, 재고 변경만 transactionTemplate으로 감싼다 (응답을 기다리는 동안 커넥션을 잡지 않도록)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public InventoryResponse inbound(InventoryInboundRequest request, UUID userId, UserRole role) {
         if (role != UserRole.MASTER) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
-        Hub hub = hubRepository.findById(request.hubId())
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 허브입니다.",
-                        "hubId"));
+        // 값싼 허브 확인을 먼저 해, 없는 허브면 company를 호출하지 않는다 (허브 404 → 상품 404 순서)
+        if (!hubRepository.existsById(request.hubId())) {
+            throw new BusinessException(
+                    CommonErrorCode.RESOURCE_NOT_FOUND,
+                    "존재하지 않는 허브입니다.",
+                    "hubId");
+        }
 
         ProductResponse product = findProduct(request.productId());
         if (!product.active()) {
@@ -204,6 +212,13 @@ public class InventoryService {
                     "productId");
         }
 
+        return transactionTemplate.execute(status -> saveInbound(request, product, userId));
+    }
+
+    // 입고의 DB 작업 (transactionTemplate 안에서 실행). 예외가 나면 재고 변경·로그가 함께 롤백된다
+    private InventoryResponse saveInbound(InventoryInboundRequest request, ProductResponse product, UUID userId) {
+        // 허브는 고정 데이터라 삭제되지 않아, 앞에서 확인한 허브를 다시 조회하지 않고 참조만 쓴다
+        Hub hub = hubRepository.getReferenceById(request.hubId());
         Inventory inventory = inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
                 .map(existing -> increaseInventory(existing, request.quantity(), userId))
                 .orElseGet(() -> createInventory(hub, product, request));

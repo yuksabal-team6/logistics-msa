@@ -15,6 +15,7 @@ import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import com.yuksabal.hub.inventory.service.InventoryService;
 import org.hibernate.exception.ConstraintViolationException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -34,6 +35,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -84,9 +87,19 @@ class InventoryControllerTest {
     @MockBean
     private CompanyClient companyClient;
 
+    @MockBean
+    private TransactionTemplate transactionTemplate;
+
     // JpaAuditingConfig가 요구하는 JPA 메타모델 (WebMvcTest에는 JPA가 없다)
     @MockBean
     private JpaMetamodelMappingContext jpaMetamodelMappingContext;
+
+    @BeforeEach
+    void setUp() {
+        // 트랜잭션 없이 콜백만 실행한다
+        given(transactionTemplate.execute(any())).willAnswer(invocation ->
+                invocation.<TransactionCallback<?>>getArgument(0).doInTransaction(null));
+    }
 
     @Test
     void 재고_목록을_PageResponse로_반환한다() throws Exception {
@@ -601,7 +614,8 @@ class InventoryControllerTest {
 
     @Test
     void 재고가_있으면_상품_활성_확인_후_수량을_늘리고_INBOUND_로그를_남긴다() throws Exception {
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
@@ -625,7 +639,8 @@ class InventoryControllerTest {
     // 업체가 비활성이면 상품도 비활성이라 (company #139) 비활성 업체의 상품도 여기서 막힌다
     @Test
     void 재고가_있어도_비활성_상품이면_422를_반환한다() throws Exception {
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, false)));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
@@ -642,7 +657,8 @@ class InventoryControllerTest {
 
     @Test
     void 재고가_없고_비활성_상품이면_422를_반환한다() throws Exception {
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, false)));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
@@ -658,7 +674,8 @@ class InventoryControllerTest {
 
     @Test
     void 재고가_없으면_상품_업체를_담아_새로_만들고_INBOUND_로그를_남긴다() throws Exception {
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
@@ -685,7 +702,8 @@ class InventoryControllerTest {
     @Test
     void 상품_업체의_관리_허브가_아니면_422를_반환한다() throws Exception {
         UUID busanId = UUID.fromString("00000000-0000-0000-0000-000000000004");
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, busanId, true)));
@@ -702,7 +720,8 @@ class InventoryControllerTest {
 
     @Test
     void 입고할_상품이_없으면_404를_반환한다() throws Exception {
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "요청한 리소스를 찾을 수 없습니다.", List.of()));
@@ -718,7 +737,7 @@ class InventoryControllerTest {
 
     @Test
     void 입고할_허브가_없으면_404를_반환한다() throws Exception {
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.empty());
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(false);
 
         mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
                 .andExpect(status().isNotFound())
@@ -726,13 +745,16 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.error.message").value("존재하지 않는 허브입니다."))
                 .andExpect(jsonPath("$.error.details[0].field").value("hubId"));
 
+        // 허브를 먼저 확인해, 없는 허브면 company를 호출하지 않는다
+        then(companyClient).should(never()).getProduct(any(UUID.class));
         then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
     }
 
     // 같은 허브·상품을 동시에 처음 입고해 다른 요청이 먼저 재고를 만든 경우
     @Test
     void 재고_생성이_유니크_인덱스에_걸리면_409를_반환한다() throws Exception {
-        given(hubRepository.findById(SEOUL_ID)).willReturn(Optional.of(seoulHub()));
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
@@ -755,7 +777,7 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.error.details[0].field").value("quantity"));
 
-        then(hubRepository).should(never()).findById(any(UUID.class));
+        then(hubRepository).should(never()).existsById(any(UUID.class));
     }
 
     @ParameterizedTest
@@ -765,7 +787,7 @@ class InventoryControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
 
-        then(hubRepository).should(never()).findById(any(UUID.class));
+        then(hubRepository).should(never()).existsById(any(UUID.class));
     }
 
     private MockHttpServletRequestBuilder inboundRequest(String role, String body) {

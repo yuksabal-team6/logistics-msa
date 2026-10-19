@@ -48,3 +48,10 @@ eureka:
   instance:
     prefer-ip-address: true
     instance-id: ${spring.application.name}:${spring.cloud.client.ip-address}:${server.port}
+
+# 공통 Feign 재시도(#122) 중 응답 지연(read timeout) 재시도만 끈다. 입고·상품별 재고 조회의 company 호출이
+# 최대 약 15초(5초 × 3번)를 기다리지 않도록 한다. 5xx·연결 실패는 응답이 빨라 기본값(최대 2회 재시도) 유지
+common:
+  feign:
+    retry:
+      retry-on-read-timeout: false
