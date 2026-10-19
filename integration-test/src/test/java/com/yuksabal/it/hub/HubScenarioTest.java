@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 import static com.yuksabal.it.support.Scenario.INITIAL_STOCK;
@@ -274,5 +275,49 @@ class HubScenarioTest {
         List<String> types = s.changeTypesOf(inventoryId);
         assertThat(Collections.frequency(types, "DECREASE")).isEqualTo(each * rounds);
         assertThat(Collections.frequency(types, "INBOUND")).isEqualTo(1 + each * rounds);
+    }
+
+    @Test
+    @DisplayName("HUB-14 · ORD-9. 같은 주문 동시 취소 2번: 1건 200, 1건 409(INVALID_STATUS_TRANSITION), 재고 복원 1번만")
+    void hub14_ord9_같은_주문_동시_취소_2번() {
+        // 사전 조건: 공통 준비 + u의 주문 O (P 3개, CONFIRMED, 재고 7)
+        String inventoryId = s.inventoryOfP().path("inventoryId").asText();
+        String uToken = s.u.token();
+        Response order = s.order(uToken, 3).expect(201);
+        UUID orderId = order.uuid("orderId");
+
+        // 이렇게 하면
+        // 1. u가 O 취소를 동시에 2번 보낸다
+        List<Response> cancels = Concurrently.run(() -> s.cancel(orderId, uToken), () -> s.cancel(orderId, uToken));
+        // 2. 같은 취소를 한 번 더 보낸다 (순차)
+        Response again = s.cancel(orderId, uToken);
+        // 3. O의 상태, P 재고와 이력 조회
+        JsonNode detail = s.orderDetail(orderId);
+
+        // 이렇게 돼야 한다
+        // 1. 1건 200, 1건 409 INVALID_STATUS_TRANSITION
+        //    (order가 주문 행을 잠그고 CONFIRMED → CANCELLED로 바꿔서, 뒤 요청은 이미 CANCELLED인 주문을 보고 거절된다)
+        assertThat(Concurrently.count(cancels, 200)).as("%s", cancels).isEqualTo(1);
+        assertThat(Concurrently.count(cancels, 409)).as("%s", cancels).isEqualTo(1);
+        Response rejected = cancels.stream().filter(r -> r.status() == 409).findFirst().orElseThrow();
+        assertThat(rejected.errorCode()).isEqualTo("INVALID_STATUS_TRANSITION");
+        // 2. 다시 취소도 409
+        assertThat(again.status()).as("%s", again).isEqualTo(409);
+        // 3. order: CANCELLED + 보상 COMPLETED
+        assertThat(detail.path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(detail.path("compensationStatus").asText()).isEqualTo("COMPLETED");
+        // 4. hub: 재고 10 (13이면 두 번 복원), 복원 이력(RESTORE) 1건, 수량 3
+        //    (order가 막지 못해도 hub는 (order_id, RESTORE) 유니크로 두 번째 복원을 변경 없이 넘긴다: 두 겹 방어)
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+        List<JsonNode> restores = new ArrayList<>();
+        s.logsOf(inventoryId).forEach(log -> {
+            if (log.path("changeType").asText().equals("RESTORE")) {
+                restores.add(log);
+            }
+        });
+        assertThat(restores).as("복원 이력").hasSize(1);
+        assertThat(restores.get(0).path("quantity").asInt()).isEqualTo(3);
+        // 5. delivery: 배송 CANCELLED
+        assertThat(s.delivery(order.uuid("deliveryId")).path("deliveryStatus").asText()).isEqualTo("CANCELLED");
     }
 }
