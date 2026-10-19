@@ -150,4 +150,35 @@ class CompanyScenarioTest {
                 .expect(200).data();
         assertThat(found.path("totalElements").asInt()).as("같은 이름 업체 수").isZero();
     }
+
+    @Test
+    @DisplayName("CMP-6. COMPANY가 아니거나 비활성인 회원을 관리자로 업체 생성: user의 실제 역할·활성 여부로 422")
+    void cmp6_COMPANY가_아니거나_비활성인_회원을_관리자로_업체_생성() {
+        // 사전 조건: USER 회원 u, 정지된 COMPANY 회원 d (둘 다 업체를 관리하지 않음)
+        Member d = s.companyManager("d");
+        s.deactivateUser(d);
+
+        // 이렇게 하면: MASTER가 u, d를 각각 관리자로 업체 생성
+        Response byUser = Gateway.post("/api/v1/companies", s.master, companyBody(s.u, "u"));
+        Response byInactive = Gateway.post("/api/v1/companies", s.master, companyBody(d, "d"));
+
+        // 이렇게 돼야 한다: company가 user 내부 API(#8)의 실제 role·active로 판단해 둘 다 422 (field: ownerId)
+        // 1. u: 역할이 USER
+        assertThat(byUser.status()).as("%s", byUser).isEqualTo(422);
+        assertThat(byUser.errorMessage()).isEqualTo("COMPANY 역할 회원만 업체 관리자로 지정할 수 있습니다.");
+        assertThat(byUser.errorFields()).containsExactly("ownerId");
+        // 2. d: COMPANY지만 정지됨
+        assertThat(byInactive.status()).as("%s", byInactive).isEqualTo(422);
+        assertThat(byInactive.errorMessage()).isEqualTo("비활성화된 회원은 업체 관리자로 지정할 수 없습니다.");
+        assertThat(byInactive.errorFields()).containsExactly("ownerId");
+    }
+
+    // 업체 생성 요청 본문 (서울 허브). 이름에 suffix를 붙여 다른 테스트 데이터와 구분한다
+    private Map<String, Object> companyBody(Member owner, String label) {
+        return Map.of(
+                "companyName", "[IT] 관리자 " + label + " 업체 " + s.suffix,
+                "hubId", Scenario.SEOUL_HUB,
+                "ownerId", owner.userId(),
+                "address", "통합 테스트 주소");
+    }
 }
