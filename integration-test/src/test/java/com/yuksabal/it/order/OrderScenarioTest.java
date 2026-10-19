@@ -70,6 +70,30 @@ class OrderScenarioTest {
     }
 
     @Test
+    @DisplayName("ORD-3. 완료 주문 삭제: 200, 이후 조회 404")
+    void ord3_완료_주문_삭제() {
+        // 사전 조건: DLV-1처럼 배송을 끝까지 진행해 COMPLETED가 된 u의 주문 O
+        // (배송 COMPLETED → delivery가 order 내부 API #10으로 알려 주문도 COMPLETED. CONFIRMED 주문은 삭제할 수 없다)
+        Response order = s.order(s.u.token(), 2).expect(201);
+        UUID orderId = order.uuid("orderId");
+        s.completeDelivery(order.uuid("deliveryId"));
+        assertThat(s.orderDetail(orderId).path("status").asText()).as("사전 조건: O의 상태").isEqualTo("COMPLETED");
+
+        // 이렇게 하면
+        // 1. MASTER가 O를 삭제
+        Response delete = Gateway.delete("/api/v1/orders/" + orderId, s.master);
+        // 2. O를 조회
+        Response after = Gateway.get("/api/v1/orders/" + orderId, s.master);
+
+        // 이렇게 돼야 한다
+        // 1. 200
+        assertThat(delete.status()).as("%s", delete).isEqualTo(200);
+        // 2. 삭제된 주문은 조회되지 않는다: 404 RESOURCE_NOT_FOUND
+        assertThat(after.status()).as("%s", after).isEqualTo(404);
+        assertThat(after.errorCode()).isEqualTo("RESOURCE_NOT_FOUND");
+    }
+
+    @Test
     @DisplayName("ORD-4. 재고보다 많은 수량 주문: hub 409 그대로, 주문 FAILED + 보상 불필요, 재고 그대로")
     void ord4_재고보다_많은_수량_주문() {
         // 이렇게 하면: 재고(10)보다 1개 많이 주문
