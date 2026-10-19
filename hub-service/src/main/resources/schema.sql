@@ -30,3 +30,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_inventories_hub_id_product_id
 ALTER TABLE hub_service.p_inventories DROP CONSTRAINT IF EXISTS ck_inventories_quantity_non_negative;
 ALTER TABLE hub_service.p_inventories ADD CONSTRAINT ck_inventories_quantity_non_negative
     CHECK (quantity >= 0);
+
+-- 허브 경로는 출발·도착 허브 쌍마다 하나다. 경로 조회가 출발 + 도착으로 한 행을 찾는 전제를 DB에서 보장한다
+-- (중복 행이 있으면 Optional 조회가 404가 아닌 500으로 실패한다)
+-- 활성 중복 행이 이미 있으면 인덱스 생성이 실패해 앱이 시작되지 않으므로, 중복을 먼저 정리해야 한다
+CREATE UNIQUE INDEX IF NOT EXISTS uk_hub_routes_departure_hub_id_arrival_hub_id
+    ON hub_service.p_hub_routes (departure_hub_id, arrival_hub_id)
+    WHERE deleted_at IS NULL;
