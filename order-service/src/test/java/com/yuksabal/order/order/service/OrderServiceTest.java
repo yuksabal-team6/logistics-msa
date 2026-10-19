@@ -10,6 +10,7 @@ import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
 import com.yuksabal.order.order.repository.OrderRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -35,6 +36,12 @@ class OrderServiceTest {
     private final UUID otherUserId = UUID.randomUUID();
     private final UUID masterId = UUID.randomUUID();
     private final UUID orderId = UUID.randomUUID();
+
+    // default 메서드 findByIdOrThrow는 목에서 null을 돌려주므로 실제 구현(findById 호출)을 쓰게 함
+    @BeforeEach
+    void setUp() {
+        given(orderRepository.findByIdOrThrow(any())).willCallRealMethod();
+    }
 
     @Test
     void 상세_조회_주문자_본인은_성공() {

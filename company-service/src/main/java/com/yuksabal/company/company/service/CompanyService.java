@@ -169,7 +169,8 @@ public class CompanyService {
             throw new BusinessException(FORBIDDEN);
         }
 
-        Company company = findCompany(companyId);
+        // 상품 등록·활성화와 겹치지 않도록 업체 행을 잠근 뒤 상태를 확인한다 (#147)
+        Company company = findCompanyForUpdate(companyId);
         if (company.isActive() == request.active()) {
             return CompanyResponse.from(company);
         }
@@ -222,6 +223,15 @@ public class CompanyService {
         if (company.isActive()) {
             throw new BusinessException(BUSINESS_RULE_VIOLATION, "비활성화한 업체만 삭제할 수 있습니다.", "companyId");
         }
+    }
+
+    // 업체 상태 변경 전용. 업체 행을 잠그고 조회한다 (404는 findCompany와 같음)
+    private Company findCompanyForUpdate(UUID companyId) {
+        return companyRepository.findByIdForUpdate(companyId)
+                .orElseThrow(() -> new BusinessException(
+                        RESOURCE_NOT_FOUND,
+                        "존재하지 않거나 삭제된 업체입니다.",
+                        "companyId"));
     }
 
     // 값을 보냈고(null 아님) 기존 값과 다를 때만 "바뀜"으로 본다

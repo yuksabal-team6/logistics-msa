@@ -16,8 +16,10 @@ import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
+import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryLogResponse;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.dto.response.InventoryStockResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
 import com.yuksabal.hub.inventory.entity.InventoryChangeType;
 import com.yuksabal.hub.inventory.entity.InventoryLog;
@@ -131,6 +133,15 @@ public class InventoryService {
         return InventoryResponse.from(inventory);
     }
 
+    // company-service가 상품·업체 삭제 전에 호출한다 (내부 API, #137). 남은 수량이 0보다 큰 재고가 있으면 true
+    // 수량 0인 재고는 이력이라 false. 재고가 없는 상품·업체도 404가 아니라 false
+    public InventoryStockResponse hasStock(InventoryStockRequest request) {
+        boolean hasStock = request.productId() != null
+                ? inventoryRepository.existsByProductIdAndQuantityGreaterThan(request.productId(), 0)
+                : inventoryRepository.existsByCompanyIdAndQuantityGreaterThan(request.companyId(), 0);
+        return new InventoryStockResponse(hasStock);
+    }
+
     // 관리자가 실사 결과로 재고 수량을 직접 바꾼다 (MASTER). 조회할 때 본 수량과 현재 수량이 같을 때만 조정한다
     // 엔티티를 먼저 조회하지 않고 조건부 UPDATE부터 실행해, 1차 캐시에 예전 수량이 남지 않게 한다
     // 값이 같으면 그 사이 변경의 순변화량이 0이라 조정 결과가 맞으므로 수량만 비교한다
@@ -172,7 +183,8 @@ public class InventoryService {
     }
 
     // 허브에 상품을 입고한다 (MASTER). 재고가 있으면 수량을 늘리고, 없으면 새로 만든다
-    // 재고가 있으면 처음 만들 때 상품·허브를 확인했으므로 company-service를 호출하지 않는다
+    // 상품 활성 상태는 바뀔 수 있어 재고 유무와 관계없이 입고마다 company #1로 확인한다 (#139)
+    // 업체를 비활성화하면 소속 상품도 비활성화되므로 상품 active만 보면 비활성 업체 상품도 막힌다
     @Transactional
     public InventoryResponse inbound(InventoryInboundRequest request, UUID userId, UserRole role) {
         if (role != UserRole.MASTER) {
@@ -184,9 +196,17 @@ public class InventoryService {
                         "존재하지 않는 허브입니다.",
                         "hubId"));
 
+        ProductResponse product = findProduct(request.productId());
+        if (!product.active()) {
+            throw new BusinessException(
+                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
+                    "비활성 상품은 입고할 수 없습니다.",
+                    "productId");
+        }
+
         Inventory inventory = inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
                 .map(existing -> increaseInventory(existing, request.quantity(), userId))
-                .orElseGet(() -> createInventory(hub, request));
+                .orElseGet(() -> createInventory(hub, product, request));
 
         inventoryLogRepository.save(InventoryLog.builder()
                 .inventory(inventory)
@@ -204,8 +224,7 @@ public class InventoryService {
 
     // 상품 업체의 관리 허브에만 재고를 만든다 (상품 재고는 업체 관리 허브 한 곳에만 둔다)
     // 같은 허브·상품을 동시에 처음 입고하면 늦은 쪽이 (hub_id, product_id) 유니크 인덱스 위반으로 실패해 409로 응답한다
-    private Inventory createInventory(Hub hub, InventoryInboundRequest request) {
-        ProductResponse product = findProduct(request.productId());
+    private Inventory createInventory(Hub hub, ProductResponse product, InventoryInboundRequest request) {
         if (!hub.getId().equals(product.hubId())) {
             throw new BusinessException(
                     CommonErrorCode.BUSINESS_RULE_VIOLATION,

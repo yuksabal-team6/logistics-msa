@@ -111,7 +111,7 @@ public class InventoryController {
 
     @Operation(summary = "재고 입고 (MASTER)",
             description = "허브에 상품을 입고한다. 재고가 있으면 수량을 늘리고, 없으면 새로 만든다. 수량이 1 미만이면 400, 허브·상품이 없으면 404, "
-                    + "상품 업체의 관리 허브가 아니면 422, 같은 재고를 동시에 처음 입고하면 409 (다시 시도하면 수량이 늘어난다)")
+                    + "비활성 상품(비활성 업체의 상품 포함)이거나 상품 업체의 관리 허브가 아니면 422, 같은 재고를 동시에 처음 입고하면 409 (다시 시도하면 수량이 늘어난다)")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION},
             value = {INVENTORY_CREATE_CONFLICT})
     @PostMapping("/inbound")

@@ -102,8 +102,9 @@ public class CompanyController {
 
     // 상태 변경: 200 + ApiResponse.success(data, message). MASTER만 가능, 같은 상태면 변경 없이 200
     @Operation(summary = "업체 활성화·비활성화 (MASTER)",
-            description = "비활성화하면 소속 상품도 함께 비활성화되고, 새 주문(공급·요청)·입고·상품 등록이 막힌다. "
-                    + "진행 중인 주문·배송은 그대로 진행된다. 다시 활성화해도 상품은 비활성으로 남는다. 같은 상태면 변경 없이 200")
+            description = "비활성화하면 소속 상품도 함께 비활성화되고 상품 등록이 막힌다. "
+                    + "새 주문(공급·요청)·입고는 order·hub가 내부 API의 active를 확인해 막고, 진행 중인 주문·배송은 그대로 진행된다. "
+                    + "다시 활성화해도 상품은 비활성으로 남는다. 같은 상태면 변경 없이 200")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND})
     @PatchMapping("/{companyId}/status")
     public ResponseEntity<ApiResponse<CompanyResponse>> changeCompanyStatus(

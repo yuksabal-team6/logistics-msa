@@ -113,6 +113,7 @@ services:
     environment:
       <<: *service-env
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_ADMIN_WEBHOOK_URL: ${SLACK_ADMIN_WEBHOOK_URL:-}
 
   delivery-service:
     <<: *service

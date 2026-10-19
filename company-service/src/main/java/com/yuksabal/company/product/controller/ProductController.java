@@ -103,7 +103,7 @@ public class ProductController {
 
     // 상태 변경: 200 + ApiResponse.success(data, message). MASTER 또는 소속 업체 관리자, 같은 상태면 변경 없이 200
     @Operation(summary = "상품 활성화·비활성화",
-            description = "비활성 상품은 새 주문·입고가 막히고, 진행 중인 주문·배송은 그대로 진행된다. "
+            description = "비활성 상품의 새 주문·입고는 order·hub가 내부 API의 active를 확인해 막고, 진행 중인 주문·배송은 그대로 진행된다. "
                     + "비활성 업체의 상품은 활성화할 수 없다(422). 같은 상태면 변경 없이 200")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION}, value = {COMPANY_ACCESS_DENIED})
     @PatchMapping("/products/{productId}/status")
