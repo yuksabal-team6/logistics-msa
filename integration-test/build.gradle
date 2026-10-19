@@ -1,0 +1,37 @@
+// 전체 서비스 통합 테스트 (#167). docker-compose로 모든 서비스를 띄운 뒤 게이트웨이(8080)로 실제 요청을 보낸다
+// 서비스가 떠 있어야 통과하므로 평소 build·test에서는 실행하지 않는다 (IntelliJ ▶ 또는 integrationTest로 실행)
+//   ./gradlew build -x test
+//   docker compose -f docker-compose.yml -f docker-compose.it.yml up -d --build
+//   ./gradlew :integration-test:integrationTest
+bootJar {
+	enabled = false
+}
+
+dependencies {
+	testImplementation 'com.fasterxml.jackson.core:jackson-databind'
+	testImplementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}
+
+// 서비스가 떠 있어야 통과하므로, 이 모듈의 test·integrationTest를 직접 지정해 실행할 때만 돈다
+// - ./gradlew build, ./gradlew test (전체)에서는 건너뛴다 (컴파일은 계속 확인된다)
+// - IntelliJ의 ▶ 실행은 :integration-test:test --tests ... 로 들어오므로 그대로 동작한다
+def itTaskNames = [':integration-test:test', ':integration-test:integrationTest']
+
+tasks.named('test') {
+	onlyIf { gradle.startParameter.taskNames.any { it in itTaskNames } }
+	// 서비스 상태에 따라 결과가 달라지므로 매번 실행한다
+	outputs.upToDateWhen { false }
+	// -Dit.baseUrl=..., -Dit.masterUsername=... 로 바꿀 수 있다
+	systemProperties System.getProperties().findAll { it.key.toString().startsWith('it.') }
+	testLogging {
+		events 'passed', 'skipped', 'failed'
+		exceptionFormat 'full'
+	}
+}
+
+// README의 실행 명령(./gradlew :integration-test:integrationTest)용 별칭
+tasks.register('integrationTest') {
+	description = '전체 서비스를 띄운 상태에서 게이트웨이로 시나리오를 실행한다'
+	group = 'verification'
+	dependsOn tasks.named('test')
+}

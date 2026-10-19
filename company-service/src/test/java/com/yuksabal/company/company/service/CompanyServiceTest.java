@@ -205,7 +205,7 @@ class CompanyServiceTest {
         void COMPANY가_지금과_같은_허브를_보내면_변경이_아니라_허용한다() {
             companyService.updateCompany(COMPANY_ID, updateRequest(HUB_ID, null, null), OWNER_ID, UserRole.COMPANY);
 
-            verifyNoInteractions(hubClient);
+            verifyNoInteractions(hubClient, deletionGuard);
         }
 
         @Test
@@ -232,8 +232,40 @@ class CompanyServiceTest {
             companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, OTHER_ID, null), MASTER_ID, UserRole.MASTER);
 
             verify(hubClient).getHub(newHubId);
+            verify(deletionGuard).validateHubChangeable(COMPANY_ID);
             assertThat(company.getHubId()).isEqualTo(newHubId);
             assertThat(company.getOwnerId()).isEqualTo(OTHER_ID);
+        }
+
+        @Test
+        void 재고나_진행_중_주문이_남아_있으면_허브를_바꾸지_않는다() {
+            UUID newHubId = UUID.randomUUID();
+            willThrow(new BusinessException(HAS_ACTIVE_WORK)).given(deletionGuard).validateHubChangeable(COMPANY_ID);
+
+            assertThatThrownBy(() -> companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, null, null), MASTER_ID, UserRole.MASTER))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(HAS_ACTIVE_WORK));
+
+            assertThat(company.getHubId()).isEqualTo(HUB_ID);
+        }
+
+        @Test
+        void 새_허브가_없으면_404이고_남은_업무를_확인하지_않는다() {
+            UUID newHubId = UUID.randomUUID();
+            FeignClientException notFound = new FeignClientException(404, "RESOURCE_NOT_FOUND", "존재하지 않는 허브입니다.", List.of());
+            willThrow(notFound).given(hubClient).getHub(newHubId);
+
+            assertThatThrownBy(() -> companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, null, null), MASTER_ID, UserRole.MASTER))
+                    .isSameAs(notFound);
+
+            verifyNoInteractions(deletionGuard);
+        }
+
+        @Test
+        void 허브를_바꾸지_않으면_남은_업무를_확인하지_않는다() {
+            companyService.updateCompany(COMPANY_ID, updateRequest(null, null, "123-45-67890"), MASTER_ID, UserRole.MASTER);
+
+            verifyNoInteractions(deletionGuard);
         }
     }
 

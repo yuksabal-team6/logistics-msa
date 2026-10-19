@@ -1,5 +1,8 @@
 package com.yuksabal.company.global.deletion;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.company.global.client.HubClient;
@@ -25,6 +28,9 @@ class DeletionCheckerTest {
     private final OrderClient orderClient = mock(OrderClient.class);
     private final InventoryDeletionChecker inventoryChecker = new InventoryDeletionChecker(hubClient);
     private final OrderDeletionChecker orderChecker = new OrderDeletionChecker(orderClient);
+    // Feign과 같이 모르는 필드는 무시하고 읽는다
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     @Test
     void 대상에_맞는_API로_재고를_확인한다() {
@@ -50,6 +56,25 @@ class DeletionCheckerTest {
         given(orderClient.getInProgressByCompany(ID)).willReturn(null);
 
         assertThatThrownBy(() -> inventoryChecker.findBlockers(DeletionTarget.PRODUCT, ID))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
+        assertThatThrownBy(() -> orderChecker.findBlockers(DeletionTarget.COMPANY, ID))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
+    }
+
+    @Test
+    void 응답에_확인_필드가_없으면_확인하지_못한_것으로_보고_예외() throws Exception {
+        // 상대가 필드 이름을 다르게 응답한 경우 (예: hasStock 대신 inStock). 기본형 boolean이면 false로 읽혀 통과했다
+        ApiResponse<InventoryStockResponse> renamed = objectMapper.readValue(
+                "{\"success\":true,\"data\":{\"inStock\":true}}", new TypeReference<>() {});
+        ApiResponse<OrderInProgressResponse> missing = objectMapper.readValue(
+                "{\"success\":true,\"data\":{\"companyId\":\"" + ID + "\"}}", new TypeReference<>() {});
+        given(hubClient.getStockByCompany(ID)).willReturn(renamed);
+        given(orderClient.getInProgressByCompany(ID)).willReturn(missing);
+
+        assertThat(renamed.data().hasStock()).isNull();
+        assertThatThrownBy(() -> inventoryChecker.findBlockers(DeletionTarget.COMPANY, ID))
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
         assertThatThrownBy(() -> orderChecker.findBlockers(DeletionTarget.COMPANY, ID))

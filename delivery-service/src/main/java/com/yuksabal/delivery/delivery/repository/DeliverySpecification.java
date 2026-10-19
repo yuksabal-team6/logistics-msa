@@ -17,14 +17,32 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class DeliverySpecification {
 
-    // DELIVERY는 검색 조건과 별개로 본인 담당 배송만 조회한다.
+    // 검색 조건과 별개로 조회 권한이 있는 배송만 조회한다.
     public static Specification<Delivery> search(DeliverySearchRequest request, UUID userId, UserRole role) {
         return Specification
                 .where(deliveryStatusEquals(request.deliveryStatus()))
                 .and(departureHubIdEquals(request.departureHubId()))
                 .and(destinationHubIdEquals(request.destinationHubId()))
                 .and(managedBy(request.deliveryManagerId()))
-                .and(managedBy(role == UserRole.DELIVERY ? userId : null));
+                .and(readableBy(userId, role));
+    }
+
+    // 조회 권한. 상세·경로 기록 조회의 DeliveryReadPolicy와 같은 규칙
+    // MASTER는 전체, 그 외에는 주문자 본인. DELIVERY는 본인 담당 배송도 (모든 역할이 주문할 수 있다)
+    public static Specification<Delivery> readableBy(UUID userId, UserRole role) {
+        return switch (role) {
+            case MASTER -> (root, query, cb) -> null;
+            case DELIVERY -> managedBy(userId).or(ordererIdEquals(userId));
+            case COMPANY, USER -> ordererIdEquals(userId);
+        };
+    }
+
+    // ordererId가 없는 배송(필드 추가 전)은 equal에 걸리지 않아 빠진다
+    public static Specification<Delivery> ordererIdEquals(UUID ordererId) {
+        return (root, query, cb) ->
+                ordererId == null
+                        ? null
+                        : cb.equal(root.get("ordererId"), ordererId);
     }
 
     public static Specification<Delivery> deliveryStatusEquals(DeliveryStatus deliveryStatus) {

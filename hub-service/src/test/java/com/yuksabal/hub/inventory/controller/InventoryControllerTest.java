@@ -740,6 +740,27 @@ class InventoryControllerTest {
         assertThat(log.getQuantity()).isEqualTo(50);
     }
 
+    // 관리 허브를 바꾼 뒤 이전 허브에 남은 수량 0 재고로 입고하는 경우 (#175)
+    @Test
+    void 재고가_있어도_상품_업체의_관리_허브가_아니면_422를_반환한다() throws Exception {
+        UUID busanId = UUID.fromString("00000000-0000-0000-0000-000000000004");
+        given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
+        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
+        given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(0)));
+        given(companyClient.getProduct(PRODUCT_ID))
+                .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, busanId, true)));
+
+        mockMvc.perform(inboundRequest("MASTER", inboundBody(50)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.message").value("상품 업체의 관리 허브에만 입고할 수 있습니다."))
+                .andExpect(jsonPath("$.error.details[0].field").value("hubId"))
+                .andExpect(jsonPath("$.error.details[0].reason").value("상품 업체의 관리 허브는 " + busanId + "입니다."));
+
+        then(inventoryRepository).should(never()).increaseQuantity(any(UUID.class), anyInt(), any(LocalDateTime.class), any(UUID.class));
+        then(inventoryLogRepository).should(never()).save(any(InventoryLog.class));
+    }
+
     @Test
     void 상품_업체의_관리_허브가_아니면_422를_반환한다() throws Exception {
         UUID busanId = UUID.fromString("00000000-0000-0000-0000-000000000004");

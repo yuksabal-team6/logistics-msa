@@ -1,0 +1,18 @@
+# 통합 테스트(#167) 실행용 덮어쓰기. docker-compose.yml과 함께 쓴다
+#   docker compose -f docker-compose.yml -f docker-compose.it.yml up -d --build
+# - user: 테스트용 MASTER 계정 (MASTER가 하나도 없을 때만 생성된다. 이미 다른 MASTER가 있으면
+#   ./gradlew :integration-test:integrationTest -Dit.masterUsername=... -Dit.masterPassword=... 로 그 계정을 넘긴다)
+# - order: 테스트 주문이 실제 Slack 채널로 알림을 보내지 않도록 웹훅을 비우고, 단계별 로그를 본다
+services:
+  user-service:
+    environment:
+      INITIAL_MASTER_USERNAME: itmaster
+      INITIAL_MASTER_PASSWORD: ItMaster1!
+      INITIAL_MASTER_EMAIL: itmaster@it.test
+      INITIAL_MASTER_SLACK_ID: itmaster
+
+  order-service:
+    environment:
+      SLACK_WEBHOOK_URL: ""
+      SLACK_ADMIN_WEBHOOK_URL: ""
+      ORDER_LOG_LEVEL: DEBUG
