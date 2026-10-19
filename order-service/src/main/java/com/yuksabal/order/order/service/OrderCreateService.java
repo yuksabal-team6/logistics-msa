@@ -206,7 +206,9 @@ public class OrderCreateService {
                     order.getRequestCompanyId(),
                     request.deliveryAddress(),
                     request.recipientName(),
-                    null
+                    null,
+                    order.getOrdererId(),
+                    order.getSupplierCompanyId()
             )).data().deliveryId();
         } catch (FeignClientException e) {
             log.warn("[주문 생성] 5. 배송 생성 실패 orderId={}, status={}, code={} → FAILED + PENDING, 재고 복원",

@@ -148,7 +148,8 @@ class OrderCreateIntegrationTest {
         ArgumentCaptor<DeliveryCreateRequest> delivery = ArgumentCaptor.forClass(DeliveryCreateRequest.class);
         verify(deliveryClient).createDelivery(delivery.capture());
         assertThat(delivery.getValue()).isEqualTo(new DeliveryCreateRequest(
-                orderId, supplierHubId, requesterHubId, requesterId, "부산광역시 중구 중앙대로 2", "홍길동", null));
+                orderId, supplierHubId, requesterHubId, requesterId, "부산광역시 중구 중앙대로 2", "홍길동", null,
+                userId, supplierId));
     }
 
     @Test
