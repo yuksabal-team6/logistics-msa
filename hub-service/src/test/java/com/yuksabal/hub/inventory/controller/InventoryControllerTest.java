@@ -65,6 +65,8 @@ class InventoryControllerTest {
     private static final UUID SEOUL_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID PRODUCT_ID = UUID.fromString("40000000-0000-4000-8000-000000000001");
     private static final UUID INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000001");
+    private static final UUID BUSAN_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
+    private static final UUID BUSAN_INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000004");
     private static final UUID COMPANY_ID = UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000001");
     private static final UUID ORDER_ID = UUID.fromString("60000000-0000-4000-8000-000000000001");
@@ -404,8 +406,47 @@ class InventoryControllerTest {
     }
 
     @Test
-    void 같은_상품_재고가_여러_건이면_409를_반환한다() throws Exception {
-        given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(seoulInventory(), seoulInventory()));
+    void 상품_재고가_한_건이면_수량이_0이어도_반환한다() throws Exception {
+        given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(seoulInventory(0)));
+
+        mockMvc.perform(productRequest(PRODUCT_ID, "MASTER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.hubId").value(SEOUL_ID.toString()))
+                .andExpect(jsonPath("$.data.quantity").value(0));
+    }
+
+    // 관리 허브가 서울 → 부산으로 바뀐 뒤: 서울에 수량 0인 재고가 이력으로 남고 부산에 새 재고가 생긴다
+    @Test
+    void 관리_허브가_바뀐_상품은_수량이_남은_재고를_반환한다() throws Exception {
+        given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(
+                inventoryAt(SEOUL_ID, INVENTORY_ID, 0, LocalDateTime.of(2026, 10, 1, 9, 0)),
+                inventoryAt(BUSAN_ID, BUSAN_INVENTORY_ID, 20, LocalDateTime.of(2026, 10, 10, 9, 0))));
+
+        mockMvc.perform(productRequest(PRODUCT_ID, "MASTER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.inventoryId").value(BUSAN_INVENTORY_ID.toString()))
+                .andExpect(jsonPath("$.data.hubId").value(BUSAN_ID.toString()))
+                .andExpect(jsonPath("$.data.quantity").value(20));
+    }
+
+    // 조회 순서와 관계없이 생성 시각으로 고른다
+    @Test
+    void 관리_허브가_바뀐_상품의_재고가_모두_0이면_가장_최근_재고를_반환한다() throws Exception {
+        given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(
+                inventoryAt(BUSAN_ID, BUSAN_INVENTORY_ID, 0, LocalDateTime.of(2026, 10, 10, 9, 0)),
+                inventoryAt(SEOUL_ID, INVENTORY_ID, 0, LocalDateTime.of(2026, 10, 1, 9, 0))));
+
+        mockMvc.perform(productRequest(PRODUCT_ID, "MASTER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.hubId").value(BUSAN_ID.toString()))
+                .andExpect(jsonPath("$.data.quantity").value(0));
+    }
+
+    @Test
+    void 수량이_남은_재고가_여러_허브에_있으면_409를_반환한다() throws Exception {
+        given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(
+                inventoryAt(SEOUL_ID, INVENTORY_ID, 10, LocalDateTime.of(2026, 10, 1, 9, 0)),
+                inventoryAt(BUSAN_ID, BUSAN_INVENTORY_ID, 20, LocalDateTime.of(2026, 10, 10, 9, 0))));
 
         mockMvc.perform(productRequest(PRODUCT_ID, "MASTER"))
                 .andExpect(status().isConflict())
@@ -854,6 +895,16 @@ class InventoryControllerTest {
     private Inventory seoulInventory(int quantity) {
         Inventory inventory = Inventory.builder().hub(seoulHub()).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", INVENTORY_ID);
+        return inventory;
+    }
+
+    // 같은 상품의 재고가 여러 허브에 있는 경우용 (createdAt은 JPA Auditing이 채우는 값이라 직접 넣는다)
+    private Inventory inventoryAt(UUID hubId, UUID inventoryId, int quantity, LocalDateTime createdAt) {
+        Hub hub = Hub.builder().hubName("허브").address("주소").build();
+        ReflectionTestUtils.setField(hub, "id", hubId);
+        Inventory inventory = Inventory.builder().hub(hub).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        ReflectionTestUtils.setField(inventory, "id", inventoryId);
+        ReflectionTestUtils.setField(inventory, "createdAt", createdAt);
         return inventory;
     }
 }

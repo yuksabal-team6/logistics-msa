@@ -38,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -122,7 +123,7 @@ public class InventoryService {
     }
 
     // 상품별 재고는 MASTER 또는 해당 상품의 업체(COMPANY)가 조회할 수 있다.
-    // 상품 재고는 업체 관리 허브 한 곳에만 생겨 0~1건이라 단건으로 응답하고, 없으면 404
+    // 상품 재고는 업체 관리 허브 한 곳에만 생겨 단건으로 응답하고, 없으면 404 (관리 허브가 바뀐 경우는 findSingleInventoryByProduct)
     // COMPANY는 재고의 업체를 알아야 소유권을 판단할 수 있어 조회 후에 403을 확인한다
     // company 호출(#2)을 기다리는 동안 DB 커넥션을 잡지 않도록 트랜잭션 없이 실행한다 (재고 조회는 Repository가 짧게 처리)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -288,6 +289,9 @@ public class InventoryService {
                         "inventoryId"));
     }
 
+    // 업체 관리 허브가 바뀌면 이전 허브에 재고 행이 이력으로 남아(수량 0, 삭제하지 않음) 같은 상품 재고가 여러 건이 된다
+    // 실물이 있는 재고(수량 > 0)만 현재 재고로 보고, 전부 0이면 가장 최근에 생긴 재고(현재 관리 허브)로 응답한다
+    // 수량이 남은 재고가 두 허브 이상이면 어느 쪽인지 정할 수 없어 409 (company가 재고·주문이 남으면 허브 변경을 막는다)
     private Inventory findSingleInventoryByProduct(UUID productId) {
         List<Inventory> inventories = inventoryRepository.findByProductId(productId);
         if (inventories.isEmpty()) {
@@ -296,11 +300,22 @@ public class InventoryService {
                     "존재하지 않는 재고입니다.",
                     "productId");
         }
-        // 업체 허브가 바뀌어 같은 상품 재고가 여러 허브에 생긴 경우 (지금은 고려하지 않는 상황)
-        if (inventories.size() > 1) {
-            throw new BusinessException(HubErrorCode.INVENTORY_CONFLICT);
+        if (inventories.size() == 1) {
+            return inventories.get(0);
         }
-        return inventories.get(0);
+
+        List<Inventory> inStock = inventories.stream()
+                .filter(inventory -> inventory.getQuantity() > 0)
+                .toList();
+        if (inStock.size() == 1) {
+            return inStock.get(0);
+        }
+        if (inStock.isEmpty()) {
+            return inventories.stream()
+                    .max(Comparator.comparing(Inventory::getCreatedAt))
+                    .orElseThrow();
+        }
+        throw new BusinessException(HubErrorCode.INVENTORY_CONFLICT);
     }
 
     // 업체 관리자(ownerId) 본인만 허용. 업체가 없거나 삭제되면(404) 소유권을 확인할 수 없어 403
