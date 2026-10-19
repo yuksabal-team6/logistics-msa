@@ -114,6 +114,7 @@ services:
       <<: *service-env
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       SLACK_ADMIN_WEBHOOK_URL: ${SLACK_ADMIN_WEBHOOK_URL:-}
+      ORDER_LOG_LEVEL: ${ORDER_LOG_LEVEL:-INFO}
 
   delivery-service:
     <<: *service

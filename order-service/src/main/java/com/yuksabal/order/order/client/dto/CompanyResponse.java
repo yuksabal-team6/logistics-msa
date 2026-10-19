@@ -8,6 +8,8 @@ public record CompanyResponse(
         String companyName,
         UUID hubId,
         String address,
-        UUID ownerId
+        UUID ownerId,
+        // false면 새 주문 불가 (공급 업체, 요청 업체 모두)
+        boolean active
 ) {
 }

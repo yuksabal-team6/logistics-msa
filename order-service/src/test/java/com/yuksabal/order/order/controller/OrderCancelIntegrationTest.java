@@ -121,6 +121,20 @@ class OrderCancelIntegrationTest {
     }
 
     @Test
+    void 요청_업체가_비활성이어도_관리자는_진행_중_주문을_취소할_수_있다() throws Exception {
+        Order order = saveConfirmed();
+        UUID ownerId = UUID.randomUUID();
+        given(companyClient.getCompany(order.getRequestCompanyId())).willReturn(ApiResponse.success(
+                new CompanyResponse(order.getRequestCompanyId(), "요청 업체", order.getArrivalHubId(), "부산", ownerId, false)));
+        givenCancelSucceeds(order);
+
+        // 비활성은 새 주문만 막고, 이미 확정된 주문의 취소는 그대로 (#143)
+        cancel(order.getId(), ownerId, "COMPANY")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+    }
+
+    @Test
     void MASTER는_company_호출_없이_취소할_수_있다() throws Exception {
         Order order = saveConfirmed();
         givenCancelSucceeds(order);
@@ -347,7 +361,7 @@ class OrderCancelIntegrationTest {
 
     private void givenRequestCompanyOwner(Order order, UUID ownerId) {
         given(companyClient.getCompany(order.getRequestCompanyId())).willReturn(ApiResponse.success(
-                new CompanyResponse(order.getRequestCompanyId(), "요청 업체", order.getArrivalHubId(), "부산", ownerId)));
+                new CompanyResponse(order.getRequestCompanyId(), "요청 업체", order.getArrivalHubId(), "부산", ownerId, true)));
     }
 
     private void givenCancelSucceeds(Order order) {

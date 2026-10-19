@@ -88,7 +88,7 @@ class OrderCancelConcurrencyTest {
         given(companyClient.getCompany(order.getRequestCompanyId())).willAnswer(invocation -> {
             allArrived.countDown();
             allArrived.await(5, TimeUnit.SECONDS);
-            return ApiResponse.success(new CompanyResponse(order.getRequestCompanyId(), "요청 업체", UUID.randomUUID(), "주소", ownerId));
+            return ApiResponse.success(new CompanyResponse(order.getRequestCompanyId(), "요청 업체", UUID.randomUUID(), "주소", ownerId, true));
         });
         given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
         given(hubClient.restoreStock(any())).willReturn(

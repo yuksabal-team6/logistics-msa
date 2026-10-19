@@ -55,6 +55,7 @@ import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -100,11 +101,11 @@ class OrderCreateIntegrationTest {
         orderRepository.deleteAllInBatch();
         given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, true)));
         given(companyClient.getProduct(productId)).willReturn(
-                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId)));
+                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, true)));
         given(companyClient.getCompany(supplierId)).willReturn(
-                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", supplierHubId, "주소1", UUID.randomUUID())));
+                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", supplierHubId, "주소1", UUID.randomUUID(), true)));
         given(companyClient.getCompany(requesterId)).willReturn(
-                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID())));
+                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID(), true)));
         given(hubClient.decreaseStock(any())).willReturn(
                 ApiResponse.success(new StockDecreaseResponse(supplierHubId, productId, 95, null)));
         given(deliveryClient.createDelivery(any())).willReturn(
@@ -154,7 +155,7 @@ class OrderCreateIntegrationTest {
     @Test
     void 공급_업체의_상품이_아니면_400이고_저장_안함() throws Exception {
         given(companyClient.getProduct(productId)).willReturn(
-                ApiResponse.success(new ProductResponse(productId, "다른 업체 상품", 12_000L, UUID.randomUUID())));
+                ApiResponse.success(new ProductResponse(productId, "다른 업체 상품", 12_000L, UUID.randomUUID(), true)));
 
         create(validBody())
                 .andExpect(status().isBadRequest())
@@ -163,6 +164,49 @@ class OrderCreateIntegrationTest {
 
         assertThat(orderRepository.count()).isZero();
         verify(hubClient, never()).decreaseStock(any());
+    }
+
+    // ---------- 비활성 상품, 업체 (#143) ----------
+
+    @Test
+    void 비활성_상품이면_422이고_저장_안함() throws Exception {
+        given(companyClient.getProduct(productId)).willReturn(
+                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, false)));
+
+        assertInactiveRejected("productId", "비활성 상품은 주문할 수 없습니다.");
+    }
+
+    @Test
+    void 비활성_공급_업체면_422이고_저장_안함() throws Exception {
+        // 실제 company 응답처럼 공급 업체가 비활성이면 상품 active도 false. 이때 상품이 아니라 공급 업체 오류로 나가야 함
+        given(companyClient.getProduct(productId)).willReturn(
+                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, false)));
+        given(companyClient.getCompany(supplierId)).willReturn(
+                ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", supplierHubId, "주소1", UUID.randomUUID(), false)));
+
+        assertInactiveRejected("supplierCompanyId", "비활성 공급 업체의 상품은 주문할 수 없습니다.");
+    }
+
+    @Test
+    void 비활성_요청_업체면_422이고_저장_안함() throws Exception {
+        given(companyClient.getCompany(requesterId)).willReturn(
+                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID(), false)));
+
+        assertInactiveRejected("requestCompanyId", "비활성 업체로는 주문할 수 없습니다.");
+    }
+
+    // 주문 저장 전에 막혀서 재고 차감, 배송 생성, Slack 없음
+    private void assertInactiveRejected(String field, String message) throws Exception {
+        create(validBody())
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.message").value(message))
+                .andExpect(jsonPath("$.error.details[0].field").value(field));
+
+        assertThat(orderRepository.count()).isZero();
+        verify(hubClient, never()).decreaseStock(any());
+        verify(deliveryClient, never()).createDelivery(any());
+        verifyNoInteractions(slackNotifier);
     }
 
     @Test
@@ -268,6 +312,67 @@ class OrderCreateIntegrationTest {
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
         verify(hubClient, never()).decreaseStock(any());
+    }
+
+    // ---------- 3-2. 저장 후 상품, 업체 재확인 (업체 삭제와 경합) ----------
+
+    @Test
+    void 저장_후_재확인에서_상품_비활성이면_422이고_FAILED_NOT_REQUIRED() throws Exception {
+        // 첫 확인은 활성, 저장 뒤 두 번째 확인 사이에 company가 비활성화한 상황
+        given(companyClient.getProduct(productId)).willReturn(
+                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, true)),
+                ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, false)));
+
+        create(validBody())
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.error.details[0].field").value("productId"));
+
+        assertRecheckFailed();
+    }
+
+    @Test
+    void 저장_후_재확인에서_요청_업체_비활성이면_422이고_FAILED_NOT_REQUIRED() throws Exception {
+        given(companyClient.getCompany(requesterId)).willReturn(
+                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID(), true)),
+                ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID(), false)));
+
+        create(validBody())
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.details[0].field").value("requestCompanyId"));
+
+        assertRecheckFailed();
+    }
+
+    @Test
+    void 저장_후_재확인에서_요청_업체가_삭제됐으면_404이고_FAILED_NOT_REQUIRED() throws Exception {
+        given(companyClient.getCompany(requesterId))
+                .willReturn(ApiResponse.success(new CompanyResponse(requesterId, "요청 업체", requesterHubId, "주소2", UUID.randomUUID(), true)))
+                .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "존재하지 않거나 삭제된 업체입니다.", List.of()));
+
+        create(validBody())
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+
+        assertRecheckFailed();
+    }
+
+    @Test
+    void 정상_흐름이면_저장_후_상품과_요청_업체를_한_번_더_확인() throws Exception {
+        create(validBody()).andExpect(status().isCreated());
+
+        verify(companyClient, times(2)).getProduct(productId);
+        verify(companyClient, times(2)).getCompany(requesterId);
+        verify(companyClient, times(1)).getCompany(supplierId);
+    }
+
+    // 재고 차감 전에 막혀서 보상 없음
+    private void assertRecheckFailed() {
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+        verify(hubClient, never()).decreaseStock(any());
+        verify(deliveryClient, never()).createDelivery(any());
     }
 
     @Test

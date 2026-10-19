@@ -81,7 +81,7 @@ public class OrderCancelService {
         orderCompensator.restoreStock(order, CANCEL_REASON);
 
         Order cancelled = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(orderId));
-        log.debug("[주문 취소] 완료 orderId={}, 보상={}", orderId, cancelled.getCompensationStatus());
+        log.info("[주문 취소] 완료 orderId={}, 보상={}", orderId, cancelled.getCompensationStatus());
         return OrderResponse.from(cancelled);
     }
 

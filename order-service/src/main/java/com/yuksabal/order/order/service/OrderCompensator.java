@@ -117,7 +117,7 @@ public class OrderCompensator {
     private void finishCompensation(Order order, boolean success, String reason) {
         if (success) {
             transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(order.getId()).completeCompensation());
-            log.debug("[보상] 완료 orderId={} → 보상 COMPLETED", order.getId());
+            log.info("[보상] 완료 orderId={} → 보상 COMPLETED", order.getId());
             return;
         }
         Order failed = transactionTemplate.execute(status -> {

@@ -9,8 +9,10 @@ import com.yuksabal.order.order.dto.response.OrderCompleteResponse;
 import com.yuksabal.order.order.dto.response.OrderInProgressResponse;
 import com.yuksabal.order.order.dto.response.OrderResponse;
 import com.yuksabal.order.order.entity.Order;
+import com.yuksabal.order.order.entity.OrderStatus;
 import com.yuksabal.order.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -29,6 +31,7 @@ import static com.yuksabal.order.order.repository.OrderSpecification.*;
 /**
  * 주문 서비스 로직을 정의한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -75,6 +78,7 @@ public class OrderService {
     public OrderResponse getOrder(UUID orderId, UUID userId, UserRole role) {
         Order order = orderRepository.findByIdOrThrow(orderId);
         if (role != UserRole.MASTER && !order.isOrderedBy(userId)) {
+            log.warn("[주문 조회] 권한 없음 orderId={}, userId={}, role={}", orderId, userId, role);
             throw new BusinessException(FORBIDDEN, "본인 주문만 조회할 수 있습니다.");
         }
         return OrderResponse.from(order);
@@ -93,14 +97,17 @@ public class OrderService {
     @Transactional
     public void deleteOrder(UUID orderId, UUID userId, UserRole role) {
         if (role != UserRole.MASTER) {
+            log.warn("[주문 삭제] 권한 없음 orderId={}, userId={}, role={}", orderId, userId, role);
             throw new BusinessException(FORBIDDEN, "주문은 MASTER만 삭제할 수 있습니다.");
         }
         Order order = orderRepository.findByIdOrThrow(orderId);
         if (!order.isDeletable()) {
+            log.warn("[주문 삭제] 삭제 불가 orderId={}, status={}, 보상={}", orderId, order.getStatus(), order.getCompensationStatus());
             throw new BusinessException(OrderErrorCode.ORDER_NOT_DELETABLE,
                     "완료된 주문 또는 보상이 끝난 실패/취소 주문만 삭제할 수 있습니다.", "orderId");
         }
         order.delete(userId);
+        log.info("[주문 삭제] orderId={}, 삭제자={}", orderId, userId);
     }
 
     /**
@@ -113,7 +120,15 @@ public class OrderService {
     @Transactional
     public OrderCompleteResponse completeOrder(UUID orderId) {
         Order order = orderRepository.findByIdOrThrow(orderId);
-        order.complete();
+        OrderStatus before = order.getStatus();
+        try {
+            order.complete();
+        } catch (BusinessException e) {
+            log.warn("[주문 완료] 완료 불가 orderId={}, status={}", orderId, before);
+            throw e;
+        }
+        log.info("[주문 완료] orderId={}, {}", orderId,
+                before == OrderStatus.COMPLETED ? "이미 COMPLETED, 변경 없음" : before + " → COMPLETED");
         return OrderCompleteResponse.from(order);
     }
 
@@ -126,6 +141,34 @@ public class OrderService {
      */
     public OrderInProgressResponse hasInProgressOrder(UUID ordererId) {
         boolean exists = orderRepository.exists(ordererIdEquals(ordererId).and(inProgress()));
-        return new OrderInProgressResponse(ordererId, exists);
+        log.debug("[진행 중 주문] ordererId={}, 결과={}", ordererId, exists);
+        return OrderInProgressResponse.ofOrderer(ordererId, exists);
+    }
+
+    /**
+     * 특정 상품의 진행 중 주문 존재 여부를 확인한다.
+     * company에서 상품 삭제 전 확인한다.
+     *
+     * @param productId 진행 중 주문 존재 여부를 확인할 상품 ID
+     * @return 진행 중 주문 존재 여부를 담은 응답 DTO
+     */
+    public OrderInProgressResponse hasInProgressOrderByProduct(UUID productId) {
+        boolean exists = orderRepository.exists(productIdEquals(productId).and(inProgress()));
+        log.debug("[진행 중 주문] productId={}, 결과={}", productId, exists);
+        return OrderInProgressResponse.ofProduct(productId, exists);
+    }
+
+    /**
+     * 업체의 진행 중 주문 존재 여부를 확인한다.
+     * company에서 업체 삭제 전 확인한다. (공급, 요청 업체 모두 확인)
+     *
+     * @param companyId 진행 중 주문 존재 여부를 확인할 업체 ID
+     * @return 진행 중 주문 존재 여부를 담은 응답 DTO
+     */
+    public OrderInProgressResponse hasInProgressOrderByCompany(UUID companyId) {
+        boolean exists = orderRepository.exists(
+                supplierCompanyIdEquals(companyId).or(requestCompanyIdEquals(companyId)).and(inProgress()));
+        log.debug("[진행 중 주문] companyId={}, 결과={}", companyId, exists);
+        return OrderInProgressResponse.ofCompany(companyId, exists);
     }
 }
