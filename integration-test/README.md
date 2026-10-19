@@ -25,7 +25,10 @@ docker compose -f docker-compose.yml -f docker-compose.it.yml up -d --build
 
 ## 시나리오 추가
 
-1. 노션 시나리오를 흐름 단위 테스트 클래스에 메서드로 옮긴다 (`@DisplayName`에 노션 이름).
+1. 노션 시나리오를 접두사별 테스트 클래스에 메서드로 옮긴다 (`@DisplayName`에 노션 이름 그대로).
+   - ORD → `order/OrderScenarioTest`, DLV → `delivery/DeliveryScenarioTest`, CMP → `company/CompanyScenarioTest`,
+     USR → `user/UserScenarioTest`, HUB → `hub/HubScenarioTest`
+   - 커밋은 시나리오 하나당 하나 (메시지에 노션 이름, 예: `[test] ORD-1 회원 주문 생성 시나리오 추가 #167`)
 2. 기대와 다르면 서비스별 버그 이슈를 만들고 `@Disabled("#이슈번호")`로 표시한 뒤 머지한다.
 3. 노션 시나리오 상태를 통과 / 이슈 생성으로 바꾼다.
 
