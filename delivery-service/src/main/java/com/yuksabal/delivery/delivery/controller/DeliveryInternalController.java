@@ -33,7 +33,8 @@ public class DeliveryInternalController {
     private final DeliveryService deliveryService;
 
 
-    @Operation(summary = "배송 생성", description = "같은 orderId로 다시 요청하면 기존 배송을 반환한다.")
+    @Operation(summary = "배송 생성", description = "같은 orderId로 다시 요청하면 기존 배송을 반환한다. "
+            + "ordererId는 선택. 넣으면 주문자 본인(역할 무관)이 배송을 조회할 수 있다.")
     @ApiErrorCodes(common = {CommonErrorCode.VALIDATION_ERROR})
     @PostMapping
     public ResponseEntity<ApiResponse<DeliveryCreateResponse>> createDelivery(

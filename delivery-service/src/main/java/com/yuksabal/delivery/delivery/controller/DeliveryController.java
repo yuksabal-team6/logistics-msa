@@ -46,7 +46,9 @@ public class DeliveryController {
 
     // ?deliveryStatus=&departureHubId=&destinationHubId=&deliveryManagerId=&page=0&size=20&sort=createdAt,desc (조건은 모두 선택)
     @Operation(summary = "배송 목록 조회 및 검색",
-            description = "DELIVERY는 본인 담당 배송만 조회한다. 정렬 가능: createdAt")
+            description = "MASTER는 전체, 그 외에는 본인이 주문한 배송만 조회한다. "
+                    + "DELIVERY는 본인 담당(배송 담당자 또는 경로 기록 담당자) 배송도 조회한다. "
+                    + "주문자 정보가 없는 배송은 MASTER와 담당 DELIVERY만 조회할 수 있다. 정렬 가능: createdAt")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN})
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<DeliveryResponse>>> getDeliveries(
@@ -60,7 +62,8 @@ public class DeliveryController {
     }
 
     @Operation(summary = "배송 상세 조회",
-            description = "배송이 없으면 404. DELIVERY가 본인 담당이 아닌 배송을 조회하면 403.")
+            description = "배송이 없으면 404. MASTER, 주문자 본인(역할 무관), "
+                    + "담당 DELIVERY(배송 담당자 또는 경로 기록 담당자)가 아니면 403.")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {DELIVERY_ACCESS_DENIED})
     @GetMapping("/{deliveryId}")
     public ResponseEntity<ApiResponse<DeliveryResponse>> getDelivery(

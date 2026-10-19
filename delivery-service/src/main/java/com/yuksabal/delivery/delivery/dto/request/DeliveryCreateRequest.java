@@ -28,7 +28,11 @@ public record DeliveryCreateRequest(
         @NotBlank @Size(max = 100) String recipientName,
 
         @Schema(description = "수령인 Slack ID (선택)", example = "sparta")
-        @Size(max = 100) String recipientSlackId
+        @Size(max = 100) String recipientSlackId,
+
+        @Schema(description = "주문자 ID (선택). 없으면 MASTER와 담당 DELIVERY만 이 배송을 조회할 수 있다",
+                example = "00000000-0000-0000-0000-000000000101")
+        UUID ordererId
 ) {
 
     public Delivery toEntity(){
@@ -37,6 +41,7 @@ public record DeliveryCreateRequest(
                 .departureHubId(departureHubId)
                 .destinationHubId(destinationHubId)
                 .destinationCompanyId(destinationCompanyId)
+                .ordererId(ordererId)
                 .address(address)
                 .recipientName(recipientName)
                 .recipientSlackId(recipientSlackId)

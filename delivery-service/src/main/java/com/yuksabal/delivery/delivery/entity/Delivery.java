@@ -43,6 +43,9 @@ public class Delivery extends BaseEntity {
     // 허브 → 업체 배송 담당자 → user-service p_users.user_id
     private UUID deliveryManagerId;
 
+    // 주문자 → user-service p_users.user_id. 조회 권한(주문자 본인)에 쓴다. 이 필드 추가 전 배송은 null
+    private UUID ordererId;
+
     @Column(nullable = false, length = 500)
     private String address;
 
@@ -66,17 +69,24 @@ public class Delivery extends BaseEntity {
 
     @Builder
     public Delivery(UUID orderId, UUID departureHubId, UUID destinationHubId, UUID destinationCompanyId,
-                    UUID deliveryManagerId, String address, String recipientName, String recipientSlackId) {
+                    UUID deliveryManagerId, UUID ordererId, String address, String recipientName,
+                    String recipientSlackId) {
         this.orderId = orderId;
         this.departureHubId = departureHubId;
         this.destinationHubId = destinationHubId;
         this.destinationCompanyId = destinationCompanyId;
         this.deliveryManagerId = deliveryManagerId;
+        this.ordererId = ordererId;
         this.address = address;
         this.recipientName = recipientName;
         this.recipientSlackId = recipientSlackId;
         this.deliveryStatus = DeliveryStatus.READY;
 
+    }
+
+    // ordererId가 없는 배송(필드 추가 전)은 누구의 주문도 아니다
+    public boolean isOrderedBy(UUID userId) {
+        return userId.equals(ordererId);
     }
 
     public boolean isCancelled() {

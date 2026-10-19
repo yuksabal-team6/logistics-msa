@@ -42,7 +42,8 @@ public class DeliveryRouteLogController {
 
     @Operation(summary = "배송 경로 기록 목록 조회",
             description = "배송당 0~1건이라 페이징 없이 목록으로 응답한다. 같은 허브 배송이면 빈 목록. "
-                    + "배송이 없으면 404. DELIVERY는 배송 담당자 또는 경로 기록 담당자가 아니면 403.")
+                    + "배송이 없으면 404. MASTER, 주문자 본인(역할 무관), "
+                    + "담당 DELIVERY(배송 담당자 또는 경로 기록 담당자)가 아니면 403.")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {DELIVERY_ACCESS_DENIED})
     @GetMapping
     public ResponseEntity<ApiResponse<List<DeliveryRouteLogResponse>>> getRouteLogs(
@@ -56,7 +57,7 @@ public class DeliveryRouteLogController {
 
     @Operation(summary = "배송 경로 기록 상세 조회",
             description = "배송이나 경로 기록이 없거나 그 배송의 경로 기록이 아니면 404. "
-                    + "DELIVERY는 배송 담당자 또는 경로 기록 담당자가 아니면 403.")
+                    + "MASTER, 주문자 본인(역할 무관), 담당 DELIVERY(배송 담당자 또는 경로 기록 담당자)가 아니면 403.")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {DELIVERY_ACCESS_DENIED})
     @GetMapping("/{routeLogId}")
     public ResponseEntity<ApiResponse<DeliveryRouteLogResponse>> getRouteLog(
