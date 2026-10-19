@@ -57,4 +57,22 @@ class OrderScenarioTest {
         JsonNode delivery = Gateway.get("/api/v1/deliveries/" + order.uuid("deliveryId"), s.master).expect(200).data();
         assertThat(delivery.path("deliveryStatus").asText()).isEqualTo("CANCELLED");
     }
+
+    @Test
+    @DisplayName("ORD-4. 재고보다 많은 수량 주문: hub 409 그대로, 주문 FAILED + 보상 불필요, 재고 그대로")
+    void ord4_재고보다_많은_수량_주문() {
+        Response order = s.order(s.u.token(), INITIAL_STOCK + 1);
+
+        // hub의 재고 부족(409 INSUFFICIENT_STOCK)을 order가 그대로 전달한다
+        assertThat(order.status()).as("%s", order).isEqualTo(409);
+        assertThat(order.error().path("code").asText()).isEqualTo("INSUFFICIENT_STOCK");
+        assertThat(order.errorFields()).containsExactly("quantity");
+        assertThat(s.stockOfP()).isEqualTo(INITIAL_STOCK);
+
+        // 주문은 PENDING으로 저장된 뒤 FAILED로 남는다. 재고가 빠지지 않았으니 되돌릴 것도 없다
+        JsonNode orders = Gateway.get("/api/v1/orders?size=100", s.u.token()).expect(200).data().path("items");
+        assertThat(orders).as("u의 주문 목록").hasSize(1);
+        assertThat(orders.get(0).path("status").asText()).isEqualTo("FAILED");
+        assertThat(orders.get(0).path("compensationStatus").asText()).isEqualTo("NOT_REQUIRED");
+    }
 }
