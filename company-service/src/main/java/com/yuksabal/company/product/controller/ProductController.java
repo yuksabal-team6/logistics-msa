@@ -6,6 +6,7 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.global.swagger.ApiErrorCodes;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
+import com.yuksabal.company.product.dto.request.ProductStatusRequest;
 import com.yuksabal.company.product.dto.request.ProductUpdateRequest;
 import com.yuksabal.company.product.dto.response.ProductResponse;
 import com.yuksabal.company.product.service.ProductService;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
@@ -95,6 +97,23 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(
                 productService.updateProduct(productId, request, userId, UserRole.from(role)),
                 "상품이 수정되었습니다."));
+    }
+
+    // 상태 변경: 200 + ApiResponse.success(data, message). MASTER 또는 소속 업체 관리자, 같은 상태면 변경 없이 200
+    @Operation(summary = "상품 활성화·비활성화",
+            description = "비활성 상품은 새 주문·입고가 막히고, 진행 중인 주문·배송은 그대로 진행된다. "
+                    + "비활성 업체의 상품은 활성화할 수 없다(422). 같은 상태면 변경 없이 200")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, BUSINESS_RULE_VIOLATION}, value = {COMPANY_ACCESS_DENIED})
+    @PatchMapping("/products/{productId}/status")
+    public ResponseEntity<ApiResponse<ProductResponse>> changeProductStatus(
+            @PathVariable UUID productId,
+            @Valid @RequestBody ProductStatusRequest request,
+            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("X-User-Role") String role) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                productService.changeProductStatus(productId, request, userId, UserRole.from(role)),
+                "상품 상태가 변경되었습니다."));
     }
 
     // 삭제: 200 + ApiResponse.success(null, message). MASTER 또는 소속 업체 관리자, 응답 data 없음
