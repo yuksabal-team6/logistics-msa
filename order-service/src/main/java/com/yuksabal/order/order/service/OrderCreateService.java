@@ -270,7 +270,7 @@ public class OrderCreateService {
             notifyUnexpectedError(order, "주문 확정 저장 중 예상하지 못한 오류");
             throw e;
         }
-        log.debug("[주문 생성] 6. CONFIRMED 확정 orderId={}, orderNumber={}", confirmed.getId(), confirmed.getOrderNumber());
+        log.info("[주문 생성] 6. CONFIRMED 확정 orderId={}, orderNumber={}", confirmed.getId(), confirmed.getOrderNumber());
         return confirmed;
     }
 
