@@ -112,6 +112,7 @@ public class OrderService {
 
     /**
      * 배송 완료 시 주문을 완료 처리한다. (delivery 호출)
+     * <p>
      * CONFIRMED 주문만 COMPLETED로 변경, 이미 COMPLETED면 변경하지 않고 응답한다.
      *
      * @param orderId 완료 처리할 주문 ID

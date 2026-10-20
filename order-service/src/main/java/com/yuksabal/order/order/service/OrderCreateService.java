@@ -121,8 +121,8 @@ public class OrderCreateService {
      * active 필드가 비활성인 경우 예외를 발생시킨다.
      * 비활성 상품, 업체는 주문할 수 없다.
      *
-     * @param active 확인 대상 객체의 활성 상태
-     * @param field 확인 대상 필드명
+     * @param active  확인 대상 객체의 활성 상태
+     * @param field   확인 대상 필드명
      * @param message 에러 메시지
      */
     private void validateActive(boolean active, String field, String message) {
@@ -329,7 +329,7 @@ public class OrderCreateService {
      * 보상이 완료된 주문에서 예상치 못한 오류가 발생하면 Slack으로 확인 알림을 보낸다.
      * 보상 실패 시에는 수동 처리 알림이 미리 전송되므로 완료일 때만 전송한다.
      *
-     * @param order 확인 대산 주문 엔티티
+     * @param order  확인 대상 주문 엔티티
      * @param reason 오류 사유
      */
     private void notifyUnexpectedError(Order order, String reason) {
@@ -341,8 +341,10 @@ public class OrderCreateService {
 
     /**
      * 동일한 Idempotency-Key로 재요청 시 기존 주문 상태에 따라 처리한다.
-     * 다른 회원의 요청, 처리 중이거나 실패한 주문은 409 예외를 발생시킨다.
-     * 그 외 상태는 기존 주문 정보를 반환한다.
+     * <ul>
+     *     <li>다른 회원의 요청, 처리 중이거나 실패한 주문은 409 예외를 발생시킨다.</li>
+     *     <li>그 외 상태는 기존 주문 정보를 반환한다.</li>
+     * </ul>
      *
      * @param existing 동일한 키로 저장된 기존 주문 엔티티
      * @param request  재요청한 주문 생성 요청 dto
@@ -352,6 +354,7 @@ public class OrderCreateService {
     private OrderCreateResponse replayExisting(Order existing, OrderCreateRequest request, UUID userId) {
         log.debug("[주문 생성] 같은 Idempotency-Key 재요청 orderId={}, status={}", existing.getId(), existing.getStatus());
         if (!existing.isOrderedBy(userId)) {
+
             // UUID라 우연히 겹칠 일은 거의 없음 → 다른 회원 키 재사용은 비정상 요청
             log.warn("[주문 생성] 다른 회원의 Idempotency-Key 사용 orderId={}, 요청 userId={}", existing.getId(), userId);
             throw new BusinessException(OrderErrorCode.IDEMPOTENCY_KEY_CONFLICT);
@@ -383,7 +386,8 @@ public class OrderCreateService {
         UserResponse orderer = userClient.getUser(userId).data();
         log.debug("[주문 생성] {} userId={}, active={}", step, userId, orderer.active());
         if (!orderer.active()) {
-            // TODO common에 ACCOUNT_DISABLED(403)가 추가되면 그 코드로 교체 (user 명세 변경 공지)
+
+            // ACCOUNT_DISABLED는 user 전용 코드라 order는 공통 FORBIDDEN(403) 사용
             throw new BusinessException(FORBIDDEN, "비활성화된 회원은 주문할 수 없습니다.");
         }
     }
@@ -400,6 +404,14 @@ public class OrderCreateService {
     }
 
     // 1, 2단계 조회 결과 (상품, 공급 업체, 요청 업체)
+
+    /**
+     * 주문 생성 1,2 단계 에서 조회 결과 3개를 넘기는 용도로 사용한다.
+     *
+     * @param product   요청 업체 엔티티
+     * @param supplier  공급 업체
+     * @param requester
+     */
     private record OrderSource(ProductResponse product, CompanyResponse supplier, CompanyResponse requester) {
     }
 }
