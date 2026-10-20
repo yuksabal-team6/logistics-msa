@@ -123,7 +123,7 @@ public class OrderController {
                     
                     **허브 출발 전에만** 가능하며, 취소하면 재고를 복원합니다.
                     
-                    확정(CONFIRMED)된 주문만 취소할 수 있습니다. 이미 출발한 배송이면 delivery의 **409 INVALID_STATUS_TRANSITION**을, 다른 요청이 배송을 수정 중이면 **409 DELIVERY_CONFLICT**를 그대로 응답합니다.
+                    확정(CONFIRMED)된 주문만 취소할 수 있습니다. 이미 출발한 배송이면 delivery의 **409 INVALID_STATUS_TRANSITION**을, 다른 요청이 배송을 수정 중이면 **409 DELIVERY_CONFLICT**를 그대로 응답합니다. 배송이 이미 완료됐으면 **409 DELIVERY_ALREADY_COMPLETED**를 응답하고 주문은 COMPLETED가 됩니다.
                     
                     배송 취소 결과를 확인하지 못하면 **502**를 응답하며, 취소 상태는 유지되고 운영자가 확인합니다.
                     """)

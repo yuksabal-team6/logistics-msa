@@ -248,6 +248,27 @@ class OrderCancelIntegrationTest {
         assertReverted(order);
     }
 
+    // #196: 배송 완료와 취소가 겹쳐 완료 알림(#10)이 취소 중이라 거절된 경우. 되돌리지 않고 COMPLETED로 맞춘다
+    @Test
+    void 배송이_이미_완료됐으면_409_그대로_주고_주문은_COMPLETED() throws Exception {
+        Order order = saveConfirmed();
+        given(deliveryClient.cancelDelivery(any())).willThrow(new FeignClientException(
+                409, "DELIVERY_ALREADY_COMPLETED", "이미 완료된 배송입니다.", List.of()));
+
+        cancel(order.getId(), ordererId, "USER")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DELIVERY_ALREADY_COMPLETED"));
+
+        Order saved = orderRepository.findById(order.getId()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+        assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+        verifyNoInteractions(hubClient, slackNotifier);
+
+        // 늦게 다시 온 완료 알림(#10)은 이미 COMPLETED라 그대로 200
+        mockMvc.perform(post("/internal/orders/" + order.getId() + "/complete"))
+                .andExpect(status().isOk());
+    }
+
     @Test
     void delivery_동시_수정_409_DELIVERY_CONFLICT도_되돌리고_그대로() throws Exception {
         Order order = saveConfirmed();

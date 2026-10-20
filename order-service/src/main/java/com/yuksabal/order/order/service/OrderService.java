@@ -120,9 +120,9 @@ public class OrderService {
     @Transactional
     public OrderCompleteResponse completeOrder(UUID orderId) {
         Order order = orderRepository.findByIdOrThrow(orderId);
-        OrderStatus before = order.getStatus();
+        OrderStatus before = order.getStatus(); // 바꾸기 전 상태 저장
         try {
-            order.complete();
+            order.complete(); // order status를 completed 로 변경
         } catch (BusinessException e) {
             log.warn("[주문 완료] 완료 불가 orderId={}, status={}", orderId, before);
             throw e;
