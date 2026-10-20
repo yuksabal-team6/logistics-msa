@@ -37,8 +37,25 @@ import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLAT
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 
-// 주문 생성 Saga (결정 17, 18, 21). order가 user, company, hub, delivery를 차례로 호출하고 실패하면 보상
-// 외부 호출은 트랜잭션 밖, DB 저장만 짧은 트랜잭션 (TransactionTemplate)
+/**
+ * Saga 패턴을 이용해 주문 생성 과정을 관리한다.
+ *
+ * <p>주문 생성 흐름
+ * <ol>
+ *     <li>멱등성 키 확인, 주문자, 상품, 업체 검증</li>
+ *     <li>주문 생성 (PENDING)</li>
+ *     <li>주문자, 상품, 업체 활성 상태 재확인</li>
+ *     <li>재고 차감 (Hub service)</li>
+ *     <li>배송 생성 (Delivery service)</li>
+ *     <li>주문 확정 (CONFIRMED)</li>
+ *     <li>Slack 주문 알림</li>
+ * </ol>
+ *
+ * <p>실패 시 주문을 FAIELD로 변경하고,
+ * 진행 단계에 따라 재고 복원 및 취소 보상을 수행한다.
+ *
+ * <p>외부 API 호출은 트랜잭션 밖에서 수행하며, DB 변경만 짧은 트랜잭션으로 처리한다. (TransactionTemplate)
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -403,14 +420,12 @@ public class OrderCreateService {
         transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(orderId).fail(compensationStatus));
     }
 
-    // 1, 2단계 조회 결과 (상품, 공급 업체, 요청 업체)
-
     /**
-     * 주문 생성 1,2 단계 에서 조회 결과 3개를 넘기는 용도로 사용한다.
+     * 주문 생성 1,2 단계 에서 조회한 상품 및 업체 정보를 묶어 전달한다.
      *
-     * @param product   요청 업체 엔티티
-     * @param supplier  공급 업체
-     * @param requester
+     * @param product   상품 조회 응답 DTO
+     * @param supplier  공급 업체 조회 응답 DTO
+     * @param requester 요청 업체 조회 응답 DTO
      */
     private record OrderSource(ProductResponse product, CompanyResponse supplier, CompanyResponse requester) {
     }
