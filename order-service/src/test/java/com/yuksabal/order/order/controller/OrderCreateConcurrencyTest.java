@@ -92,7 +92,7 @@ class OrderCreateConcurrencyTest {
             allArrived.await(5, TimeUnit.SECONDS);
             return ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, true));
         });
-        given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, true)));
+        given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, true, "U12345678")));
         given(companyClient.getCompany(supplierId)).willReturn(
                 ApiResponse.success(new CompanyResponse(supplierId, "공급 업체", UUID.randomUUID(), "주소1", UUID.randomUUID(), true)));
         given(companyClient.getCompany(requesterId)).willReturn(
@@ -146,7 +146,7 @@ class OrderCreateConcurrencyTest {
         // 외부 호출과 알림은 1번씩만
         verify(hubClient, times(1)).decreaseStock(any());
         verify(deliveryClient, times(1)).createDelivery(any());
-        verify(slackNotifier, times(1)).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+        verify(slackNotifier, times(1)).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
     }
 
     private Map<String, Object> body() {
