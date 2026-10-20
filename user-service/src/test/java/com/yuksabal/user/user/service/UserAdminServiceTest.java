@@ -160,6 +160,55 @@ class UserAdminServiceTest {
         verify(transition).restore(hold);
     }
 
+    // ---------- USE-15 다른 서비스 확인 실패 ----------
+
+    @Test
+    void 업무_확인_중_다른_서비스가_실패하면_502이고_비활성화를_되돌린다() {
+        // given
+        givenActiveMasterCount(2L);
+        UserStateTransition transition = mock(UserStateTransition.class);
+        UserStateTransition.Hold hold = new UserStateTransition.Hold(target.getId(), true, null);
+        given(transition.hold(target.getId())).willReturn(hold);
+        ActiveWorkChecker failingDelivery = new ActiveWorkChecker() {
+            @Override
+            public Target target() {
+                return Target.DELIVERY;
+            }
+
+            @Override
+            public List<ActiveWork> findActiveWork(User user) {
+                throw new IllegalStateException("delivery-service timeout");
+            }
+        };
+        UserAdminService failing = service(List.of(failingDelivery), transition);
+
+        // when & then
+        // 원인 메시지(타임아웃 등)는 응답에 싣지 않는다
+        assertThatThrownBy(() -> deactivateTarget(failing))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(CommonErrorCode.DEPENDENCY_FAILURE);
+                    assertThat(e.getMessage()).doesNotContain("timeout");
+                });
+        verify(transition).restore(hold);
+    }
+
+    @Test
+    void 소속_확인이_실패하면_회원_정보를_바꾸지_않는다() {
+        // given
+        User member = companyMember();
+        UUID newHub = UUID.randomUUID();
+        BusinessException hubMissing = new BusinessException(CommonErrorCode.VALIDATION_ERROR, "없는 허브", "hubId");
+        willThrow(hubMissing).given(affiliationValidator).validate(newHub, null);
+        AdminUpdateUserRequest request = new AdminUpdateUserRequest(null, null, "U99", null, newHub, null);
+
+        // when & then
+        assertThatThrownBy(() -> service.updateUser(requester.getId(), UserRole.MASTER, member.getId(), request))
+                .isSameAs(hubMissing);
+        assertThat(member.getHubId()).isNull();
+        assertThat(member.getSlackId()).isEqualTo("U1");
+        verify(userRepository, never()).flush();
+    }
+
     // ---------- USE-14 업체 관리자 정합성 (MASTER 회원 수정) ----------
 
     @Test
