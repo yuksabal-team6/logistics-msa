@@ -63,7 +63,7 @@ class UserInternalControllerIntegrationTest {
     }
 
     @Test
-    void 회원의_ID_아이디_활성_여부_역할_소속을_공통_응답으로_돌려준다() throws Exception {
+    void 회원의_ID_아이디_활성_여부_역할_소속_SlackID를_공통_응답으로_돌려준다() throws Exception {
         // when & then
         getUser(delivery.getId())
                 .andExpect(status().isOk())
@@ -74,17 +74,30 @@ class UserInternalControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.active").value(true))
                 .andExpect(jsonPath("$.data.role").value("DELIVERY"))
                 .andExpect(jsonPath("$.data.hubId").value(HUB.toString()))
-                .andExpect(jsonPath("$.data.companyId").value(COMPANY.toString()));
+                .andExpect(jsonPath("$.data.companyId").value(COMPANY.toString()))
+                .andExpect(jsonPath("$.data.slackId").value("U0DELIVER"));
+    }
+
+    // Slack 알림 멘션용이라 정보 비공개 회원도 slackId를 그대로 준다 (#220, Order 답변)
+    @Test
+    void 정보_비공개_회원도_slackId를_돌려준다() throws Exception {
+        // given
+        delivery.updateProfile(null, null, null, false);
+        userRepository.saveAndFlush(delivery);
+
+        // when & then
+        getUser(delivery.getId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.slackId").value("U0DELIVER"));
     }
 
     @Test
-    void 응답에는_내부_계약_필드만_있고_비밀번호_등_개인_정보는_없다() throws Exception {
+    void 응답에는_내부_계약_필드만_있고_비밀번호_이메일은_없다() throws Exception {
         // when
         String responseBody = getUser(delivery.getId())
-                .andExpect(jsonPath("$.data.*", hasSize(6)))
+                .andExpect(jsonPath("$.data.*", hasSize(7)))
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.email").doesNotExist())
-                .andExpect(jsonPath("$.data.slackId").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
         // then

@@ -291,6 +291,19 @@ class AuthMeIntegrationTest {
                 .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("username", "email", "slackId")));
     }
 
+    // webhook 멘션(<@멤버ID>)에 쓰이므로 수정할 때도 멤버 ID 형식만 받는다 (#220)
+    @Test
+    void SlackID가_멤버_ID_형식이_아니면_400() throws Exception {
+        // given
+        Session session = registerAndLogin("user01", "user01@example.com");
+
+        // when & then
+        patchMe(session, Map.of("slackId", "it-user01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("slackId")));
+    }
+
     @Test
     void 수정할_항목이_없으면_400() throws Exception {
         // given

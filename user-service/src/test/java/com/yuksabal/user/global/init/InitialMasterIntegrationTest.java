@@ -39,7 +39,7 @@ class InitialMasterIntegrationTest {
         registry.add("initial-master.username", () -> MASTER_USERNAME);
         registry.add("initial-master.password", () -> PASSWORD);
         registry.add("initial-master.email", () -> "master@example.com");
-        registry.add("initial-master.slack-id", () -> "U0MASTER");
+        registry.add("initial-master.slack-id", () -> "U0MASTER01");
     }
 
     @Autowired
@@ -83,7 +83,7 @@ class InitialMasterIntegrationTest {
     void 일반_회원가입은_계속_USER로_고정된다() throws Exception {
         // given
         Map<String, String> registerWithMasterRole = Map.of(
-                "username", "user01", "password", "Strong123!", "slackId", "U1",
+                "username", "user01", "password", "Strong123!", "slackId", "U12345678",
                 "email", "user01@example.com", "role", "MASTER");
 
         // when & then

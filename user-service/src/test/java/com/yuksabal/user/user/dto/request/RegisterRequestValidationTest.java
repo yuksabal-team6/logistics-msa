@@ -20,7 +20,7 @@ class RegisterRequestValidationTest {
 
     private static final String VALID_USERNAME = "user01";
     private static final String VALID_PASSWORD = "Strong123!";
-    private static final String VALID_SLACK_ID = "U1";
+    private static final String VALID_SLACK_ID = "U12345678";
     private static final String VALID_EMAIL = "a@b.com";
 
     private static ValidatorFactory factory;
@@ -96,6 +96,21 @@ class RegisterRequestValidationTest {
     void SlackID가_공백이면_실패() {
         // when & then
         assertThat(violatedFields(requestWithSlackId(" "))).contains("slackId");
+    }
+
+    // webhook 멘션(<@멤버ID>)에 쓰이므로 멤버 ID 형식만 받는다 (#220)
+    @ParameterizedTest
+    @ValueSource(strings = {"U12345678", "W0123ABCDE", "U0DELIVER"})
+    void SlackID가_멤버_ID_형식이면_통과(String slackId) {
+        // when & then
+        assertThat(violatedFields(requestWithSlackId(slackId))).doesNotContain("slackId");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"it-user01", "U1234567", "u12345678", "B12345678", "U1234567a", "@U12345678", "<@U12345678>"})
+    void SlackID가_멤버_ID_형식이_아니면_실패(String slackId) {
+        // when & then
+        assertThat(violatedFields(requestWithSlackId(slackId))).contains("slackId");
     }
 
     @Test

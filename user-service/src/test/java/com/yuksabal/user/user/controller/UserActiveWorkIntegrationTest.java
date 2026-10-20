@@ -50,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class UserActiveWorkIntegrationTest {
 
     private static final String USERS_URL = "/api/v1/users/";
-    private static final String CHANGED_SLACK_ID = "UCHANGED";
+    private static final String CHANGED_SLACK_ID = "UCHANGED01";
     private static final String DEACTIVATE_BLOCKED_MESSAGE = "진행 중인 업무가 있어 계정을 비활성화할 수 없습니다.";
     private static final String DEACTIVATE_CHECK_FAILED_MESSAGE = "진행 중인 업무를 확인하지 못해 계정을 비활성화할 수 없습니다.";
     private static final String ROLE_CHANGE_BLOCKED_MESSAGE = "진행 중인 업무가 있어 역할을 변경할 수 없습니다.";

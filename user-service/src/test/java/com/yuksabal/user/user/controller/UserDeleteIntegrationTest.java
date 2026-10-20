@@ -176,7 +176,7 @@ class UserDeleteIntegrationTest {
             deleteBy(master, alice.getId()).andExpect(status().isOk());
 
             // when & then
-            mockMvc.perform(withUser(patch(USERS_URL + alice.getId()), master).content(json(Map.of("slackId", "U1"))))
+            mockMvc.perform(withUser(patch(USERS_URL + alice.getId()), master).content(json(Map.of("slackId", "U12345678"))))
                     .andExpect(status().isNotFound());
         }
 

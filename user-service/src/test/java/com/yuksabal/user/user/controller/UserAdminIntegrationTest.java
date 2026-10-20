@@ -106,7 +106,7 @@ class UserAdminIntegrationTest {
     void MASTER가_아니면_정보_수정은_403() throws Exception {
         for (User nonMaster : List.of(alice, bob)) {
             // when & then
-            updateUser(nonMaster, alice.getId(), Map.of("slackId", "UX")).andExpect(status().isForbidden());
+            updateUser(nonMaster, alice.getId(), Map.of("slackId", "U99999999")).andExpect(status().isForbidden());
         }
     }
 
@@ -160,7 +160,7 @@ class UserAdminIntegrationTest {
     void MASTER는_보낸_필드만_수정하고_소속도_바꿀_수_있다() throws Exception {
         // given
         Map<String, Object> request = Map.of(
-                "username", "alice02", "slackId", "U99", "isPublic", false,
+                "username", "alice02", "slackId", "U99999999", "isPublic", false,
                 "hubId", HUB.toString(), "companyId", COMPANY.toString());
 
         // when & then
@@ -170,7 +170,7 @@ class UserAdminIntegrationTest {
                 .andExpect(jsonPath("$.message").value("회원 정보가 수정되었습니다."))
                 .andExpect(jsonPath("$.data.username").value("alice02"))
                 .andExpect(jsonPath("$.data.email").value("alice01@example.com"))
-                .andExpect(jsonPath("$.data.slackId").value("U99"))
+                .andExpect(jsonPath("$.data.slackId").value("U99999999"))
                 .andExpect(jsonPath("$.data.isPublic").value(false))
                 .andExpect(jsonPath("$.data.hubId").value(HUB.toString()))
                 .andExpect(jsonPath("$.data.companyId").value(COMPANY.toString()))
@@ -187,7 +187,7 @@ class UserAdminIntegrationTest {
         // given
         String passwordHash = reload(alice).getPassword();
         Map<String, Object> request = new HashMap<>();
-        request.put("slackId", "U99");
+        request.put("slackId", "U99999999");
         request.put("password", "Hacked123!");
         request.put("role", "MASTER");
         request.put("active", false);
@@ -219,6 +219,16 @@ class UserAdminIntegrationTest {
                 .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("username", "email", "slackId")));
     }
 
+    // webhook 멘션(<@멤버ID>)에 쓰이므로 수정할 때도 멤버 ID 형식만 받는다 (#220)
+    @Test
+    void SlackID가_멤버_ID_형식이_아니면_400() throws Exception {
+        // when & then
+        updateUser(master, alice.getId(), Map.of("slackId", "it-alice01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.error.details[*].field").value(containsInAnyOrder("slackId")));
+    }
+
     @Test
     void 소속_ID가_UUID_형식이_아니면_400() throws Exception {
         // when & then
@@ -240,7 +250,7 @@ class UserAdminIntegrationTest {
         for (String blank : List.of("", " ")) {
             for (String affiliationField : List.of("hubId", "companyId")) {
                 // when & then
-                updateUser(master, alice.getId(), Map.of("slackId", "U99", affiliationField, blank))
+                updateUser(master, alice.getId(), Map.of("slackId", "U99999999", affiliationField, blank))
                         .andExpect(status().isBadRequest())
                         .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
             }
@@ -280,7 +290,7 @@ class UserAdminIntegrationTest {
     @Test
     void 없는_회원을_수정하면_404() throws Exception {
         // when & then
-        updateUser(master, UUID.randomUUID(), Map.of("slackId", "U1"))
+        updateUser(master, UUID.randomUUID(), Map.of("slackId", "U12345678"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
     }
@@ -291,7 +301,7 @@ class UserAdminIntegrationTest {
         softDelete(bob);
 
         // when & then
-        updateUser(master, bob.getId(), Map.of("slackId", "U1")).andExpect(status().isNotFound());
+        updateUser(master, bob.getId(), Map.of("slackId", "U12345678")).andExpect(status().isNotFound());
     }
 
     // ---------- PATCH /users/{id}/role ----------

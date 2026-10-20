@@ -176,7 +176,7 @@ class AuthControllerIntegrationTest {
     @Test
     void 아이디_비밀번호_형식이_틀리면_400() throws Exception {
         // given
-        Map<String, Object> request = Map.of("username", "User!", "password", "weak", "slackId", "U1",
+        Map<String, Object> request = Map.of("username", "User!", "password", "weak", "slackId", "U12345678",
                 "email", "a@example.com");
 
         // when & then
@@ -241,7 +241,7 @@ class AuthControllerIntegrationTest {
         // given
         String rawPassword = "SecretPw1!";
         Map<String, Object> invalidUsernameRequest = Map.of("username", "ab", "password", rawPassword,
-                "slackId", "U1", "email", "a@example.com");
+                "slackId", "U12345678", "email", "a@example.com");
 
         // when & then
         register(invalidUsernameRequest)

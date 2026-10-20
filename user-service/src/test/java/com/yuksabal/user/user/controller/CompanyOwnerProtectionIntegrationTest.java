@@ -57,7 +57,7 @@ class CompanyOwnerProtectionIntegrationTest {
     private static final String OWNER_CHANGE_REQUIRED_MESSAGE = "업체 관리자를 먼저 변경해 주세요.";
     private static final UUID OWNED = UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID OTHER = UUID.fromString("30000000-0000-4000-8000-000000000002");
-    private static final String NEW_SLACK_ID = "U99";
+    private static final String NEW_SLACK_ID = "U99999999";
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
