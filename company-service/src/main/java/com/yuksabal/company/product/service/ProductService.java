@@ -71,6 +71,11 @@ public class ProductService {
         return ProductResponse.from(findProduct(productId));
     }
 
+    // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
+    public ProductInternalResponse getProductForInternal(UUID productId) {
+        return ProductInternalResponse.from(findProduct(productId));
+    }
+
     // 응답에는 업체 ID만 담아 상품 수만큼 업체를 조회하는 N+1이 생기지 않는다
     public PageResponse<ProductResponse> getProducts(ProductSearchRequest request, Pageable pageable) {
         Specification<Product> spec = Specification
@@ -160,11 +165,6 @@ public class ProductService {
     public void deactivateAllByCompany(UUID companyId) {
         productRepository.findAllByCompanyId(companyId)
                 .forEach(product -> product.changeActive(false));
-    }
-
-    // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
-    public ProductInternalResponse getProductForInternal(UUID productId) {
-        return ProductInternalResponse.from(findProduct(productId));
     }
 
     // 삭제된 상품은 @SQLRestriction으로 조회되지 않아 없는 상품과 같이 404. 조회·수정·삭제 공용
