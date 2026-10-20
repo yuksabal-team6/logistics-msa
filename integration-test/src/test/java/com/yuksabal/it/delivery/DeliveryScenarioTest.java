@@ -145,12 +145,12 @@ class DeliveryScenarioTest {
         Response bDelivery = Gateway.get(deliveries, b);
 
         assertThat(bDelivery.status()).as("%s", bDelivery).isEqualTo(403);
-        assertThat(bDelivery.error().path("code").asText()).isEqualTo("DELIVERY_ACCESS_DENIED");
+        assertThat(bDelivery.errorCode()).isEqualTo("DELIVERY_ACCESS_DENIED");
 
         Response bRoutes = Gateway.get(deliveries + "/routes", b);
 
         assertThat(bRoutes.status()).as("%s", bRoutes).isEqualTo(403);
-        assertThat(bRoutes.error().path("code").asText()).isEqualTo("DELIVERY_ACCESS_DENIED");
+        assertThat(bRoutes.errorCode()).isEqualTo("DELIVERY_ACCESS_DENIED");
 
         // 5. b: 배송 목록에 D 없음
         Response bList = Gateway.get("/api/v1/deliveries?size=100", b);
@@ -170,7 +170,7 @@ class DeliveryScenarioTest {
         Response assign = Gateway.patch(deliveries + "/manager", s.master, Map.of("deliveryManagerId", s.u.userId()));
 
         assertThat(assign.status()).as("%s", assign).isEqualTo(422);
-        assertThat(assign.error().path("code").asText()).isEqualTo("BUSINESS_RULE_VIOLATION");
+        assertThat(assign.errorCode()).isEqualTo("BUSINESS_RULE_VIOLATION");
 
         // 3. MASTER: D 상세에 담당자가 지정되지 않음
         Response delivery = Gateway.get(deliveries, s.master);
@@ -207,7 +207,7 @@ class DeliveryScenarioTest {
         Response cancel = s.cancel(orderId, u);
 
         assertThat(cancel.status()).as("%s", cancel).isEqualTo(409);
-        assertThat(cancel.error().path("code").asText()).isEqualTo("INVALID_STATUS_TRANSITION");
+        assertThat(cancel.errorCode()).isEqualTo("INVALID_STATUS_TRANSITION");
 
         // 6. 주문은 CONFIRMED + 보상 NOT_REQUIRED로 되돌아가고, D는 IN_TRANSIT 그대로, 재고는 복원되지 않음
         Response orderAfter = Gateway.get("/api/v1/orders/" + orderId, u);
