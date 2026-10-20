@@ -167,6 +167,71 @@ class UserServiceTest {
         assertInvalidCredentials(new LoginRequest("nobody", RAW_PASSWORD));
     }
 
+    // ---------- USE-12 비활성 회원 접근 제한, USE-13 탈퇴 회원과 구분 ----------
+
+    @Test
+    void 비활성_회원이_맞는_비밀번호로_로그인하면_403_ACCOUNT_DISABLED() {
+        // given
+        given(userRepository.findByUsername(USERNAME)).willReturn(Optional.of(inactiveUser(UUID.randomUUID())));
+
+        // when & then
+        assertThatThrownBy(() -> userService.login(new LoginRequest(USERNAME, RAW_PASSWORD)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.ACCOUNT_DISABLED);
+    }
+
+    @Test
+    void 비활성_회원이라도_비밀번호가_틀리면_계정_상태를_알리지_않고_401() {
+        // given
+        given(userRepository.findByUsername(USERNAME)).willReturn(Optional.of(inactiveUser(UUID.randomUUID())));
+
+        // when & then
+        assertInvalidCredentials(new LoginRequest(USERNAME, WRONG_PASSWORD));
+    }
+
+    @Test
+    void 비활성_회원은_유효한_토큰이어도_내_정보_조회가_403() {
+        // given
+        UUID userId = UUID.randomUUID();
+        given(userRepository.findById(userId)).willReturn(Optional.of(inactiveUser(userId)));
+
+        // when & then
+        assertThatThrownBy(() -> userService.getMe(userId))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.ACCOUNT_DISABLED);
+    }
+
+    @Test
+    void 비활성_회원의_내_정보_수정은_403이고_바뀌지_않는다() {
+        // given
+        UUID userId = UUID.randomUUID();
+        User user = inactiveUser(userId);
+        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+        UpdateMeRequest changeSlackId = new UpdateMeRequest(null, null, "U99999999", null);
+
+        // when & then
+        assertThatThrownBy(() -> userService.updateMe(userId, changeSlackId))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.ACCOUNT_DISABLED);
+        assertThat(user.getSlackId()).isEqualTo("U12345678");
+        verify(userRepository, never()).flush();
+    }
+
+    @Test
+    void 비활성_회원의_비밀번호_변경은_403이고_바뀌지_않는다() {
+        // given
+        UUID userId = UUID.randomUUID();
+        User user = inactiveUser(userId);
+        String passwordBefore = user.getPassword();
+        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+
+        // when & then
+        assertThatThrownBy(() -> userService.changePassword(userId, new ChangePasswordRequest(RAW_PASSWORD, NEW_PASSWORD)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.ACCOUNT_DISABLED);
+        assertThat(user.getPassword()).isEqualTo(passwordBefore);
+    }
+
     @Test
     void 내_정보_조회_시_회원이_없으면_404() {
         // given
@@ -247,6 +312,12 @@ class UserServiceTest {
                 .build();
         // id는 JPA가 저장할 때 채우므로 단위 테스트에서는 직접 넣는다
         ReflectionTestUtils.setField(user, "id", userId);
+        return user;
+    }
+
+    private User inactiveUser(UUID userId) {
+        User user = savedUser(userId, UserRole.USER);
+        user.changeActive(false);
         return user;
     }
 
