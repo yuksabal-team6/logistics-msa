@@ -3,6 +3,7 @@ package com.yuksabal.user.user.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
+import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.user.global.exception.UserErrorCode;
 import com.yuksabal.user.user.dto.request.AdminUpdateUserRequest;
 import com.yuksabal.user.user.dto.request.ChangeRoleRequest;
@@ -160,6 +161,73 @@ class UserAdminServiceTest {
         verify(transition).restore(hold);
     }
 
+    // ---------- USE-16 삭제 순서와 삭제 제한 ----------
+
+    @Test
+    void 삭제는_비활성화한_뒤_모든_업무를_확인하고_요청한_MASTER로_기록한다() {
+        // given
+        givenActiveMasterCount(2L);
+        UserStateTransition transition = mock(UserStateTransition.class);
+        UserStateTransition.Hold hold = new UserStateTransition.Hold(target.getId(), true, null);
+        given(transition.hold(target.getId())).willReturn(hold);
+        UserAdminService allClear = service(allCheckers(List.of()), transition);
+
+        // when
+        deleteTarget(allClear);
+
+        // then
+        verify(transition).delete(hold, requester.getId());
+        verify(transition, never()).restore(any());
+    }
+
+    @Test
+    void 진행_중_업무가_있으면_409이고_삭제하지_않고_비활성화를_되돌린다() {
+        // given
+        givenActiveMasterCount(2L);
+        UserStateTransition transition = mock(UserStateTransition.class);
+        UserStateTransition.Hold hold = new UserStateTransition.Hold(target.getId(), true, null);
+        given(transition.hold(target.getId())).willReturn(hold);
+        UserAdminService busy = service(allCheckers(
+                List.of(new ActiveWorkChecker.ActiveWork("order", "진행 중인 주문이 있습니다."))), transition);
+
+        // when & then
+        assertThatThrownBy(() -> deleteTarget(busy))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(UserErrorCode.USER_HAS_ACTIVE_WORK);
+                    assertThat(e.getDetails()).extracting(ApiErrorDetail::field).containsExactly("order");
+                });
+        verify(transition).restore(hold);
+        verify(transition, never()).delete(any(), any());
+    }
+
+    @Test
+    void 자기_자신_삭제는_비활성화하기_전에_422() {
+        // given
+        UserStateTransition transition = mock(UserStateTransition.class);
+        UserAdminService adminService = service(allCheckers(List.of()), transition);
+
+        // when & then
+        assertThatThrownBy(() -> adminService.deleteUser(requester.getId(), UserRole.MASTER, requester.getId()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CommonErrorCode.BUSINESS_RULE_VIOLATION);
+        verify(transition, never()).hold(any());
+    }
+
+    @Test
+    void 이미_탈퇴한_회원을_삭제하면_404() {
+        // given
+        UUID deleted = UUID.randomUUID();
+        given(userRepository.findById(deleted)).willReturn(Optional.empty());
+        UserStateTransition transition = mock(UserStateTransition.class);
+        UserAdminService adminService = service(allCheckers(List.of()), transition);
+
+        // when & then
+        assertThatThrownBy(() -> adminService.deleteUser(requester.getId(), UserRole.MASTER, deleted))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CommonErrorCode.RESOURCE_NOT_FOUND);
+        verify(transition, never()).hold(any());
+    }
+
     // ---------- USE-15 다른 서비스 확인 실패 ----------
 
     @Test
@@ -284,6 +352,13 @@ class UserAdminServiceTest {
     private UserAdminService service(List<ActiveWorkChecker> checkers, UserStateTransition transition) {
         return new UserAdminService(userRepository, new RequesterValidator(userRepository),
                 affiliationValidator, companyOwnerGuard, checkers, transition);
+    }
+
+    // 삭제는 company·order·delivery 모두 확인한다. order 결과만 work로 두고 나머지는 업무 없음
+    private static List<ActiveWorkChecker> allCheckers(List<ActiveWorkChecker.ActiveWork> orderWork) {
+        return List.of(checker(ActiveWorkChecker.Target.COMPANY, List.of()),
+                checker(ActiveWorkChecker.Target.ORDER, orderWork),
+                checker(ActiveWorkChecker.Target.DELIVERY, List.of()));
     }
 
     // A 업체 소속 COMPANY 회원 (허브 없음)
