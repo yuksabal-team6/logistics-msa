@@ -6,7 +6,6 @@ import com.yuksabal.it.support.Gateway;
 import com.yuksabal.it.support.Gateway.Response;
 import com.yuksabal.it.support.Scenario;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -180,8 +179,8 @@ class OrderScenarioTest {
         assertThat(s.ordersOf(s.u.token())).as("u의 주문 목록").isEmpty();
     }
 
-    // 실패: 취소가 잠깐 CANCELLED로 저장한 사이 배송 완료 알림(#10)이 거절되고, 취소도 되돌려져 주문이 CONFIRMED로 남는다 (#196)
-    @Disabled("#196 배송 완료와 주문 취소가 동시에 오면 주문이 CONFIRMED로 남음")
+    // #196: 취소가 잠깐 CANCELLED로 저장한 사이 배송 완료 알림(#10)이 거절되면, 배송 취소가 DELIVERY_ALREADY_COMPLETED(#207)로 알려
+    // order가 되돌리지 않고 주문을 COMPLETED로 처리한다(#209). 어느 쪽이 먼저 도착해도 배송·주문 모두 COMPLETED
     @Test
     @DisplayName("ORD-22. 배송 완료와 주문 취소 동시: 주문과 배송 상태가 서로 맞음 (배송 출발 후라 취소 409, 배송·주문 COMPLETED)")
     void ord22_배송_완료와_주문_취소_동시() {
