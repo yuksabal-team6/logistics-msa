@@ -10,7 +10,7 @@ public interface ActiveWorkChecker {
     // 남은 업무 종류. 409 응답 details의 field로 나간다 (예: "inventory", "order")
     String type();
 
-    // 지우면 안 되는 이유 목록. 없으면 빈 목록
+    // 삭제·관리 허브 변경을 막는 이유 목록. 없으면 빈 목록
     // 확인하지 못하면(호출 실패·타임아웃·응답 이상) 예외를 던진다 → ActiveWorkGuard가 502로 막는다
     List<String> findBlockers(ActiveWorkTarget target, UUID id);
 }

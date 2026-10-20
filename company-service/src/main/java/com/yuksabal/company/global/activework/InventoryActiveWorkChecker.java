@@ -12,7 +12,7 @@ import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 
-// hub 재고 확인 (#137). 허브에 남은 수량이 있으면 삭제할 수 없다 (수량 0인 재고는 이력이라 막지 않는다)
+// hub 재고 확인 (#137, #161). 허브에 남은 수량이 있으면 삭제·관리 허브 변경을 할 수 없다 (수량 0인 재고는 이력이라 막지 않는다)
 @Component
 @RequiredArgsConstructor
 public class InventoryActiveWorkChecker implements ActiveWorkChecker {

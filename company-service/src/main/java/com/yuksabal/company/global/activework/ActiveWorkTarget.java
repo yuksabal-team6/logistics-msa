@@ -3,7 +3,7 @@ package com.yuksabal.company.global.activework;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-// 삭제 전 확인 대상. 오류 메시지와 로그에 쓰는 이름을 함께 둔다
+// 남은 업무 확인 대상. 오류 메시지와 로그에 쓰는 이름을 함께 둔다
 @Getter
 @RequiredArgsConstructor
 public enum ActiveWorkTarget {
