@@ -1,0 +1,9 @@
+# 테스트 전용: Eureka 미사용. DB 접속 정보는 IntegrationTestSupport가 PostgreSQL 컨테이너로 넣는다
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+eureka:
+  client:
+    enabled: false
