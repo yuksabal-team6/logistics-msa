@@ -102,6 +102,18 @@ public final class Scenario {
         return Gateway.get("/api/v1/orders?size=100", token).expect(200).data().path("items");
     }
 
+    // ---- 업체·상품 ----
+
+    // 업체 단건 조회 (MASTER) GET /api/v1/companies/{id} → data (hubId, ownerId, active, ...). 삭제된 업체는 404라 여기서 멈춘다
+    public JsonNode companyDetail(UUID companyId) {
+        return Gateway.get("/api/v1/companies/" + companyId, master).expect(200).data();
+    }
+
+    // 상품 단건 조회 (MASTER) GET /api/v1/products/{id} → data (companyId, active, ...). 삭제된 상품은 404라 여기서 멈춘다
+    public JsonNode productDetail(UUID productId) {
+        return Gateway.get("/api/v1/products/" + productId, master).expect(200).data();
+    }
+
     // ---- 재고·배송 ----
 
     // P의 재고 (MASTER) GET /api/v1/inventories/products/{P} → data (inventoryId, hubId, quantity)
