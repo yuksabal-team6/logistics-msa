@@ -27,7 +27,7 @@ public final class Scenario {
     public static final int INITIAL_STOCK = 10;
 
     // 테스트 회원 비밀번호 (회원가입 규칙: 8~15자, 대·소문자·숫자·특수문자)
-    private static final String PASSWORD = "ItUser12!";
+    public static final String PASSWORD = "ItUser12!";
 
     public final String master = Accounts.masterToken();
     public final String suffix = randomSuffix();
@@ -173,7 +173,27 @@ public final class Scenario {
 
     // 회원 비활성화(정지) PATCH /api/v1/users/{id}/status. 이미 받은 토큰은 만료 전까지 게이트웨이를 통과한다
     public void deactivateUser(Member member) {
-        Gateway.patch("/api/v1/users/" + member.userId() + "/status", master, Map.of("active", false)).expect(200);
+        changeUserStatus(member.userId(), master, false).expect(200);
+    }
+
+    // 회원 재활성화 PATCH /api/v1/users/{id}/status
+    public void activateUser(Member member) {
+        changeUserStatus(member.userId(), master, true).expect(200);
+    }
+
+    // 회원 상태 변경 PATCH /api/v1/users/{id}/status. 권한·입력에 따라 결과가 달라서 Response를 그대로 돌려준다 (token이 null이면 헤더 없음)
+    public Response changeUserStatus(UUID userId, String token, boolean active) {
+        return Gateway.patch("/api/v1/users/" + userId + "/status", token, Map.of("active", active));
+    }
+
+    // 회원 역할 변경 PATCH /api/v1/users/{id}/role. 토큰은 역할을 바꾼 뒤 받아야 새 역할이 담긴다
+    public void changeRole(Member member, String role) {
+        Gateway.patch("/api/v1/users/" + member.userId() + "/role", master, Map.of("role", role)).expect(200);
+    }
+
+    // 회원 단건 조회 (MASTER) GET /api/v1/users/{id} → data (active, role, companyId, ...)
+    public JsonNode userDetail(UUID userId) {
+        return Gateway.get("/api/v1/users/" + userId, master).expect(200).data();
     }
 
     // ---- 준비 단계 ----
@@ -181,13 +201,18 @@ public final class Scenario {
     // 회원가입은 항상 USER로 만들어진다
     private Member register(String name) {
         String username = name + suffix;
-        UUID userId = Gateway.post("/api/v1/auth/register", null, Map.of(
-                        "username", username,
-                        "password", PASSWORD,
-                        "slackId", "it-" + username,
-                        "email", username + "@it.test"))
+        UUID userId = Gateway.post("/api/v1/auth/register", null, registerBody(username))
                 .expect(201).uuid("userId");
         return new Member(userId, username);
+    }
+
+    // 회원가입 요청 본문 POST /api/v1/auth/register. 값 하나만 바꾸려면 new HashMap<>(registerBody(username))으로 복사해서 쓴다
+    public static Map<String, Object> registerBody(String username) {
+        return Map.of(
+                "username", username,
+                "password", PASSWORD,
+                "slackId", "it-" + username,
+                "email", username + "@it.test");
     }
 
     // USER 회원을 새로 만든다 (u 말고 주문자가 더 필요한 시나리오용, 예: 두 회원이 동시에 주문). name은 회원끼리 구분하는 한 글자 (예: "v")
@@ -209,7 +234,7 @@ public final class Scenario {
     // USER로 가입한 뒤 MASTER가 역할을 바꾼다 PATCH /api/v1/users/{id}/role
     private Member registerAs(String name, String role) {
         Member member = register(name);
-        Gateway.patch("/api/v1/users/" + member.userId() + "/role", master, Map.of("role", role)).expect(200);
+        changeRole(member, role);
         return member;
     }
 
@@ -243,6 +268,11 @@ public final class Scenario {
 
         public String token() {
             return Accounts.login(username, PASSWORD);
+        }
+
+        // 로그인 실패(정지된 회원 403 등)를 확인할 때 쓴다. token()과 달리 200이 아니어도 멈추지 않는다
+        public Response tryLogin() {
+            return Accounts.tryLogin(username, PASSWORD);
         }
     }
 }
