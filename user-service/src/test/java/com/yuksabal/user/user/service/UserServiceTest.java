@@ -190,6 +190,16 @@ class UserServiceTest {
     }
 
     @Test
+    void 탈퇴_회원의_로그인은_비활성_403이_아니라_없는_아이디와_같은_401() {
+        // given
+        // 탈퇴(소프트 삭제) 회원은 @SQLRestriction 때문에 조회되지 않는다 (필터 자체는 UserDeleteIntegrationTest에서 확인)
+        given(userRepository.findByUsername(USERNAME)).willReturn(Optional.empty());
+
+        // when & then
+        assertInvalidCredentials(new LoginRequest(USERNAME, RAW_PASSWORD));
+    }
+
+    @Test
     void 비활성_회원은_유효한_토큰이어도_내_정보_조회가_403() {
         // given
         UUID userId = UUID.randomUUID();
