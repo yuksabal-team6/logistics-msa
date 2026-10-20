@@ -1,4 +1,4 @@
-package com.yuksabal.company.global.deletion;
+package com.yuksabal.company.global.activework;
 
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.ApiResponse;
@@ -12,10 +12,10 @@ import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 
-// hub 재고 확인 (#137). 허브에 남은 수량이 있으면 삭제할 수 없다 (수량 0인 재고는 이력이라 막지 않는다)
+// hub 재고 확인 (#137, #161). 허브에 남은 수량이 있으면 삭제·관리 허브 변경을 할 수 없다 (수량 0인 재고는 이력이라 막지 않는다)
 @Component
 @RequiredArgsConstructor
-public class InventoryDeletionChecker implements DeletionChecker {
+public class InventoryActiveWorkChecker implements ActiveWorkChecker {
 
     private final HubClient hubClient;
 
@@ -25,7 +25,7 @@ public class InventoryDeletionChecker implements DeletionChecker {
     }
 
     @Override
-    public List<String> findBlockers(DeletionTarget target, UUID id) {
+    public List<String> findBlockers(ActiveWorkTarget target, UUID id) {
         ApiResponse<InventoryStockResponse> response = switch (target) {
             case PRODUCT -> hubClient.getStockByProduct(id);
             case COMPANY -> hubClient.getStockByCompany(id);

@@ -13,8 +13,8 @@ import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
-import com.yuksabal.company.global.deletion.DeletionGuard;
-import com.yuksabal.company.global.deletion.DeletionTarget;
+import com.yuksabal.company.global.activework.ActiveWorkGuard;
+import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.global.client.HubClient;
 import com.yuksabal.company.global.client.UserClient;
 import com.yuksabal.company.global.client.dto.response.UserResponse;
@@ -56,7 +56,7 @@ public class CompanyService {
     private final ProductService productService;
     private final UserClient userClient;
     private final HubClient hubClient;
-    private final DeletionGuard deletionGuard;
+    private final ActiveWorkGuard activeWorkGuard;
     private final TransactionTemplate transactionTemplate;
 
     @Transactional
@@ -142,7 +142,7 @@ public class CompanyService {
         // 다른 외부 확인처럼 수정 트랜잭션 안에서 부른다 (MASTER만 하는 드문 작업이라 커넥션 점유는 감수)
         if (hubChanged) {
             verifyHubExists(request.hubId());
-            deletionGuard.validateHubChangeable(companyId);
+            activeWorkGuard.validateHubChangeable(companyId);
         }
         if (ownerChanged) {
             verifyOwner(request.ownerId(), companyId);   // 새 관리자가 이 업체 소속이어야 함
@@ -199,7 +199,7 @@ public class CompanyService {
         transactionTemplate.executeWithoutResult(status -> validateInactive(findCompany(companyId)));
 
         // 2. 남은 업무: 이 업체 상품들의 허브 재고·이 업체가 공급·요청한 진행 중 주문 (409, 확인 실패 502)
-        deletionGuard.validateDeletable(DeletionTarget.COMPANY, companyId);
+        activeWorkGuard.validateDeletable(ActiveWorkTarget.COMPANY, companyId);
 
         // 3. 삭제. 확인하는 동안 다시 활성화됐으면 422
         transactionTemplate.executeWithoutResult(status -> deleteInactiveCompany(companyId, userId));
@@ -215,10 +215,17 @@ public class CompanyService {
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404. 조회·수정·삭제 공용
     private Company findCompany(UUID companyId) {
         return companyRepository.findById(companyId)
-                .orElseThrow(() -> new BusinessException(
-                        RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 업체입니다.",
-                        "companyId"));
+                .orElseThrow(CompanyService::companyNotFound);
+    }
+
+    private static BusinessException companyNotFound() {
+        return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 업체입니다.", "companyId");
+    }
+
+    // 업체 상태 변경 전용. 업체 행을 잠그고 조회한다 (404는 findCompany와 같음)
+    private Company findCompanyForUpdate(UUID companyId) {
+        return companyRepository.findByIdForUpdate(companyId)
+                .orElseThrow(CompanyService::companyNotFound);
     }
 
     // 비활성화로 새 주문·입고를 먼저 끊어야, 확인한 "남은 업무 없음"이 삭제 시점까지 유지된다
@@ -226,15 +233,6 @@ public class CompanyService {
         if (company.isActive()) {
             throw new BusinessException(BUSINESS_RULE_VIOLATION, "비활성화한 업체만 삭제할 수 있습니다.", "companyId");
         }
-    }
-
-    // 업체 상태 변경 전용. 업체 행을 잠그고 조회한다 (404는 findCompany와 같음)
-    private Company findCompanyForUpdate(UUID companyId) {
-        return companyRepository.findByIdForUpdate(companyId)
-                .orElseThrow(() -> new BusinessException(
-                        RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 업체입니다.",
-                        "companyId"));
     }
 
     // 값을 보냈고(null 아님) 기존 값과 다를 때만 "바뀜"으로 본다

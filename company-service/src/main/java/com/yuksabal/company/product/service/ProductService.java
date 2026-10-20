@@ -6,8 +6,8 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
-import com.yuksabal.company.global.deletion.DeletionGuard;
-import com.yuksabal.company.global.deletion.DeletionTarget;
+import com.yuksabal.company.global.activework.ActiveWorkGuard;
+import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
 import com.yuksabal.company.product.dto.request.ProductStatusRequest;
@@ -46,7 +46,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CompanyRepository companyRepository;
-    private final DeletionGuard deletionGuard;
+    private final ActiveWorkGuard activeWorkGuard;
     private final TransactionTemplate transactionTemplate;
 
     // 업체 조회 → 소유권 확인 순서. 관리자(ownerId)는 업체를 조회해야 알 수 있다
@@ -69,6 +69,11 @@ public class ProductService {
 
     public ProductResponse getProduct(UUID productId) {
         return ProductResponse.from(findProduct(productId));
+    }
+
+    // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
+    public ProductInternalResponse getProductForInternal(UUID productId) {
+        return ProductInternalResponse.from(findProduct(productId));
     }
 
     // 응답에는 업체 ID만 담아 상품 수만큼 업체를 조회하는 N+1이 생기지 않는다
@@ -135,7 +140,7 @@ public class ProductService {
         });
 
         // 2. 남은 업무: 허브 재고·진행 중 주문 (409, 확인 실패 502)
-        deletionGuard.validateDeletable(DeletionTarget.PRODUCT, productId);
+        activeWorkGuard.validateDeletable(ActiveWorkTarget.PRODUCT, productId);
 
         // 3. 삭제. 확인하는 동안 다시 활성화됐으면 422
         transactionTemplate.executeWithoutResult(status -> deleteInactiveProduct(productId, userId));
@@ -162,11 +167,6 @@ public class ProductService {
                 .forEach(product -> product.changeActive(false));
     }
 
-    // 내부 API #1 전용. 외부 단건 조회와 같은 404 규칙, 응답만 내부 계약(ProductInternalResponse)
-    public ProductInternalResponse getProductForInternal(UUID productId) {
-        return ProductInternalResponse.from(findProduct(productId));
-    }
-
     // 삭제된 상품은 @SQLRestriction으로 조회되지 않아 없는 상품과 같이 404. 조회·수정·삭제 공용
     private Product findProduct(UUID productId) {
         return productRepository.findById(productId)
@@ -175,6 +175,18 @@ public class ProductService {
 
     private static BusinessException productNotFound() {
         return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 상품입니다.", "productId");
+    }
+
+    // 상품 등록·활성화 시 소속 업체를 잠그고 조회한다 (#147, 업체 상태 변경과 겹치지 않도록)
+    // CompanyService가 업체 삭제 때 ProductService를 쓰므로, 순환 의존을 피하려고 Repository로 직접 조회한다
+    // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404
+    private Company findCompanyForUpdate(UUID companyId) {
+        return companyRepository.findByIdForUpdate(companyId)
+                .orElseThrow(ProductService::companyNotFound);
+    }
+
+    private static BusinessException companyNotFound() {
+        return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 업체입니다.", "companyId");
     }
 
     // 비활성화로 새 주문·입고를 먼저 끊어야, 확인한 "남은 업무 없음"이 삭제 시점까지 유지된다
@@ -189,16 +201,5 @@ public class ProductService {
         if (!company.isActive()) {
             throw new BusinessException(BUSINESS_RULE_VIOLATION, message, "companyId");
         }
-    }
-
-    // 상품 등록·활성화 시 소속 업체를 잠그고 조회한다 (#147, 업체 상태 변경과 겹치지 않도록)
-    // CompanyService가 업체 삭제 때 ProductService를 쓰므로, 순환 의존을 피하려고 Repository로 직접 조회한다
-    // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404
-    private Company findCompanyForUpdate(UUID companyId) {
-        return companyRepository.findByIdForUpdate(companyId)
-                .orElseThrow(() -> new BusinessException(
-                        RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 업체입니다.",
-                        "companyId"));
     }
 }

@@ -1,0 +1,16 @@
+package com.yuksabal.company.global.activework;
+
+import java.util.List;
+import java.util.UUID;
+
+// 삭제·관리 허브 변경 전 "남아 있는 업무" 확인 통로 (#137, #161). 확인할 서비스마다 구현체를 하나씩 둔다 (지금은 hub 재고, order 주문)
+// ActiveWorkGuard는 이 인터페이스만 알아서, 확인할 서비스가 늘어도 구현체만 추가하면 된다
+public interface ActiveWorkChecker {
+
+    // 남은 업무 종류. 409 응답 details의 field로 나간다 (예: "inventory", "order")
+    String type();
+
+    // 삭제·관리 허브 변경을 막는 이유 목록. 없으면 빈 목록
+    // 확인하지 못하면(호출 실패·타임아웃·응답 이상) 예외를 던진다 → ActiveWorkGuard가 502로 막는다
+    List<String> findBlockers(ActiveWorkTarget target, UUID id);
+}

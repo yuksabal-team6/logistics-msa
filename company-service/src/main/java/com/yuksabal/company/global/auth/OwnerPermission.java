@@ -10,7 +10,7 @@ import java.util.UUID;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
 
-// 업체 관리 권한 판단. 업체 생성·수정과 상품 생성·수정·삭제가 같은 규칙을 쓴다
+// 업체 관리 권한 판단. 업체 생성·수정과 상품 생성·수정·상태 변경·삭제가 같은 규칙을 쓴다
 // 게이트웨이는 역할만 알기 때문에, 요청자가 "이 업체"의 관리자인지(소유권)는 서비스에서만 확인할 수 있다
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class OwnerPermission {

@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-// 업체 생성·조회·수정 응답 공용. 내부 API(#2) 응답은 CompanyInternalResponse로 따로 관리한다 (다른 서비스와의 계약)
+// 업체 생성·조회·수정·상태 변경 응답 공용. 내부 API(#2) 응답은 CompanyInternalResponse로 따로 관리한다 (다른 서비스와의 계약)
 @Schema(description = "업체 응답")
 public record CompanyResponse(
         @Schema(description = "업체 ID", example = "30000000-0000-4000-8000-000000000001")

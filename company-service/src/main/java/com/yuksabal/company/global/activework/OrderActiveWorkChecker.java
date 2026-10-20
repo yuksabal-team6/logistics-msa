@@ -1,4 +1,4 @@
-package com.yuksabal.company.global.deletion;
+package com.yuksabal.company.global.activework;
 
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.ApiResponse;
@@ -12,11 +12,11 @@ import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 
-// order 진행 중 주문 확인 (#137). 진행 중인 주문이 있으면 삭제할 수 없다
+// order 진행 중 주문 확인 (#137, #161). 진행 중인 주문이 있으면 삭제·관리 허브 변경을 할 수 없다
 // 업체는 공급 업체·요청 업체로 걸린 주문을 모두 본다 (#143 order 담당자 제안: 거래가 진행 중인 업체는 어느 쪽이든 지우지 않는다)
 @Component
 @RequiredArgsConstructor
-public class OrderDeletionChecker implements DeletionChecker {
+public class OrderActiveWorkChecker implements ActiveWorkChecker {
 
     private final OrderClient orderClient;
 
@@ -26,7 +26,7 @@ public class OrderDeletionChecker implements DeletionChecker {
     }
 
     @Override
-    public List<String> findBlockers(DeletionTarget target, UUID id) {
+    public List<String> findBlockers(ActiveWorkTarget target, UUID id) {
         ApiResponse<OrderInProgressResponse> response = switch (target) {
             case PRODUCT -> orderClient.getInProgressByProduct(id);
             case COMPANY -> orderClient.getInProgressByCompany(id);

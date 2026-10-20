@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-// 상품 생성·조회·수정 응답 공용. 업체는 ID만 담는다(업체명 등을 꺼내면 LAZY 업체 조회 쿼리가 추가로 나감)
+// 상품 생성·조회·수정·상태 변경 응답 공용. 업체는 ID만 담는다(업체명 등을 꺼내면 LAZY 업체 조회 쿼리가 추가로 나감)
 @Schema(description = "상품 응답")
 public record ProductResponse(
         @Schema(description = "상품 ID", example = "40000000-0000-4000-8000-000000000001")

@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum CompanyErrorCode implements ErrorCode {
-    // COMPANY 역할이 본인이 관리하지 않는 업체를 생성·수정하거나, 그 업체의 상품을 생성·수정·삭제하려 할 때
+    // COMPANY 역할이 본인이 관리하지 않는 업체를 생성·수정하거나, 그 업체의 상품을 생성·수정·상태 변경·삭제하려 할 때
     COMPANY_ACCESS_DENIED(HttpStatus.FORBIDDEN, "본인 업체만 관리할 수 있습니다."),
 
     // 상품·업체 삭제(#137), 업체 관리 허브 변경(#161) 시 허브 재고나 진행 중인 주문이 남아 있음. 무엇이 남았는지는 details로 알려준다
