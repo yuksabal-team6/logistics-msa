@@ -35,7 +35,14 @@ docker compose -f docker-compose.yml -f docker-compose.it.yml up -d --build
    - "이렇게 돼야 한다"는 응답 → 다른 서비스 데이터(재고·주문·배송) 순서로 확인하고, 줄마다 무엇을 확인하는지 적는다
    - 왜 그 결과가 나오는지(확인 순서, 어느 서비스가 막는지)가 코드만으로 안 보이면 주석으로 남긴다
    - 준비 요청은 `.expect(200)`, 확인할 요청은 변수로 받아 `assertThat(r.status()).as("%s", r)`
-   - 자주 쓰는 요청은 `Scenario` 도우미를 쓴다: `user`, `deliveryDriver`, `order`, `cancel`, `orderDetail`, `ordersOf`, `inventoryOfP`, `stockOfP`, `logsOf`, `changeTypesOf`, `delivery`, `startDelivering`, `completeDelivery`, `deactivateCompany`, `deactivateProduct`, `deactivateUser`
+   - 자주 쓰는 요청은 `Scenario` 도우미를 쓴다
+     - 회원: `user`, `companyManager`, `deliveryDriver`, `assignCompany`, `changeRole`, `userDetail`, `deactivateUser`, `activateUser`, `changeUserStatus`, `registerBody`
+     - 업체·상품: `createCompany`, `companyDetail`, `productDetail`, `deactivateCompany`, `deactivateProduct`
+     - 주문: `order`, `orderBody`, `cancel`, `orderDetail`, `ordersOf`
+     - 재고·배송: `inbound`, `inventoryOfP`, `stockOfP`, `logsOf`, `changeTypesOf`, `delivery`, `startDelivering`, `requestDeliveryComplete`, `completeDelivery`
+     - 로그인: `Member.token()`(성공해야 함), 실패 응답을 볼 때는 `Member.tryLogin()`·`Accounts.tryLogin(username, password)`
+   - 결과를 확인할 요청은 Response를 돌려주는 도우미(`order`, `cancel`, `changeUserStatus`, `requestDeliveryComplete`, `tryLogin`)를 쓰고, 나머지 도우미는 준비용이라 실패하면 바로 멈춘다
+   - `*Detail` 도우미는 404면 멈추므로, 삭제된 뒤 404를 확인할 때는 `Gateway.get`으로 Response를 받는다
    - 동시 요청은 `Concurrently.run(() -> ..., () -> ...)`으로 한꺼번에 출발시킨다. 어느 쪽이 이길지는 매번 달라서 `Concurrently.count(responses, 409)`처럼 건수와 최종 데이터를 확인한다
    - 오류 응답은 `errorCode()`, `errorMessage()`, `errorFields()`로 읽는다
 3. 기대와 다르면 서비스별 버그 이슈를 만들고 `@Disabled("#이슈번호")`로 표시한 뒤 머지한다.

@@ -249,7 +249,7 @@ class CompanyScenarioTest {
         assertThat(change.errorMessage()).isEqualTo("재고나 진행 중인 주문이 있어 업체의 관리 허브를 바꿀 수 없습니다.");
         assertThat(change.errorFields()).containsExactly("inventory");
         // 2. A의 관리 허브는 서울 그대로
-        assertThat(Gateway.get("/api/v1/companies/" + s.companyA, s.master).expect(200).data().path("hubId").asText())
+        assertThat(s.companyDetail(s.companyA).path("hubId").asText())
                 .isEqualTo(Scenario.SEOUL_HUB.toString());
     }
 
@@ -271,7 +271,7 @@ class CompanyScenarioTest {
         assertThat(change.errorCode()).isEqualTo("HAS_ACTIVE_WORK");
         assertThat(change.errorFields()).containsExactly("order");
         // 2. A의 관리 허브는 서울 그대로
-        assertThat(Gateway.get("/api/v1/companies/" + s.companyA, s.master).expect(200).data().path("hubId").asText())
+        assertThat(s.companyDetail(s.companyA).path("hubId").asText())
                 .isEqualTo(Scenario.SEOUL_HUB.toString());
     }
 
@@ -287,7 +287,7 @@ class CompanyScenarioTest {
 
         // 이렇게 돼야 한다
         // 1. company: 업체를 비활성화하면 소속 상품도 비활성
-        assertThat(Gateway.get("/api/v1/products/" + s.productP, s.master).expect(200).data().path("active").asBoolean())
+        assertThat(s.productDetail(s.productP).path("active").asBoolean())
                 .as("P의 활성 여부").isFalse();
         // 2. hub: company 내부 API(#1)의 active=false를 보고 입고를 막는다
         assertThat(inbound.status()).as("%s", inbound).isEqualTo(422);
@@ -334,7 +334,7 @@ class CompanyScenarioTest {
         assertThat(delete.errorMessage()).isEqualTo("재고나 진행 중인 주문이 있어 상품을 삭제할 수 없습니다.");
         assertThat(delete.errorFields()).containsExactly("inventory");
         // 2. 상품은 삭제되지 않음
-        Gateway.get("/api/v1/products/" + s.productP, s.master).expect(200);
+        s.productDetail(s.productP);
     }
 
     @Test
@@ -406,7 +406,7 @@ class CompanyScenarioTest {
         Response update = Gateway.patch("/api/v1/products/" + s.productP, s.a.token(), Map.of("unitPrice", 6000));
         assertThat(update.status()).as("%s", update).isEqualTo(200);
         // 3. A의 관리자는 a 그대로
-        assertThat(Gateway.get("/api/v1/companies/" + s.companyA, s.master).expect(200).data().path("ownerId").asText())
+        assertThat(s.companyDetail(s.companyA).path("ownerId").asText())
                 .isEqualTo(s.a.userId().toString());
     }
 

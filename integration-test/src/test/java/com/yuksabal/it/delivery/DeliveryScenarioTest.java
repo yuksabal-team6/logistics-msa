@@ -82,20 +82,8 @@ class DeliveryScenarioTest {
     @DisplayName("DLV-3. 같은 허브 주문의 배송 생성")
     void dlv3_같은_허브_주문의_배송_생성() {
         // 공통 준비에는 같은 허브 업체가 없어 서울 허브 수령 업체 C를 만든다 (한 회원은 업체 하나만 관리해 관리자 c도 새로 만든다)
-        String username = "c" + s.suffix;
-        UUID ownerC = Gateway.post("/api/v1/auth/register", null, Map.of(
-                        "username", username,
-                        "password", "ItUser12!",
-                        "slackId", "it-" + username,
-                        "email", username + "@it.test"))
-                .expect(201).uuid("userId");
-        Gateway.patch("/api/v1/users/" + ownerC + "/role", s.master, Map.of("role", "COMPANY")).expect(200);
-        UUID companyC = Gateway.post("/api/v1/companies", s.master, Map.of(
-                        "companyName", "[IT] 수령 업체 C " + s.suffix,
-                        "hubId", SEOUL_HUB,
-                        "ownerId", ownerC,
-                        "address", "통합 테스트 주소"))
-                .expect(201).uuid("companyId");
+        Member ownerC = s.companyManager("c");
+        UUID companyC = s.createCompany("수령 업체 C", SEOUL_HUB, ownerC);
 
         // 1. 회원이 A(서울) → C(서울)로 P 1개 주문
         Map<String, Object> body = new HashMap<>(s.orderBody(1));
@@ -157,12 +145,12 @@ class DeliveryScenarioTest {
         Response bDelivery = Gateway.get(deliveries, b);
 
         assertThat(bDelivery.status()).as("%s", bDelivery).isEqualTo(403);
-        assertThat(bDelivery.error().path("code").asText()).isEqualTo("DELIVERY_ACCESS_DENIED");
+        assertThat(bDelivery.errorCode()).isEqualTo("DELIVERY_ACCESS_DENIED");
 
         Response bRoutes = Gateway.get(deliveries + "/routes", b);
 
         assertThat(bRoutes.status()).as("%s", bRoutes).isEqualTo(403);
-        assertThat(bRoutes.error().path("code").asText()).isEqualTo("DELIVERY_ACCESS_DENIED");
+        assertThat(bRoutes.errorCode()).isEqualTo("DELIVERY_ACCESS_DENIED");
 
         // 5. b: 배송 목록에 D 없음
         Response bList = Gateway.get("/api/v1/deliveries?size=100", b);
@@ -182,7 +170,7 @@ class DeliveryScenarioTest {
         Response assign = Gateway.patch(deliveries + "/manager", s.master, Map.of("deliveryManagerId", s.u.userId()));
 
         assertThat(assign.status()).as("%s", assign).isEqualTo(422);
-        assertThat(assign.error().path("code").asText()).isEqualTo("BUSINESS_RULE_VIOLATION");
+        assertThat(assign.errorCode()).isEqualTo("BUSINESS_RULE_VIOLATION");
 
         // 3. MASTER: D 상세에 담당자가 지정되지 않음
         Response delivery = Gateway.get(deliveries, s.master);
@@ -195,15 +183,8 @@ class DeliveryScenarioTest {
     @DisplayName("DLV-6. 출발 후 주문 취소")
     void dlv6_출발_후_주문_취소() {
         // 배송 기사 d를 만든다 (역할을 바꾼 뒤 로그인해야 토큰에 DELIVERY가 담긴다)
-        String username = "d" + s.suffix;
-        UUID driverId = Gateway.post("/api/v1/auth/register", null, Map.of(
-                        "username", username,
-                        "password", "ItUser12!",
-                        "slackId", "it-" + username,
-                        "email", username + "@it.test"))
-                .expect(201).uuid("userId");
-        Gateway.patch("/api/v1/users/" + driverId + "/role", s.master, Map.of("role", "DELIVERY")).expect(200);
-        String d = new Scenario.Member(driverId, username).token();
+        Member driver = s.deliveryDriver("d");
+        String d = driver.token();
 
         // 1. 회원 u가 A(서울) → B(부산)로 P 1개 주문
         String u = s.u.token();
@@ -214,7 +195,7 @@ class DeliveryScenarioTest {
                 + Gateway.get(deliveries + "/routes", s.master).expect(200).data().get(0).path("routeLogId").asText();
 
         // 2. MASTER: R의 담당자를 d로 지정
-        Gateway.patch(route + "/manager", s.master, Map.of("deliveryManagerId", driverId)).expect(200);
+        Gateway.patch(route + "/manager", s.master, Map.of("deliveryManagerId", driver.userId())).expect(200);
 
         // 3. d: R을 IN_TRANSIT으로 변경 (출발). 배송 D도 IN_TRANSIT이 된다
         Gateway.patch(route + "/status", d, Map.of("routeStatus", "IN_TRANSIT")).expect(200);
@@ -223,10 +204,10 @@ class DeliveryScenarioTest {
         int stockBefore = s.stockOfP();
 
         // 5. u: 주문 취소 → 경로 기록이 출발해 409
-        Response cancel = Gateway.post("/api/v1/orders/" + orderId + "/cancel", u, null);
+        Response cancel = s.cancel(orderId, u);
 
         assertThat(cancel.status()).as("%s", cancel).isEqualTo(409);
-        assertThat(cancel.error().path("code").asText()).isEqualTo("INVALID_STATUS_TRANSITION");
+        assertThat(cancel.errorCode()).isEqualTo("INVALID_STATUS_TRANSITION");
 
         // 6. 주문은 CONFIRMED + 보상 NOT_REQUIRED로 되돌아가고, D는 IN_TRANSIT 그대로, 재고는 복원되지 않음
         Response orderAfter = Gateway.get("/api/v1/orders/" + orderId, u);
