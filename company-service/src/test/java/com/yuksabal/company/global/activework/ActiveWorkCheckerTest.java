@@ -1,4 +1,4 @@
-package com.yuksabal.company.global.deletion;
+package com.yuksabal.company.global.activework;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -20,14 +20,14 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 // hub(#146)·order(#143) 내부 API 응답을 해석하는 부분만 확인한다. 실제 호출은 통합 확인으로 검증한다
-class DeletionCheckerTest {
+class ActiveWorkCheckerTest {
 
     private static final UUID ID = UUID.randomUUID();
 
     private final HubClient hubClient = mock(HubClient.class);
     private final OrderClient orderClient = mock(OrderClient.class);
-    private final InventoryDeletionChecker inventoryChecker = new InventoryDeletionChecker(hubClient);
-    private final OrderDeletionChecker orderChecker = new OrderDeletionChecker(orderClient);
+    private final InventoryActiveWorkChecker inventoryChecker = new InventoryActiveWorkChecker(hubClient);
+    private final OrderActiveWorkChecker orderChecker = new OrderActiveWorkChecker(orderClient);
     // Feign과 같이 모르는 필드는 무시하고 읽는다
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -37,8 +37,8 @@ class DeletionCheckerTest {
         given(hubClient.getStockByProduct(ID)).willReturn(ApiResponse.success(new InventoryStockResponse(true)));
         given(hubClient.getStockByCompany(ID)).willReturn(ApiResponse.success(new InventoryStockResponse(false)));
 
-        assertThat(inventoryChecker.findBlockers(DeletionTarget.PRODUCT, ID)).containsExactly("허브에 재고가 남아 있습니다.");
-        assertThat(inventoryChecker.findBlockers(DeletionTarget.COMPANY, ID)).isEmpty();
+        assertThat(inventoryChecker.findBlockers(ActiveWorkTarget.PRODUCT, ID)).containsExactly("허브에 재고가 남아 있습니다.");
+        assertThat(inventoryChecker.findBlockers(ActiveWorkTarget.COMPANY, ID)).isEmpty();
     }
 
     @Test
@@ -46,8 +46,8 @@ class DeletionCheckerTest {
         given(orderClient.getInProgressByProduct(ID)).willReturn(ApiResponse.success(new OrderInProgressResponse(false)));
         given(orderClient.getInProgressByCompany(ID)).willReturn(ApiResponse.success(new OrderInProgressResponse(true)));
 
-        assertThat(orderChecker.findBlockers(DeletionTarget.PRODUCT, ID)).isEmpty();
-        assertThat(orderChecker.findBlockers(DeletionTarget.COMPANY, ID)).containsExactly("진행 중인 주문이 있습니다.");
+        assertThat(orderChecker.findBlockers(ActiveWorkTarget.PRODUCT, ID)).isEmpty();
+        assertThat(orderChecker.findBlockers(ActiveWorkTarget.COMPANY, ID)).containsExactly("진행 중인 주문이 있습니다.");
     }
 
     @Test
@@ -55,10 +55,10 @@ class DeletionCheckerTest {
         given(hubClient.getStockByProduct(ID)).willReturn(ApiResponse.success(null));
         given(orderClient.getInProgressByCompany(ID)).willReturn(null);
 
-        assertThatThrownBy(() -> inventoryChecker.findBlockers(DeletionTarget.PRODUCT, ID))
+        assertThatThrownBy(() -> inventoryChecker.findBlockers(ActiveWorkTarget.PRODUCT, ID))
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
-        assertThatThrownBy(() -> orderChecker.findBlockers(DeletionTarget.COMPANY, ID))
+        assertThatThrownBy(() -> orderChecker.findBlockers(ActiveWorkTarget.COMPANY, ID))
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
     }
@@ -74,10 +74,10 @@ class DeletionCheckerTest {
         given(orderClient.getInProgressByCompany(ID)).willReturn(missing);
 
         assertThat(renamed.data().hasStock()).isNull();
-        assertThatThrownBy(() -> inventoryChecker.findBlockers(DeletionTarget.COMPANY, ID))
+        assertThatThrownBy(() -> inventoryChecker.findBlockers(ActiveWorkTarget.COMPANY, ID))
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
-        assertThatThrownBy(() -> orderChecker.findBlockers(DeletionTarget.COMPANY, ID))
+        assertThatThrownBy(() -> orderChecker.findBlockers(ActiveWorkTarget.COMPANY, ID))
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
     }

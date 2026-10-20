@@ -13,8 +13,8 @@ import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
-import com.yuksabal.company.global.deletion.DeletionGuard;
-import com.yuksabal.company.global.deletion.DeletionTarget;
+import com.yuksabal.company.global.activework.ActiveWorkGuard;
+import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.global.client.HubClient;
 import com.yuksabal.company.global.client.UserClient;
 import com.yuksabal.company.global.client.dto.response.UserResponse;
@@ -56,7 +56,7 @@ public class CompanyService {
     private final ProductService productService;
     private final UserClient userClient;
     private final HubClient hubClient;
-    private final DeletionGuard deletionGuard;
+    private final ActiveWorkGuard activeWorkGuard;
     private final TransactionTemplate transactionTemplate;
 
     @Transactional
@@ -142,7 +142,7 @@ public class CompanyService {
         // 다른 외부 확인처럼 수정 트랜잭션 안에서 부른다 (MASTER만 하는 드문 작업이라 커넥션 점유는 감수)
         if (hubChanged) {
             verifyHubExists(request.hubId());
-            deletionGuard.validateHubChangeable(companyId);
+            activeWorkGuard.validateHubChangeable(companyId);
         }
         if (ownerChanged) {
             verifyOwner(request.ownerId(), companyId);   // 새 관리자가 이 업체 소속이어야 함
@@ -199,7 +199,7 @@ public class CompanyService {
         transactionTemplate.executeWithoutResult(status -> validateInactive(findCompany(companyId)));
 
         // 2. 남은 업무: 이 업체 상품들의 허브 재고·이 업체가 공급·요청한 진행 중 주문 (409, 확인 실패 502)
-        deletionGuard.validateDeletable(DeletionTarget.COMPANY, companyId);
+        activeWorkGuard.validateDeletable(ActiveWorkTarget.COMPANY, companyId);
 
         // 3. 삭제. 확인하는 동안 다시 활성화됐으면 422
         transactionTemplate.executeWithoutResult(status -> deleteInactiveCompany(companyId, userId));

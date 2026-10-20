@@ -12,8 +12,8 @@ import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.client.HubClient;
 import com.yuksabal.company.global.client.UserClient;
 import com.yuksabal.company.global.client.dto.response.UserResponse;
-import com.yuksabal.company.global.deletion.DeletionGuard;
-import com.yuksabal.company.global.deletion.DeletionTarget;
+import com.yuksabal.company.global.activework.ActiveWorkGuard;
+import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.product.service.ProductService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -68,7 +68,7 @@ class CompanyServiceTest {
     @Mock
     private HubClient hubClient;
     @Mock
-    private DeletionGuard deletionGuard;
+    private ActiveWorkGuard activeWorkGuard;
     @Mock
     private TransactionTemplate transactionTemplate;
 
@@ -205,7 +205,7 @@ class CompanyServiceTest {
         void COMPANY가_지금과_같은_허브를_보내면_변경이_아니라_허용한다() {
             companyService.updateCompany(COMPANY_ID, updateRequest(HUB_ID, null, null), OWNER_ID, UserRole.COMPANY);
 
-            verifyNoInteractions(hubClient, deletionGuard);
+            verifyNoInteractions(hubClient, activeWorkGuard);
         }
 
         @Test
@@ -232,7 +232,7 @@ class CompanyServiceTest {
             companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, OTHER_ID, null), MASTER_ID, UserRole.MASTER);
 
             verify(hubClient).getHub(newHubId);
-            verify(deletionGuard).validateHubChangeable(COMPANY_ID);
+            verify(activeWorkGuard).validateHubChangeable(COMPANY_ID);
             assertThat(company.getHubId()).isEqualTo(newHubId);
             assertThat(company.getOwnerId()).isEqualTo(OTHER_ID);
         }
@@ -240,7 +240,7 @@ class CompanyServiceTest {
         @Test
         void 재고나_진행_중_주문이_남아_있으면_허브를_바꾸지_않는다() {
             UUID newHubId = UUID.randomUUID();
-            willThrow(new BusinessException(HAS_ACTIVE_WORK)).given(deletionGuard).validateHubChangeable(COMPANY_ID);
+            willThrow(new BusinessException(HAS_ACTIVE_WORK)).given(activeWorkGuard).validateHubChangeable(COMPANY_ID);
 
             assertThatThrownBy(() -> companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, null, null), MASTER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class,
@@ -258,14 +258,14 @@ class CompanyServiceTest {
             assertThatThrownBy(() -> companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, null, null), MASTER_ID, UserRole.MASTER))
                     .isSameAs(notFound);
 
-            verifyNoInteractions(deletionGuard);
+            verifyNoInteractions(activeWorkGuard);
         }
 
         @Test
         void 허브를_바꾸지_않으면_남은_업무를_확인하지_않는다() {
             companyService.updateCompany(COMPANY_ID, updateRequest(null, null, "123-45-67890"), MASTER_ID, UserRole.MASTER);
 
-            verifyNoInteractions(deletionGuard);
+            verifyNoInteractions(activeWorkGuard);
         }
     }
 
@@ -342,7 +342,7 @@ class CompanyServiceTest {
                     .isInstanceOfSatisfying(BusinessException.class,
                             e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
-            verifyNoInteractions(companyRepository, deletionGuard, transactionTemplate);
+            verifyNoInteractions(companyRepository, activeWorkGuard, transactionTemplate);
         }
 
         @Test
@@ -353,7 +353,7 @@ class CompanyServiceTest {
                     .isInstanceOfSatisfying(BusinessException.class,
                             e -> assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION));
 
-            verifyNoInteractions(deletionGuard);
+            verifyNoInteractions(activeWorkGuard);
         }
 
         @Test
@@ -361,7 +361,7 @@ class CompanyServiceTest {
             Company company = company(false);
             given(companyRepository.findById(COMPANY_ID)).willReturn(Optional.of(company));
             willThrow(new BusinessException(HAS_ACTIVE_WORK))
-                    .given(deletionGuard).validateDeletable(DeletionTarget.COMPANY, COMPANY_ID);
+                    .given(activeWorkGuard).validateDeletable(ActiveWorkTarget.COMPANY, COMPANY_ID);
 
             assertThatThrownBy(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class,
@@ -379,7 +379,7 @@ class CompanyServiceTest {
             willAnswer(inv -> {
                 company.changeActive(true);
                 return null;
-            }).given(deletionGuard).validateDeletable(DeletionTarget.COMPANY, COMPANY_ID);
+            }).given(activeWorkGuard).validateDeletable(ActiveWorkTarget.COMPANY, COMPANY_ID);
 
             assertThatThrownBy(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class,
@@ -396,7 +396,7 @@ class CompanyServiceTest {
 
             companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER);
 
-            verify(deletionGuard).validateDeletable(DeletionTarget.COMPANY, COMPANY_ID);
+            verify(activeWorkGuard).validateDeletable(ActiveWorkTarget.COMPANY, COMPANY_ID);
             verify(productService).deleteAllByCompany(COMPANY_ID, MASTER_ID);
             assertThat(company.getDeletedAt()).isNotNull();
             assertThat(company.getDeletedBy()).isEqualTo(MASTER_ID);

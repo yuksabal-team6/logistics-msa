@@ -6,8 +6,8 @@ import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
 import com.yuksabal.company.global.auth.OwnerPermission;
-import com.yuksabal.company.global.deletion.DeletionGuard;
-import com.yuksabal.company.global.deletion.DeletionTarget;
+import com.yuksabal.company.global.activework.ActiveWorkGuard;
+import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductSearchRequest;
 import com.yuksabal.company.product.dto.request.ProductStatusRequest;
@@ -46,7 +46,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final CompanyRepository companyRepository;
-    private final DeletionGuard deletionGuard;
+    private final ActiveWorkGuard activeWorkGuard;
     private final TransactionTemplate transactionTemplate;
 
     // 업체 조회 → 소유권 확인 순서. 관리자(ownerId)는 업체를 조회해야 알 수 있다
@@ -140,7 +140,7 @@ public class ProductService {
         });
 
         // 2. 남은 업무: 허브 재고·진행 중 주문 (409, 확인 실패 502)
-        deletionGuard.validateDeletable(DeletionTarget.PRODUCT, productId);
+        activeWorkGuard.validateDeletable(ActiveWorkTarget.PRODUCT, productId);
 
         // 3. 삭제. 확인하는 동안 다시 활성화됐으면 422
         transactionTemplate.executeWithoutResult(status -> deleteInactiveProduct(productId, userId));

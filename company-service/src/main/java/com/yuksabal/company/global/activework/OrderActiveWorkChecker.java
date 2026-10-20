@@ -1,4 +1,4 @@
-package com.yuksabal.company.global.deletion;
+package com.yuksabal.company.global.activework;
 
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.ApiResponse;
@@ -16,7 +16,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 // 업체는 공급 업체·요청 업체로 걸린 주문을 모두 본다 (#143 order 담당자 제안: 거래가 진행 중인 업체는 어느 쪽이든 지우지 않는다)
 @Component
 @RequiredArgsConstructor
-public class OrderDeletionChecker implements DeletionChecker {
+public class OrderActiveWorkChecker implements ActiveWorkChecker {
 
     private final OrderClient orderClient;
 
@@ -26,7 +26,7 @@ public class OrderDeletionChecker implements DeletionChecker {
     }
 
     @Override
-    public List<String> findBlockers(DeletionTarget target, UUID id) {
+    public List<String> findBlockers(ActiveWorkTarget target, UUID id) {
         ApiResponse<OrderInProgressResponse> response = switch (target) {
             case PRODUCT -> orderClient.getInProgressByProduct(id);
             case COMPANY -> orderClient.getInProgressByCompany(id);

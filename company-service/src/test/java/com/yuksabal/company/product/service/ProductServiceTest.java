@@ -4,8 +4,8 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
-import com.yuksabal.company.global.deletion.DeletionGuard;
-import com.yuksabal.company.global.deletion.DeletionTarget;
+import com.yuksabal.company.global.activework.ActiveWorkGuard;
+import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
 import com.yuksabal.company.product.dto.request.ProductStatusRequest;
 import com.yuksabal.company.product.dto.request.ProductUpdateRequest;
@@ -58,7 +58,7 @@ class ProductServiceTest {
     @Mock
     private CompanyRepository companyRepository;
     @Mock
-    private DeletionGuard deletionGuard;
+    private ActiveWorkGuard activeWorkGuard;
     @Mock
     private TransactionTemplate transactionTemplate;
 
@@ -254,7 +254,7 @@ class ProductServiceTest {
                     .isInstanceOfSatisfying(BusinessException.class,
                             e -> assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
 
-            verifyNoInteractions(deletionGuard);
+            verifyNoInteractions(activeWorkGuard);
         }
 
         @Test
@@ -267,7 +267,7 @@ class ProductServiceTest {
                         assertThat(e.getMessage()).isEqualTo("비활성화한 상품만 삭제할 수 있습니다.");
                     });
 
-            verifyNoInteractions(deletionGuard);
+            verifyNoInteractions(activeWorkGuard);
         }
 
         @Test
@@ -275,7 +275,7 @@ class ProductServiceTest {
             Product product = product(company(true), false);
             given(productRepository.findById(PRODUCT_ID)).willReturn(Optional.of(product));
             willThrow(new BusinessException(HAS_ACTIVE_WORK))
-                    .given(deletionGuard).validateDeletable(DeletionTarget.PRODUCT, PRODUCT_ID);
+                    .given(activeWorkGuard).validateDeletable(ActiveWorkTarget.PRODUCT, PRODUCT_ID);
 
             assertThatThrownBy(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class,
@@ -292,7 +292,7 @@ class ProductServiceTest {
             willAnswer(inv -> {
                 product.changeActive(true);
                 return null;
-            }).given(deletionGuard).validateDeletable(DeletionTarget.PRODUCT, PRODUCT_ID);
+            }).given(activeWorkGuard).validateDeletable(ActiveWorkTarget.PRODUCT, PRODUCT_ID);
 
             assertThatThrownBy(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class,
@@ -308,7 +308,7 @@ class ProductServiceTest {
 
             productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY);
 
-            verify(deletionGuard).validateDeletable(DeletionTarget.PRODUCT, PRODUCT_ID);
+            verify(activeWorkGuard).validateDeletable(ActiveWorkTarget.PRODUCT, PRODUCT_ID);
             assertThat(product.getDeletedAt()).isNotNull();
             assertThat(product.getDeletedBy()).isEqualTo(OWNER_ID);
         }
