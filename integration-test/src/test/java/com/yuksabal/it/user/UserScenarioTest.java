@@ -84,7 +84,8 @@ class UserScenarioTest {
         Response wrongPassword = Accounts.tryLogin(username, "Wrong123!");
         Response unknownUser = Accounts.tryLogin(other, Scenario.PASSWORD);
 
-        // 이렇게 돼야 한다 (4): 둘 다 같은 401 (가입된 아이디인지 드러내지 않는다), 실패한 가입은 회원을 만들지 않았다
+        // 이렇게 돼야 한다 (4): 둘 다 같은 401 (가입된 아이디인지 드러내지 않는다)
+        // other는 (3)에서 가입에 실패한 아이디라, 401이면 실패한 가입이 회원을 만들지 않았다는 뜻이다
         assertThat(wrongPassword.status()).as("%s", wrongPassword).isEqualTo(401);
         assertThat(wrongPassword.errorCode()).isEqualTo("INVALID_CREDENTIALS");
         assertThat(unknownUser.status()).as("%s", unknownUser).isEqualTo(401);
@@ -175,6 +176,7 @@ class UserScenarioTest {
 
             // 이렇게 돼야 한다 (1): 비활성화 422, 이미 활성이라 활성화는 200, 상태는 활성 그대로
             assertThat(selfDeactivate.status()).as("%s", selfDeactivate).isEqualTo(422);
+            assertThat(selfDeactivate.errorCode()).isEqualTo("BUSINESS_RULE_VIOLATION");
             assertThat(selfActivate.status()).as("%s", selfActivate).isEqualTo(200);
             assertThat(isActive(masterId)).isTrue();
 
@@ -203,7 +205,10 @@ class UserScenarioTest {
         assertThat(missingActive.status()).as("%s", missingActive).isEqualTo(400);
         assertThat(missingActive.errorCode()).isEqualTo("VALIDATION_ERROR");
         assertThat(notBoolean.status()).as("%s", notBoolean).isEqualTo(400);
+        assertThat(notBoolean.errorCode()).isEqualTo("VALIDATION_ERROR");
         assertThat(badId.status()).as("%s", badId).isEqualTo(400);
+        assertThat(badId.errorCode()).isEqualTo("VALIDATION_ERROR");
+        assertThat(badId.errorFields()).containsExactly("userId");
         assertThat(isActive(s.u.userId())).isTrue();
 
         // 이렇게 하면 (2): 없는 회원, 삭제한 u의 상태 변경
@@ -215,6 +220,7 @@ class UserScenarioTest {
         assertThat(unknown.status()).as("%s", unknown).isEqualTo(404);
         assertThat(unknown.errorCode()).isEqualTo("RESOURCE_NOT_FOUND");
         assertThat(deleted.status()).as("%s", deleted).isEqualTo(404);
+        assertThat(deleted.errorCode()).isEqualTo("RESOURCE_NOT_FOUND");
     }
 
     @Test
