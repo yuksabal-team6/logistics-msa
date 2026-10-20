@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 // Slack Incoming Webhook 알림 (요구사항: 메시지 저장 엔티티 없이 Webhook 호출만)
 // Block Kit 형식(제목, 2열 필드, 하단 보조 정보). text는 모바일 푸시, 알림 미리보기에 쓰이는 요약
@@ -27,6 +28,8 @@ public class SlackNotifier {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // 요청사항이 너무 길면 Slack이 블록을 거절해 알림이 안 감 (section 텍스트 최대 3000자) → 잘라서 보냄
     private static final int MAX_REQUEST_MESSAGE = 500;
+    // Slack 멤버 ID 형식 (user 가입 검증과 같음). 형식이 아니면 멘션하지 않음 (#221)
+    private static final Pattern SLACK_MEMBER_ID = Pattern.compile("^[UW][A-Z0-9]{8,}$");
 
     private final RestClient slackRestClient;
     private final String webhookUrl;
@@ -41,23 +44,31 @@ public class SlackNotifier {
     }
 
     // 주문 생성 알림 (주문 확정 커밋 후 호출)
-    // TODO user 내부 API 8 응답에 slackId가 추가되면 주문자 멘션(<@slackId>) 붙이기
-    public void notifyOrderCreated(Order order, String productName, String supplierName, String requesterName) {
+    // 주문자 slackId가 멤버 ID 형식이면 <@slackId>로 멘션 (주문자에게 알림 푸시), 없거나 형식이 아니면 멘션 없이 전송
+    public void notifyOrderCreated(Order order, String productName, String supplierName, String requesterName,
+                                   String ordererSlackId) {
         // 사용자 입력이 Slack 명령(<!channel> 전체 알림, 링크)으로 해석되지 않게 escape
         productName = escape(productName);
         supplierName = escape(supplierName);
         requesterName = escape(requesterName);
-        String summary = "새 주문 " + order.getOrderNumber() + " " + productName + " x " + order.getQuantity();
+        String mention = mention(ordererSlackId);
+        String summary = "새 주문 " + order.getOrderNumber() + " " + productName + " x " + order.getQuantity()
+                + (mention == null ? "" : " " + mention);
 
-        List<Map<String, Object>> blocks = new ArrayList<>();
-        blocks.add(header("📦 새 주문 접수"));
-        blocks.add(fields(
+        List<String> fieldTexts = new ArrayList<>(List.of(
                 "*주문번호*\n" + order.getOrderNumber(),
                 "*총액*\n" + String.format("%,d원", order.getTotalAmount()),
                 "*상품*\n" + productName + " x " + order.getQuantity(),
                 "*단가*\n" + String.format("%,d원", order.getUnitPrice()),
                 "*공급 업체*\n" + supplierName,
                 "*요청 업체*\n" + requesterName));
+        if (mention != null) {
+            fieldTexts.add("*주문자*\n" + mention);
+        }
+
+        List<Map<String, Object>> blocks = new ArrayList<>();
+        blocks.add(header("📦 새 주문 접수"));
+        blocks.add(fields(fieldTexts.toArray(String[]::new)));
         if (order.getRequestMessage() != null && !order.getRequestMessage().isBlank()) {
             blocks.add(section("*요청사항*\n> " + escape(truncate(order.getRequestMessage()))));
         }
@@ -146,6 +157,11 @@ public class SlackNotifier {
             return "";
         }
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    // 멤버 ID 형식일 때만 멘션 문자열, 아니면 null (임의 문자열이 Slack 명령으로 해석되지 않게)
+    private static String mention(String slackId) {
+        return slackId != null && SLACK_MEMBER_ID.matcher(slackId).matches() ? "<@" + slackId + ">" : null;
     }
 
     private static String truncate(String text) {

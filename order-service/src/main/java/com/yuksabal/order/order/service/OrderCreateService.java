@@ -93,7 +93,7 @@ public class OrderCreateService {
         }
 
         // 0. 주문자 확인: 탈퇴 회원은 user에서 404, 비활성 회원은 403 (주문 저장 없이 끝)
-        verifyOrdererActive(userId, "0. 주문자 확인");
+        UserResponse orderer = verifyOrdererActive(userId, "0. 주문자 확인");
         OrderSource source = loadProductAndCompanies(request);
 
         Order order;
@@ -110,8 +110,10 @@ public class OrderCreateService {
         Order confirmed = confirmOrder(order, deliveryId);
 
         // 7. Slack 주문 알림 (확정 커밋 후). 실패해도 주문은 유지 (SlackNotifier가 예외를 삼킴)
+        // 0단계에서 받은 주문자 slackId로 멘션 (user 추가 호출 없음)
         slackNotifier.notifyOrderCreated(confirmed,
-                source.product().productName(), source.supplier().companyName(), source.requester().companyName());
+                source.product().productName(), source.supplier().companyName(), source.requester().companyName(),
+                orderer.slackId());
         return OrderCreateResponse.from(confirmed);
     }
 
@@ -398,8 +400,9 @@ public class OrderCreateService {
      *
      * @param userId 주문을 요청한 회원의 ID
      * @param step   로그용 문자열
+     * @return 주문자 정보 (slackId 포함)
      */
-    private void verifyOrdererActive(UUID userId, String step) {
+    private UserResponse verifyOrdererActive(UUID userId, String step) {
         UserResponse orderer = userClient.getUser(userId).data();
         log.debug("[주문 생성] {} userId={}, active={}", step, userId, orderer.active());
         if (!orderer.active()) {
@@ -407,6 +410,7 @@ public class OrderCreateService {
             // ACCOUNT_DISABLED는 user 전용 코드라 order는 공통 FORBIDDEN(403) 사용
             throw new BusinessException(FORBIDDEN, "비활성화된 회원은 주문할 수 없습니다.");
         }
+        return orderer;
     }
 
     /**

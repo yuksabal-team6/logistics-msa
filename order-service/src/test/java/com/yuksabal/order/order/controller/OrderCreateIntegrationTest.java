@@ -87,6 +87,8 @@ class OrderCreateIntegrationTest {
     @MockBean
     private SlackNotifier slackNotifier;
 
+    private static final String ORDERER_SLACK_ID = "U0ORDERER1";
+
     private final UUID userId = UUID.randomUUID();
     private final UUID supplierId = UUID.randomUUID();
     private final UUID requesterId = UUID.randomUUID();
@@ -99,7 +101,7 @@ class OrderCreateIntegrationTest {
     @BeforeEach
     void setUp() {
         orderRepository.deleteAllInBatch();
-        given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, true)));
+        given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, true, ORDERER_SLACK_ID)));
         given(companyClient.getProduct(productId)).willReturn(
                 ApiResponse.success(new ProductResponse(productId, "생물 고등어", 12_000L, supplierId, true)));
         given(companyClient.getCompany(supplierId)).willReturn(
@@ -238,7 +240,7 @@ class OrderCreateIntegrationTest {
 
     @Test
     void 비활성_회원이면_403이고_저장_안함() throws Exception {
-        given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, false)));
+        given(userClient.getUser(userId)).willReturn(ApiResponse.success(new UserResponse(userId, false, ORDERER_SLACK_ID)));
 
         create(validBody())
                 .andExpect(status().isForbidden())
@@ -284,8 +286,8 @@ class OrderCreateIntegrationTest {
     void 저장_후_재확인에서_비활성이면_403이고_FAILED_NOT_REQUIRED() throws Exception {
         // 첫 확인은 활성, 저장 뒤 두 번째 확인 사이에 user가 비활성화한 상황
         given(userClient.getUser(userId)).willReturn(
-                ApiResponse.success(new UserResponse(userId, true)),
-                ApiResponse.success(new UserResponse(userId, false)));
+                ApiResponse.success(new UserResponse(userId, true, ORDERER_SLACK_ID)),
+                ApiResponse.success(new UserResponse(userId, false, ORDERER_SLACK_ID)));
 
         create(validBody())
                 .andExpect(status().isForbidden())
@@ -302,7 +304,7 @@ class OrderCreateIntegrationTest {
     void 저장_후_재확인에서_탈퇴면_404이고_FAILED_NOT_REQUIRED() throws Exception {
         // 첫 확인은 활성, 저장 뒤 두 번째 확인 사이에 user가 삭제한 상황
         given(userClient.getUser(userId))
-                .willReturn(ApiResponse.success(new UserResponse(userId, true)))
+                .willReturn(ApiResponse.success(new UserResponse(userId, true, ORDERER_SLACK_ID)))
                 .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "존재하지 않거나 삭제된 회원입니다.", List.of()));
 
         create(validBody())
@@ -565,7 +567,8 @@ class OrderCreateIntegrationTest {
     void 정상_흐름이면_Slack_주문_알림을_보냄() throws Exception {
         create(validBody()).andExpect(status().isCreated());
 
-        verify(slackNotifier).notifyOrderCreated(any(Order.class), eq("생물 고등어"), eq("공급 업체"), eq("요청 업체"));
+        // 0단계 주문자 확인에서 받은 slackId를 멘션용으로 넘긴다 (#221)
+        verify(slackNotifier).notifyOrderCreated(any(Order.class), eq("생물 고등어"), eq("공급 업체"), eq("요청 업체"), eq(ORDERER_SLACK_ID));
         verify(slackNotifier, never()).notifyManualAction(any(), anyString());
     }
 
@@ -575,7 +578,7 @@ class OrderCreateIntegrationTest {
 
         create(validBody()).andExpect(status().isConflict());
 
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
     }
 
     @Test
@@ -587,7 +590,7 @@ class OrderCreateIntegrationTest {
         create(validBody()).andExpect(status().isNotFound());
 
         verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
     }
 
     @Test
@@ -633,7 +636,7 @@ class OrderCreateIntegrationTest {
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.COMPLETED);
         verify(hubClient).restoreStock(any());
         verify(deliveryClient).cancelDelivery(any());
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
         verify(slackNotifier).notifyCheckNeeded(any(Order.class), eq("주문 확정 저장 중 예상하지 못한 오류"));
     }
 
@@ -662,7 +665,7 @@ class OrderCreateIntegrationTest {
 
         assertThat(orderRepository.count()).isZero();
         verify(userClient, never()).getUser(any());
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString());
+        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
     }
 
     @Test

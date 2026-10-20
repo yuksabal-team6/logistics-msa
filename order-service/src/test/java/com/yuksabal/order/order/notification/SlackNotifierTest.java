@@ -3,6 +3,9 @@ package com.yuksabal.order.order.notification;
 import com.yuksabal.order.order.entity.Order;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -19,6 +22,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 
 class SlackNotifierTest {
 
@@ -65,7 +69,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[2].text.text", containsString("신선도 유지 요청")))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체");
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", null);
 
         server.verify();
     }
@@ -123,7 +127,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[1].fields[4].text", containsString("A&amp;B 수산")))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(injected, "<b>고등어", "A&B 수산", "요청 업체");
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(injected, "<b>고등어", "A&B 수산", "요청 업체", null);
 
         server.verify();
     }
@@ -140,7 +144,35 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[2].text.text").value("*요청사항*\n> " + "가".repeat(500) + "..."))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(longMessage, "고등어", "공급 업체", "요청 업체");
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(longMessage, "고등어", "공급 업체", "요청 업체", null);
+
+        server.verify();
+    }
+
+    @Test
+    void 주문자_slackId가_있으면_멘션() {
+        server.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.text", containsString("<@U12345678>")))
+                .andExpect(jsonPath("$.blocks[1].fields[6].text").value("*주문자*\n<@U12345678>"))
+                .andRespond(withSuccess());
+
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK)
+                .notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", "U12345678");
+
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"it-user01", "u12345678", "<!channel>", "U1234567"})
+    void 주문자_slackId가_없거나_형식이_아니면_멘션_없이_보냄(String slackId) {
+        server.expect(requestTo(WEBHOOK))
+                .andExpect(jsonPath("$.text", not(containsString("<@"))))
+                .andExpect(jsonPath("$.blocks[1].fields.length()").value(6))
+                .andRespond(withSuccess());
+
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK)
+                .notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", slackId);
 
         server.verify();
     }
@@ -148,7 +180,7 @@ class SlackNotifierTest {
     @Test
     void Webhook_URL이_없으면_보내지_않음() {
         SlackNotifier notifier = new SlackNotifier(restClient, "", "");
-        notifier.notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체");
+        notifier.notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", null);
         notifier.notifyManualAction(order, "재고 복원 실패");
 
         server.verify();
@@ -159,7 +191,7 @@ class SlackNotifierTest {
         server.expect(requestTo(WEBHOOK)).andRespond(withServerError());
 
         assertThatCode(() -> new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK)
-                .notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체"))
+                .notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", null))
                 .doesNotThrowAnyException();
         server.verify();
     }
