@@ -97,6 +97,10 @@ public class Delivery extends BaseEntity {
         return deliveryStatus == DeliveryStatus.CANCELLED;
     }
 
+    public boolean isCompleted() {
+        return deliveryStatus == DeliveryStatus.COMPLETED;
+    }
+
     // 허브 출발 전(READY)에만 취소할 수 있다 (결정 #19)
     public void cancel() {
         if (deliveryStatus != DeliveryStatus.READY) {
