@@ -31,6 +31,20 @@ spring:
         jdbc:
           time_zone: Asia/Seoul
     show-sql: false
+  # Slack 알림 이벤트 (#198). 컨테이너에서는 kafka:9092, 로컬 실행은 localhost:29092
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+    consumer:
+      group-id: order-slack-notifier
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.yuksabal.order.*
   cloud:
     openfeign:
       client:

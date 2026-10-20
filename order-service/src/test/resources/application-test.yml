@@ -13,6 +13,11 @@ spring:
     hibernate:
       ddl-auto: create-drop
 
+  # 테스트에는 Kafka가 없어서 리스너를 띄우지 않음 (발행은 테스트에서 가짜로 대체)
+  kafka:
+    listener:
+      auto-startup: false
+
 eureka:
   client:
     enabled: false
