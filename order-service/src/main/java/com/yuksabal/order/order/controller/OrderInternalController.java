@@ -5,7 +5,7 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.order.global.swagger.ApiErrorCodes;
 import com.yuksabal.order.order.dto.response.OrderCompleteResponse;
 import com.yuksabal.order.order.dto.response.OrderInProgressResponse;
-import com.yuksabal.order.order.service.OrderService;
+import com.yuksabal.order.order.service.OrderInternalService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +34,7 @@ import static com.yuksabal.order.global.exception.OrderErrorCode.INVALID_STATUS_
 @RequestMapping("/internal/orders")
 public class OrderInternalController {
 
-    private final OrderService orderService;
+    private final OrderInternalService orderInternalService;
 
     // 배송 완료 → 주문 COMPLETED. delivery가 배송 완료 커밋 후 호출
     @Operation(summary = "주문 완료 처리",
@@ -47,7 +47,7 @@ public class OrderInternalController {
     @PostMapping("/{orderId}/complete")
     public ResponseEntity<ApiResponse<OrderCompleteResponse>> completeOrder(@PathVariable UUID orderId) {
         return ResponseEntity.ok(ApiResponse.success(
-                orderService.completeOrder(orderId),
+                orderInternalService.completeOrder(orderId),
                 "주문이 완료 처리되었습니다."));
     }
 
@@ -77,11 +77,11 @@ public class OrderInternalController {
         }
         OrderInProgressResponse response;
         if (ordererId != null) {
-            response = orderService.hasInProgressOrder(ordererId);
+            response = orderInternalService.hasInProgressOrder(ordererId);
         } else if (productId != null) {
-            response = orderService.hasInProgressOrderByProduct(productId);
+            response = orderInternalService.hasInProgressOrderByProduct(productId);
         } else {
-            response = orderService.hasInProgressOrderByCompany(companyId);
+            response = orderInternalService.hasInProgressOrderByCompany(companyId);
         }
         return ResponseEntity.ok(ApiResponse.success(response, "진행 중 주문 여부를 조회했습니다."));
     }
