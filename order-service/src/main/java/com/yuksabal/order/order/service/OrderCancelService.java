@@ -35,6 +35,8 @@ public class OrderCancelService {
 
     private static final String CANCEL_REASON = "주문 취소 보상 실패 (재고 복원)";
     private static final String DELIVERY_UNKNOWN_REASON = "주문 취소 중 배송 취소 결과 확인 불가 (타임아웃 등)";
+    // delivery 배송 취소 응답: 배송이 이미 완료됨 
+    private static final String DELIVERY_ALREADY_COMPLETED = "DELIVERY_ALREADY_COMPLETED";
 
     private final OrderRepository orderRepository;
     private final CompanyClient companyClient;
@@ -92,6 +94,14 @@ public class OrderCancelService {
             deliveryClient.cancelDelivery(new DeliveryCancelRequest(order.getId()));
             log.debug("[주문 취소] 2. 배송 취소 성공 orderId={}", order.getId());
         } catch (FeignClientException e) {
+
+            // 배송 이미 완료된 경우 -> 주문도 완료 처리
+            //   취소 중 배송 완료 알림이 거절될 수 있음. 되돌리면 배송 completed + 주문 confirmed로 불일치 발생됨.
+            if (DELIVERY_ALREADY_COMPLETED.equals(e.getCode())) {
+                completeInsteadOfCancel(order);
+                log.warn("[주문 취소] 2. 배송 이미 완료 orderId={} → 취소 불가, 주문 COMPLETED", order.getId());
+                throw e;
+            }
             revertCancel(order);
             log.warn("[주문 취소] 2. 배송 취소 거절 orderId={}, status={}, code={} → CONFIRMED + NOT_REQUIRED",
                     order.getId(), e.getStatus(), e.getCode());
@@ -110,6 +120,20 @@ public class OrderCancelService {
 
     private void revertCancel(Order order) {
         transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(order.getId()).revertCancel());
+    }
+
+    /**
+     * 배송 완료된 경우 주문 취소를 되돌리고 완료 처리 한다.
+     * 동일 트랜잭션에서 처리하여 중간 상태 (CONFIRMED)가 외부에 노출되지 않도록 한다.
+     *
+     * @param order 완료 처리할 주문
+     */
+    private void completeInsteadOfCancel(Order order) {
+        transactionTemplate.executeWithoutResult(status -> {
+            Order found = orderRepository.findByIdOrThrow(order.getId());
+            found.revertCancel();
+            found.complete();
+        });
     }
 
     /**
