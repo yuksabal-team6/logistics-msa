@@ -414,8 +414,6 @@ public class OrderController {
 - `@ApiErrorCodes`: `common` = 공통 에러, `value` = 도메인 에러 → 응답 예시 자동 생성
 - DTO 필드에 `@Schema(description, example)` 필수
 
-> 💡 **참고용 샘플**: `order-service`의 `sample/` 패키지 (`/api/v1/orders/samples`). 생성·단건·목록 조회, `@Valid`, 404 처리, `@ApiErrorCodes` 작성 예시. 기능 개발 후 패키지째 삭제
-
 ---
 
 ## 10. DB
