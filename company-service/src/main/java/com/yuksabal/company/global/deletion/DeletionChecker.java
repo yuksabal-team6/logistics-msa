@@ -3,7 +3,7 @@ package com.yuksabal.company.global.deletion;
 import java.util.List;
 import java.util.UUID;
 
-// 삭제 전 "남아 있는 업무" 확인 통로 (#137). 확인할 서비스마다 구현체를 하나씩 둔다 (지금은 hub 재고, order 주문)
+// 삭제·관리 허브 변경 전 "남아 있는 업무" 확인 통로 (#137, #161). 확인할 서비스마다 구현체를 하나씩 둔다 (지금은 hub 재고, order 주문)
 // DeletionGuard는 이 인터페이스만 알아서, 확인할 서비스가 늘어도 구현체만 추가하면 된다
 public interface DeletionChecker {
 

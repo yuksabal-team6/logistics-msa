@@ -18,6 +18,7 @@ import static com.yuksabal.company.global.exception.CompanyErrorCode.HAS_ACTIVE_
 // - 남은 업무가 있으면 409 HAS_ACTIVE_WORK (details에 종류별 이유)
 // - 하나라도 확인하지 못하면 502 (확인하지 못한 채로 진행하지 않는다)
 // Feign 호출이라 삭제는 DB 트랜잭션 밖에서 부른다 (응답을 기다리는 동안 커넥션을 잡지 않도록)
+// 관리 허브 변경은 수정 트랜잭션 안에서 부른다 (MASTER만 하는 드문 작업이라 커넥션 점유는 감수, CompanyService.updateCompany)
 @Slf4j
 @Component
 @RequiredArgsConstructor
