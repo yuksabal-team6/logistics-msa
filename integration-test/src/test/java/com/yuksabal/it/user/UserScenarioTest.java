@@ -1,6 +1,7 @@
 package com.yuksabal.it.user;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.yuksabal.it.support.Accounts;
 import com.yuksabal.it.support.Gateway;
 import com.yuksabal.it.support.Gateway.Response;
 import com.yuksabal.it.support.Scenario;
@@ -22,8 +23,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 // 회원 상태 변경은 PATCH /api/v1/users/{id}/status {"active": true|false}, MASTER만 할 수 있다
 class UserScenarioTest {
 
-    // Scenario의 테스트 회원 비밀번호와 같다 (로그인 실패 응답을 직접 확인할 때 쓴다)
-    private static final String PASSWORD = "ItUser12!";
     private static final String REGISTER = "/api/v1/auth/register";
 
     private Scenario s;
@@ -40,10 +39,10 @@ class UserScenarioTest {
         String username = "n" + s.suffix;
 
         // 이렇게 하면 (1): role을 MASTER로 넣어 가입한 뒤 로그인
-        Map<String, Object> body = new HashMap<>(registerBody(username));
+        Map<String, Object> body = new HashMap<>(Scenario.registerBody(username));
         body.put("role", "MASTER");
         Response register = Gateway.post(REGISTER, null, body);
-        Response login = login(username, PASSWORD);
+        Response login = Accounts.tryLogin(username, Scenario.PASSWORD);
 
         // 이렇게 돼야 한다 (1): 가입 201, role은 무시되고 USER / 로그인 200, Bearer 토큰
         assertThat(register.status()).as("%s", register).isEqualTo(201);
@@ -54,7 +53,7 @@ class UserScenarioTest {
         assertThat(login.data().path("tokenType").asText()).isEqualTo("Bearer");
 
         // 이렇게 하면 (2): 같은 아이디·이메일로 다시 가입
-        Response duplicate = Gateway.post(REGISTER, null, registerBody(username));
+        Response duplicate = Gateway.post(REGISTER, null, Scenario.registerBody(username));
 
         // 이렇게 돼야 한다 (2): 409, 겹친 필드 둘 다 알려준다
         assertThat(duplicate.status()).as("%s", duplicate).isEqualTo(409);
@@ -63,13 +62,13 @@ class UserScenarioTest {
 
         // 이렇게 하면 (3): 형식이 틀린 값, 없는 허브로 가입 (형식 검사가 먼저라 허브 확인 전에 400)
         String other = "m" + s.suffix;
-        Map<String, Object> invalid = new HashMap<>(registerBody(other));
+        Map<String, Object> invalid = new HashMap<>(Scenario.registerBody(other));
         invalid.put("username", "AB");
         invalid.put("password", "weak");
         invalid.put("email", "not-an-email");
         Response badFormat = Gateway.post(REGISTER, null, invalid);
 
-        Map<String, Object> unknownHub = new HashMap<>(registerBody(other));
+        Map<String, Object> unknownHub = new HashMap<>(Scenario.registerBody(other));
         unknownHub.put("hubId", UUID.randomUUID());
         Response badHub = Gateway.post(REGISTER, null, unknownHub);
 
@@ -82,8 +81,8 @@ class UserScenarioTest {
         assertThat(badHub.errorFields()).containsExactly("hubId");
 
         // 이렇게 하면 (4): 비밀번호를 틀리거나, 없는 아이디로 로그인
-        Response wrongPassword = login(username, "Wrong123!");
-        Response unknownUser = login(other, PASSWORD);
+        Response wrongPassword = Accounts.tryLogin(username, "Wrong123!");
+        Response unknownUser = Accounts.tryLogin(other, Scenario.PASSWORD);
 
         // 이렇게 돼야 한다 (4): 둘 다 같은 401 (가입된 아이디인지 드러내지 않는다), 실패한 가입은 회원을 만들지 않았다
         assertThat(wrongPassword.status()).as("%s", wrongPassword).isEqualTo(401);
@@ -99,15 +98,15 @@ class UserScenarioTest {
         String tokenBeforeDeactivate = s.u.token();
 
         // 이렇게 하면 (1): u를 두 번 비활성화
-        Response deactivate = changeStatus(s.u.userId(), s.master, false);
-        Response deactivateAgain = changeStatus(s.u.userId(), s.master, false);
+        Response deactivate = s.changeUserStatus(s.u.userId(), s.master, false);
+        Response deactivateAgain = s.changeUserStatus(s.u.userId(), s.master, false);
 
         // 이렇게 돼야 한다 (1): 두 번 다 200, 비활성 그대로
         assertStatusChanged(deactivate, false);
         assertStatusChanged(deactivateAgain, false);
 
         // 이렇게 돼야 한다 (2): 로그인 403, 미리 받아 둔 토큰으로 user-service를 불러도 403
-        Response login = login(s.u);
+        Response login = s.u.tryLogin();
         Response withOldToken = Gateway.get(userPath(s.u.userId()), tokenBeforeDeactivate);
 
         assertThat(login.status()).as("%s", login).isEqualTo(403);
@@ -116,13 +115,13 @@ class UserScenarioTest {
         assertThat(withOldToken.errorCode()).isEqualTo("ACCOUNT_DISABLED");
 
         // 이렇게 하면 (3): u를 두 번 재활성화
-        Response activate = changeStatus(s.u.userId(), s.master, true);
-        Response activateAgain = changeStatus(s.u.userId(), s.master, true);
+        Response activate = s.changeUserStatus(s.u.userId(), s.master, true);
+        Response activateAgain = s.changeUserStatus(s.u.userId(), s.master, true);
 
         // 이렇게 돼야 한다 (3): 두 번 다 200, 다시 로그인된다
         assertStatusChanged(activate, true);
         assertStatusChanged(activateAgain, true);
-        assertThat(login(s.u).status()).isEqualTo(200);
+        assertThat(s.u.tryLogin().status()).isEqualTo(200);
     }
 
     @Test
@@ -132,9 +131,9 @@ class UserScenarioTest {
         UUID target = s.b.userId();
 
         // 이렇게 하면 (1): 토큰 없이, USER(u)·COMPANY(a) 토큰으로 b를 비활성화
-        Response noToken = changeStatus(target, null, false);
-        Response byUser = changeStatus(target, s.u.token(), false);
-        Response byCompany = changeStatus(target, s.a.token(), false);
+        Response noToken = s.changeUserStatus(target, null, false);
+        Response byUser = s.changeUserStatus(target, s.u.token(), false);
+        Response byCompany = s.changeUserStatus(target, s.a.token(), false);
 
         // 이렇게 돼야 한다 (1): 토큰 없음 401, MASTER가 아닌 역할 403
         assertThat(noToken.status()).as("%s", noToken).isEqualTo(401);
@@ -142,12 +141,12 @@ class UserScenarioTest {
         assertThat(byCompany.status()).as("%s", byCompany).isEqualTo(403);
 
         // 이렇게 하면 (2): 비활성 MASTER 토큰으로 b를 비활성화 (u를 MASTER로 올려 토큰을 받은 뒤 비활성화해서 만든다)
-        changeRole(s.u, "MASTER");
+        s.changeRole(s.u, "MASTER");
         try {
             String disabledMasterToken = s.u.token();
-            changeStatus(s.u.userId(), s.master, false).expect(200);
+            s.deactivateUser(s.u);
 
-            Response byDisabledMaster = changeStatus(target, disabledMasterToken, false);
+            Response byDisabledMaster = s.changeUserStatus(target, disabledMasterToken, false);
 
             // 이렇게 돼야 한다 (2): 403 ACCOUNT_DISABLED
             assertThat(byDisabledMaster.status()).as("%s", byDisabledMaster).isEqualTo(403);
@@ -167,12 +166,12 @@ class UserScenarioTest {
     void use9_MASTER_계정_보호_및_경계_조건() {
         // 사전 조건: 테스트 MASTER의 ID, u를 MASTER로 올려 활성 MASTER를 둘 이상으로 만든다
         UUID masterId = masterId();
-        changeRole(s.u, "MASTER");
+        s.changeRole(s.u, "MASTER");
 
         try {
             // 이렇게 하면 (1): MASTER가 자기 자신을 비활성화·활성화
-            Response selfDeactivate = changeStatus(masterId, s.master, false);
-            Response selfActivate = changeStatus(masterId, s.master, true);
+            Response selfDeactivate = s.changeUserStatus(masterId, s.master, false);
+            Response selfActivate = s.changeUserStatus(masterId, s.master, true);
 
             // 이렇게 돼야 한다 (1): 비활성화 422, 이미 활성이라 활성화는 200, 상태는 활성 그대로
             assertThat(selfDeactivate.status()).as("%s", selfDeactivate).isEqualTo(422);
@@ -180,8 +179,8 @@ class UserScenarioTest {
             assertThat(isActive(masterId)).isTrue();
 
             // 이렇게 하면 (2): 다른 MASTER(u)를 비활성화한 뒤 재활성화
-            Response deactivate = changeStatus(s.u.userId(), s.master, false);
-            Response activate = changeStatus(s.u.userId(), s.master, true);
+            Response deactivate = s.changeUserStatus(s.u.userId(), s.master, false);
+            Response activate = s.changeUserStatus(s.u.userId(), s.master, true);
 
             // 이렇게 돼야 한다 (2): 둘 다 200
             assertStatusChanged(deactivate, false);
@@ -208,9 +207,9 @@ class UserScenarioTest {
         assertThat(isActive(s.u.userId())).isTrue();
 
         // 이렇게 하면 (2): 없는 회원, 삭제한 u의 상태 변경
-        Response unknown = changeStatus(UUID.randomUUID(), s.master, false);
+        Response unknown = s.changeUserStatus(UUID.randomUUID(), s.master, false);
         Gateway.delete(userPath(s.u.userId()), s.master).expect(200);
-        Response deleted = changeStatus(s.u.userId(), s.master, false);
+        Response deleted = s.changeUserStatus(s.u.userId(), s.master, false);
 
         // 이렇게 돼야 한다 (2): 둘 다 404
         assertThat(unknown.status()).as("%s", unknown).isEqualTo(404);
@@ -222,11 +221,11 @@ class UserScenarioTest {
     @DisplayName("USE-11. 업체 관리자 비활성화: 200, 로그인 403, 목록에 active=false로 나옴, 재활성화 후 로그인 200")
     void use11_업체_관리자_비활성화_및_목록_조회() {
         // 이렇게 하면 (1): 업체 A 관리자 a를 비활성화 (비활성화는 진행 중인 배송만 확인하므로 업체 관리자도 막히지 않는다)
-        Response deactivate = changeStatus(s.a.userId(), s.master, false);
+        Response deactivate = s.changeUserStatus(s.a.userId(), s.master, false);
 
         // 이렇게 돼야 한다 (1): 200, a는 로그인 403
         assertStatusChanged(deactivate, false);
-        assertThat(login(s.a).status()).isEqualTo(403);
+        assertThat(s.a.tryLogin().status()).isEqualTo(403);
 
         // 이렇게 하면 (2): COMPANY 회원 목록에서 a를 검색
         JsonNode items = Gateway.get("/api/v1/users?role=COMPANY&username=" + s.a.username(), s.master)
@@ -240,48 +239,22 @@ class UserScenarioTest {
         assertThat(found.path("active").asBoolean()).isFalse();
 
         // 이렇게 하면 (3): a를 재활성화
-        changeStatus(s.a.userId(), s.master, true).expect(200);
+        s.activateUser(s.a);
 
         // 이렇게 돼야 한다 (3): 다시 로그인된다
-        assertThat(login(s.a).status()).isEqualTo(200);
+        assertThat(s.a.tryLogin().status()).isEqualTo(200);
     }
 
     // ---- 요청 ----
 
-    private Response changeStatus(UUID userId, String token, boolean active) {
-        return Gateway.patch(statusPath(userId), token, Map.of("active", active));
-    }
-
-    private void changeRole(Member member, String role) {
-        Gateway.patch(userPath(member.userId()) + "/role", s.master, Map.of("role", role)).expect(200);
-    }
-
     // 개발 DB를 함께 쓰므로 테스트가 실패해도 MASTER로 올린 회원을 활성 USER로 되돌려 남기지 않는다
     private void restoreToUser(Member member) {
-        changeStatus(member.userId(), s.master, true).expect(200);
-        changeRole(member, "USER");
+        s.activateUser(member);
+        s.changeRole(member, "USER");
     }
 
     private boolean isActive(UUID userId) {
-        return Gateway.get(userPath(userId), s.master).expect(200).data().path("active").asBoolean();
-    }
-
-    // Accounts.login은 200이 아니면 바로 실패시키므로 실패 응답을 보려면 직접 보낸다
-    private Response login(Member member) {
-        return login(member.username(), PASSWORD);
-    }
-
-    private Response login(String username, String password) {
-        return Gateway.post("/api/v1/auth/login", null, Map.of("username", username, "password", password));
-    }
-
-    // Scenario.register와 같은 가입 요청 본문
-    private static Map<String, Object> registerBody(String username) {
-        return Map.of(
-                "username", username,
-                "password", PASSWORD,
-                "slackId", "it-" + username,
-                "email", username + "@it.test");
+        return s.userDetail(userId).path("active").asBoolean();
     }
 
     // 테스트 MASTER(Accounts와 같은 계정)의 회원 ID. username 검색은 부분 일치라 정확히 같은 것을 고른다
