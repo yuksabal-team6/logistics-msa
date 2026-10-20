@@ -4,6 +4,7 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.user.global.exception.UserErrorCode;
+import com.yuksabal.user.user.dto.request.AdminUpdateUserRequest;
 import com.yuksabal.user.user.dto.request.ChangeRoleRequest;
 import com.yuksabal.user.user.dto.request.ChangeStatusRequest;
 import com.yuksabal.user.user.entity.User;
@@ -33,6 +34,8 @@ import static org.mockito.Mockito.verify;
 class UserAdminServiceTest {
 
     private final UserRepository userRepository = mock(UserRepository.class);
+    private final AffiliationValidator affiliationValidator = mock(AffiliationValidator.class);
+    private final CompanyOwnerGuard companyOwnerGuard = mock(CompanyOwnerGuard.class);
     private final ActiveWorkChecker noDelivery = checker(ActiveWorkChecker.Target.DELIVERY, List.of());
     private final UserAdminService service = service(
             List.of(noDelivery), new UserStateTransition(userRepository, mock(EntityManager.class)));
@@ -157,6 +160,60 @@ class UserAdminServiceTest {
         verify(transition).restore(hold);
     }
 
+    // ---------- USE-14 업체 관리자 정합성 (MASTER 회원 수정) ----------
+
+    @Test
+    void 업체_관리자의_소속을_다른_업체로_바꾸면_422이고_companyId는_그대로() {
+        // given
+        User owner = companyMember();
+        UUID ownedCompany = owner.getCompanyId();
+        UUID otherCompany = UUID.randomUUID();
+        willThrow(new BusinessException(CommonErrorCode.BUSINESS_RULE_VIOLATION, "업체 관리자를 먼저 변경해 주세요.", "companyId"))
+                .given(companyOwnerGuard).validateCompanyChange(owner, otherCompany);
+        AdminUpdateUserRequest request = new AdminUpdateUserRequest(null, null, null, null, null, otherCompany);
+
+        // when & then
+        assertThatThrownBy(() -> service.updateUser(requester.getId(), UserRole.MASTER, owner.getId(), request))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CommonErrorCode.BUSINESS_RULE_VIOLATION);
+        assertThat(owner.getCompanyId()).isEqualTo(ownedCompany);
+    }
+
+    @Test
+    void 소속이_그대로면_업체_관리자_확인에_null을_넘긴다() {
+        // given
+        // 같은 값을 다시 보내면 바뀐 것이 없으므로 company를 조회하지 않게 한다
+        User owner = companyMember();
+        AdminUpdateUserRequest request =
+                new AdminUpdateUserRequest(null, null, null, null, null, owner.getCompanyId());
+
+        // when
+        service.updateUser(requester.getId(), UserRole.MASTER, owner.getId(), request);
+
+        // then
+        verify(companyOwnerGuard).validateCompanyChange(owner, null);
+        verify(affiliationValidator).validate(null, null);
+    }
+
+    @Test
+    void 업체_관리자_역할_변경이_막히면_역할을_바꾸지_않는다() {
+        // given
+        givenActiveMasterCount(2L);
+        User owner = companyMember();
+        UserStateTransition transition = mock(UserStateTransition.class);
+        willThrow(new BusinessException(CommonErrorCode.BUSINESS_RULE_VIOLATION, "업체 관리자를 먼저 변경해 주세요.", "role"))
+                .given(companyOwnerGuard).validateRoleChange(owner, UserRole.USER);
+        UserAdminService adminService = service(List.of(noDelivery), transition);
+
+        // when & then
+        assertThatThrownBy(() -> adminService.changeRole(requester.getId(), UserRole.MASTER, owner.getId(),
+                new ChangeRoleRequest("USER")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CommonErrorCode.BUSINESS_RULE_VIOLATION);
+        verify(transition, never()).changeRole(any(UUID.class), any());
+        assertThat(owner.getRole()).isEqualTo(UserRole.COMPANY);
+    }
+
     // ---------- helpers ----------
 
     private void givenActiveMasterCount(long count) {
@@ -177,7 +234,16 @@ class UserAdminServiceTest {
 
     private UserAdminService service(List<ActiveWorkChecker> checkers, UserStateTransition transition) {
         return new UserAdminService(userRepository, new RequesterValidator(userRepository),
-                mock(AffiliationValidator.class), mock(CompanyOwnerGuard.class), checkers, transition);
+                affiliationValidator, companyOwnerGuard, checkers, transition);
+    }
+
+    // A 업체 소속 COMPANY 회원 (허브 없음)
+    private User companyMember() {
+        User user = User.builder().username("company01").password("$2a$hash").email("company01@example.com")
+                .slackId("U1").role(UserRole.COMPANY).companyId(UUID.randomUUID()).build();
+        ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
+        given(userRepository.findById(user.getId())).willReturn(Optional.of(user));
+        return user;
     }
 
     private static ActiveWorkChecker busyDeliveryChecker() {
