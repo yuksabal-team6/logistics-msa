@@ -14,7 +14,7 @@ public record OrderResponse(
         @Schema(description = "주문 ID", example = "60000000-0000-4000-8000-000000000001")
         UUID orderId,
 
-        @Schema(description = "주문 번호 (생성 규칙 미정)")
+        @Schema(description = "주문 번호 (ORD-{yyyyMMdd}-{orderId 하이픈 뺀 앞 12자리 대문자}, 한국 시간)", example = "ORD-20261020-600000000000")
         String orderNumber,
 
         @Schema(description = "배송 ID (배송 생성 전 또는 실패 시 null)", example = "70000000-0000-4000-8000-000000000001")
