@@ -55,6 +55,7 @@ class UserAdminIntegrationTest {
     private static final String USER_ROLE_HEADER = "X-User-Role";
     private static final String PASSWORD = "Strong123!";
     private static final String WRONG_PASSWORD = "Wrong123!";
+    private static final String ACCOUNT_DISABLED_MESSAGE = "비활성화된 계정입니다.";
     private static final String JWT_SECRET = TestJwt.randomBase64Secret(32);
     private static final UUID HUB = UUID.fromString("00000000-0000-0000-0000-000000000004");
     private static final UUID COMPANY = UUID.fromString("20000000-0000-4000-8000-000000000001");
@@ -486,7 +487,8 @@ class UserAdminIntegrationTest {
         // when & then
         asGateway(get(USERS_URL + "/" + alice.getId()), tokenBeforeDisable)
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("ACCOUNT_DISABLED"));
+                .andExpect(jsonPath("$.error.code").value("ACCOUNT_DISABLED"))
+                .andExpect(jsonPath("$.error.message").value(ACCOUNT_DISABLED_MESSAGE));
     }
 
     @Test
@@ -498,7 +500,8 @@ class UserAdminIntegrationTest {
         // when & then
         asGateway(get(ME_URL), tokenBeforeDisable)
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.error.code").value("ACCOUNT_DISABLED"));
+                .andExpect(jsonPath("$.error.code").value("ACCOUNT_DISABLED"))
+                .andExpect(jsonPath("$.error.message").value(ACCOUNT_DISABLED_MESSAGE));
     }
 
     @Test
