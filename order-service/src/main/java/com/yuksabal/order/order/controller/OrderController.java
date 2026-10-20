@@ -85,7 +85,7 @@ public class OrderController {
                     
                     기간은 yyyy-MM-dd 형식이며, 시작일과 종료일을 **모두 포함**합니다. (한국 시간)
                     """)
-    @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN})
+    @ApiErrorCodes(common = {VALIDATION_ERROR})
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<OrderResponse>>> getOrders(
             @Valid @ParameterObject OrderSearchRequest request,
@@ -125,7 +125,9 @@ public class OrderController {
                     
                     확정(CONFIRMED)된 주문만 취소할 수 있습니다. 이미 출발한 배송이면 delivery의 **409 INVALID_STATUS_TRANSITION**을, 다른 요청이 배송을 수정 중이면 **409 DELIVERY_CONFLICT**를 그대로 응답합니다. 배송이 이미 완료됐으면 **409 DELIVERY_ALREADY_COMPLETED**를 응답하고 주문은 COMPLETED가 됩니다.
                     
-                    배송 취소 결과를 확인하지 못하면 **502**를 응답하며, 취소 상태는 유지되고 운영자가 확인합니다.
+                    delivery가 5xx로 응답하면 주문을 CONFIRMED로 되돌리고 **502**를 응답합니다.
+                    배송 취소 결과를 확인하지 못하면(타임아웃) **502**를 응답하며, 취소 상태는 유지되고 운영자가 확인합니다.
+                    배송 취소 후 재고 복원이 실패해도 취소는 **200**으로 완료되고, compensationStatus가 FAILED로 남아 운영자가 확인합니다.
                     """)
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND, DEPENDENCY_FAILURE}, value = {INVALID_STATUS_TRANSITION})
     @PostMapping("/{orderId}/cancel")

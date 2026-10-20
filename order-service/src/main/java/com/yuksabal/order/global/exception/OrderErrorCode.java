@@ -28,10 +28,6 @@ public enum OrderErrorCode implements ErrorCode {
 
     // 삭제: 진행 중이거나 보상이 끝나지 않은 주문
     ORDER_NOT_DELETABLE(HttpStatus.CONFLICT, "삭제할 수 없는 주문 상태입니다."),
-
-    // 참고용 sample api 전용
-    // TODO sample 패키지 삭제할 때 같이 삭제
-    SAMPLE_NOT_FOUND(HttpStatus.NOT_FOUND, "샘플을 찾을 수 없습니다."),
     ;
 
     private final HttpStatus status;
