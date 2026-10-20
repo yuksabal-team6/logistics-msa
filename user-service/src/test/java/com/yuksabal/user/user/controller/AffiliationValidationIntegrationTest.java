@@ -56,7 +56,7 @@ class AffiliationValidationIntegrationTest {
     // 가입 요청으로 새로 만드는 회원
     private static final String NEW_USERNAME = "user01";
     private static final String ENCODED_PASSWORD = "$2a$10$abcdefghijklmnopqrstuuF7a0hJt8q4lH4mQGq3e0Wv0C9oS4w3y";
-    private static final String CHANGED_SLACK_ID = "U99";
+    private static final String CHANGED_SLACK_ID = "U99999999";
     private static final UUID HUB = UUID.fromString("00000000-0000-0000-0000-000000000004");
     private static final UUID OTHER_HUB = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private static final UUID COMPANY = UUID.fromString("20000000-0000-4000-8000-000000000001");

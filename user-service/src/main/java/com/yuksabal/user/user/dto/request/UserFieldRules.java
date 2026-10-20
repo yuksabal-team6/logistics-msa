@@ -9,6 +9,10 @@ public final class UserFieldRules {
     public static final String PASSWORD_REGEXP = "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^a-zA-Z0-9\\s])\\S{8,15}$";
     public static final String PASSWORD_MESSAGE = "비밀번호는 8~15자이며 대문자, 소문자, 숫자, 특수문자를 모두 포함해야 합니다.";
 
+    // Slack 멤버 ID (incoming webhook 멘션이 <@멤버ID> 형식이라 이름·이메일로는 멘션할 수 없다, #220 Order 답변)
+    public static final String SLACK_ID_REGEXP = "^[UW][A-Z0-9]{8,}$";
+    public static final String SLACK_ID_MESSAGE = "Slack ID는 U 또는 W로 시작하는 9자 이상의 대문자·숫자 멤버 ID로 입력해주세요.";
+
     // 선택 필드용: 값이 오면 공백만으로는 채울 수 없다 (null은 통과)
     public static final String NOT_BLANK_IF_PRESENT_REGEXP = "^(?!\\s*$).+";
 

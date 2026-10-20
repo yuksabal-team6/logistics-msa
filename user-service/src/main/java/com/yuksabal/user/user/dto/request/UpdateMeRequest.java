@@ -20,8 +20,8 @@ public record UpdateMeRequest(
         @Size(max = 255, message = "이메일은 255자 이하여야 합니다.")
         String email,
 
-        @Schema(description = "Slack ID", example = "U87654321")
-        @Pattern(regexp = UserFieldRules.NOT_BLANK_IF_PRESENT_REGEXP, message = "Slack ID는 비워둘 수 없습니다.")
+        @Schema(description = "Slack 멤버 ID (U 또는 W로 시작, 대문자·숫자 9자 이상)", example = "U87654321")
+        @Pattern(regexp = UserFieldRules.SLACK_ID_REGEXP, message = UserFieldRules.SLACK_ID_MESSAGE)
         @Size(max = 100, message = "Slack ID는 100자 이하여야 합니다.")
         String slackId,
 

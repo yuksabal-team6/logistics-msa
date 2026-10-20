@@ -42,6 +42,7 @@ class UserQueryServiceTest {
         assertThat(response.userId()).isEqualTo(user.getId());
         assertThat(response.active()).isFalse();
         assertThat(response.role()).isEqualTo("DELIVERY");
+        assertThat(response.slackId()).isEqualTo("U1");
     }
 
     @Test
