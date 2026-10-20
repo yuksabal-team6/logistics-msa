@@ -45,8 +45,10 @@ public class DeliveryInternalController {
 
 
     @Operation(summary = "배송·경로 기록 취소",
-            description = "허브 출발 전(READY)에만 취소한다. 배송이 없거나 이미 취소됐으면 아무것도 하지 않고 성공(200)으로 반환한다.")
-    @ApiErrorCodes(common = {CommonErrorCode.VALIDATION_ERROR}, value = {DeliveryErrorCode.INVALID_STATUS_TRANSITION})
+            description = "허브 출발 전(READY)에만 취소한다. 배송이 없거나 이미 취소됐으면 아무것도 하지 않고 성공(200)으로 반환한다. "
+                    + "이미 완료된 배송은 409 DELIVERY_ALREADY_COMPLETED, 그 외 출발 후 상태는 409 INVALID_STATUS_TRANSITION.")
+    @ApiErrorCodes(common = {CommonErrorCode.VALIDATION_ERROR},
+            value = {DeliveryErrorCode.DELIVERY_ALREADY_COMPLETED, DeliveryErrorCode.INVALID_STATUS_TRANSITION})
     @PostMapping("/cancel")
     public ResponseEntity<ApiResponse<Void>> cancelDelivery(@Valid @RequestBody DeliveryCancelRequest request) {
         deliveryService.cancelDelivery(request.orderId());

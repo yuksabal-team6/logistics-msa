@@ -109,6 +109,10 @@ public class DeliveryService {
         if (delivery.isCancelled()) {
             return;   // 이미 취소됨: 재시도 → 성공
         }
+        if (delivery.isCompleted()) {
+            // 출발 후 취소 불가(INVALID_STATUS_TRANSITION)와 구분해, order가 주문을 COMPLETED로 처리한다
+            throw new BusinessException(DeliveryErrorCode.DELIVERY_ALREADY_COMPLETED);
+        }
 
         // 경로 기록을 먼저 확인한다.
         // 배송이 READY여도 경로 기록이 이미 출발했을 수 있다

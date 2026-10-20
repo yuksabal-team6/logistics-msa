@@ -43,6 +43,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLAT
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.DELIVERY_ACCESS_DENIED;
+import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.DELIVERY_ALREADY_COMPLETED;
 import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.INVALID_STATUS_TRANSITION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -234,6 +235,35 @@ class DeliveryServiceTest {
                     .isSameAs(conflict);
 
             verifyNoInteractions(orderClient);
+        }
+    }
+
+    @Nested
+    class 배송_취소 {
+
+        @Test
+        void 완료된_배송이면_DELIVERY_ALREADY_COMPLETED이고_경로_기록을_조회하지_않는다() {
+            Delivery delivery = deliveryIn(DeliveryStatus.COMPLETED);
+            given(deliveryRepository.findByOrderId(ORDER_ID)).willReturn(Optional.of(delivery));
+
+            assertThatThrownBy(() -> deliveryService.cancelDelivery(ORDER_ID))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(DELIVERY_ALREADY_COMPLETED));
+
+            verifyNoInteractions(deliveryRouteLogRepository);
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.COMPLETED);
+        }
+
+        @Test
+        void 배송_중이면_INVALID_STATUS_TRANSITION이다() {
+            Delivery delivery = deliveryIn(DeliveryStatus.DELIVERING);
+            given(deliveryRepository.findByOrderId(ORDER_ID)).willReturn(Optional.of(delivery));
+
+            assertThatThrownBy(() -> deliveryService.cancelDelivery(ORDER_ID))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(INVALID_STATUS_TRANSITION));
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.DELIVERING);
         }
     }
 
