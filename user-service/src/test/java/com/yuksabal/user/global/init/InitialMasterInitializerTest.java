@@ -29,7 +29,7 @@ class InitialMasterInitializerTest {
     private static final String USERNAME = "master01";
     private static final String PASSWORD = "Master123!";
     private static final String EMAIL = "master@example.com";
-    private static final String SLACK_ID = "U0MASTER";
+    private static final String SLACK_ID = "U0MASTER01";
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();

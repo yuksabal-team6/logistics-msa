@@ -22,8 +22,9 @@ public record RegisterRequest(
         @Pattern(regexp = UserFieldRules.PASSWORD_REGEXP, message = UserFieldRules.PASSWORD_MESSAGE)
         String password,
 
-        @Schema(description = "Slack ID", example = "U12345678")
+        @Schema(description = "Slack 멤버 ID (U 또는 W로 시작, 대문자·숫자 9자 이상)", example = "U12345678")
         @NotBlank(message = "Slack ID는 필수입니다.")
+        @Pattern(regexp = UserFieldRules.SLACK_ID_REGEXP, message = UserFieldRules.SLACK_ID_MESSAGE)
         @Size(max = 100, message = "Slack ID는 100자 이하여야 합니다.")
         String slackId,
 

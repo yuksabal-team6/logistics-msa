@@ -9,7 +9,7 @@ services:
       INITIAL_MASTER_USERNAME: itmaster
       INITIAL_MASTER_PASSWORD: ItMaster1!
       INITIAL_MASTER_EMAIL: itmaster@it.test
-      INITIAL_MASTER_SLACK_ID: itmaster
+      INITIAL_MASTER_SLACK_ID: UITMASTER01
 
   order-service:
     environment:
