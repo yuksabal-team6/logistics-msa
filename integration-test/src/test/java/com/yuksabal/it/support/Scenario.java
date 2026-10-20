@@ -244,7 +244,9 @@ public final class Scenario {
         Gateway.patch("/api/v1/users/" + member.userId(), master, Map.of("companyId", companyId)).expect(200);
     }
 
-    private UUID createCompany(String name, UUID hubId, Member owner) {
+    // 업체 생성 POST /api/v1/companies (MASTER) → companyId. 업체 A·B 말고 업체가 더 필요한 시나리오용 (예: 같은 허브 수령 업체)
+    // 관리자는 아직 업체를 관리하지 않는 COMPANY 회원이어야 한다 (companyManager로 만든다)
+    public UUID createCompany(String name, UUID hubId, Member owner) {
         return Gateway.post("/api/v1/companies", master, Map.of(
                         "companyName", "[IT] " + name + " " + suffix,
                         "hubId", hubId,
