@@ -215,10 +215,11 @@ public class CompanyService {
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404. 조회·수정·삭제 공용
     private Company findCompany(UUID companyId) {
         return companyRepository.findById(companyId)
-                .orElseThrow(() -> new BusinessException(
-                        RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 업체입니다.",
-                        "companyId"));
+                .orElseThrow(CompanyService::companyNotFound);
+    }
+
+    private static BusinessException companyNotFound() {
+        return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 업체입니다.", "companyId");
     }
 
     // 비활성화로 새 주문·입고를 먼저 끊어야, 확인한 "남은 업무 없음"이 삭제 시점까지 유지된다
@@ -231,10 +232,7 @@ public class CompanyService {
     // 업체 상태 변경 전용. 업체 행을 잠그고 조회한다 (404는 findCompany와 같음)
     private Company findCompanyForUpdate(UUID companyId) {
         return companyRepository.findByIdForUpdate(companyId)
-                .orElseThrow(() -> new BusinessException(
-                        RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 업체입니다.",
-                        "companyId"));
+                .orElseThrow(CompanyService::companyNotFound);
     }
 
     // 값을 보냈고(null 아님) 기존 값과 다를 때만 "바뀜"으로 본다

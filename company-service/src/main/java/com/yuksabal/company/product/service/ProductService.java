@@ -196,9 +196,10 @@ public class ProductService {
     // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404
     private Company findCompanyForUpdate(UUID companyId) {
         return companyRepository.findByIdForUpdate(companyId)
-                .orElseThrow(() -> new BusinessException(
-                        RESOURCE_NOT_FOUND,
-                        "존재하지 않거나 삭제된 업체입니다.",
-                        "companyId"));
+                .orElseThrow(ProductService::companyNotFound);
+    }
+
+    private static BusinessException companyNotFound() {
+        return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 업체입니다.", "companyId");
     }
 }
