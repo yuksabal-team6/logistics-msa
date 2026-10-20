@@ -223,8 +223,13 @@ public final class Scenario {
         return Map.of(
                 "username", username,
                 "password", PASSWORD,
-                "slackId", "it-" + username,
+                "slackId", slackIdOf(username),
                 "email", username + "@it.test");
+    }
+
+    // 회원가입 때 쓰는 Slack ID. user-service 형식(^[UW][A-Z0-9]{8,}$)에 맞추려고 U + 대문자 username + 00000000으로 만든다
+    public static String slackIdOf(String username) {
+        return "U" + username.toUpperCase() + "00000000";
     }
 
     // USER 회원을 새로 만든다 (u 말고 주문자가 더 필요한 시나리오용, 예: 두 회원이 동시에 주문). name은 회원끼리 구분하는 한 글자 (예: "v")

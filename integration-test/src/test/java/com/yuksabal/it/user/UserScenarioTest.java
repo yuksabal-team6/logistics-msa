@@ -351,7 +351,7 @@ class UserScenarioTest {
 
         // 이렇게 하면: 받아 둔 토큰으로 내 정보 조회, 내 정보 수정, 비밀번호 변경, 본인 상세 조회
         Response me = Gateway.get(ME, token);
-        Response updateMe = Gateway.patch(ME, token, Map.of("slackId", "it-changed-" + s.suffix));
+        Response updateMe = Gateway.patch(ME, token, Map.of("slackId", "UCHANGED01"));
         Response changePassword = Gateway.patch(ME + "/password", token,
                 Map.of("currentPassword", Scenario.PASSWORD, "newPassword", "ItUser34!"));
         Response detail = Gateway.get(userPath(s.u.userId()), token);
@@ -364,7 +364,7 @@ class UserScenarioTest {
             assertThat(r.errorMessage()).as("%s", r).isEqualTo("비활성화된 계정입니다.");
         }
         // 3. 거절된 수정·비밀번호 변경은 반영되지 않는다: slackId 그대로, 재활성화 후 원래 비밀번호로 로그인 200
-        assertThat(s.userDetail(s.u.userId()).path("slackId").asText()).isEqualTo("it-" + s.u.username());
+        assertThat(s.userDetail(s.u.userId()).path("slackId").asText()).isEqualTo(Scenario.slackIdOf(s.u.username()));
         s.activateUser(s.u);
         assertThat(s.u.tryLogin().status()).isEqualTo(200);
     }
