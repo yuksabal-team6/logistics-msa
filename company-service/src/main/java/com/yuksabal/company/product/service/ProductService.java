@@ -177,6 +177,18 @@ public class ProductService {
         return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 상품입니다.", "productId");
     }
 
+    // 상품 등록·활성화 시 소속 업체를 잠그고 조회한다 (#147, 업체 상태 변경과 겹치지 않도록)
+    // CompanyService가 업체 삭제 때 ProductService를 쓰므로, 순환 의존을 피하려고 Repository로 직접 조회한다
+    // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404
+    private Company findCompanyForUpdate(UUID companyId) {
+        return companyRepository.findByIdForUpdate(companyId)
+                .orElseThrow(ProductService::companyNotFound);
+    }
+
+    private static BusinessException companyNotFound() {
+        return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 업체입니다.", "companyId");
+    }
+
     // 비활성화로 새 주문·입고를 먼저 끊어야, 확인한 "남은 업무 없음"이 삭제 시점까지 유지된다
     private void validateInactive(Product product) {
         if (product.isActive()) {
@@ -189,17 +201,5 @@ public class ProductService {
         if (!company.isActive()) {
             throw new BusinessException(BUSINESS_RULE_VIOLATION, message, "companyId");
         }
-    }
-
-    // 상품 등록·활성화 시 소속 업체를 잠그고 조회한다 (#147, 업체 상태 변경과 겹치지 않도록)
-    // CompanyService가 업체 삭제 때 ProductService를 쓰므로, 순환 의존을 피하려고 Repository로 직접 조회한다
-    // 삭제된 업체는 @SQLRestriction으로 조회되지 않아 없는 업체와 같이 404
-    private Company findCompanyForUpdate(UUID companyId) {
-        return companyRepository.findByIdForUpdate(companyId)
-                .orElseThrow(ProductService::companyNotFound);
-    }
-
-    private static BusinessException companyNotFound() {
-        return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 업체입니다.", "companyId");
     }
 }

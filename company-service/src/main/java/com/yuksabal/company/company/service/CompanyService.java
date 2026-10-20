@@ -222,17 +222,17 @@ public class CompanyService {
         return new BusinessException(RESOURCE_NOT_FOUND, "존재하지 않거나 삭제된 업체입니다.", "companyId");
     }
 
+    // 업체 상태 변경 전용. 업체 행을 잠그고 조회한다 (404는 findCompany와 같음)
+    private Company findCompanyForUpdate(UUID companyId) {
+        return companyRepository.findByIdForUpdate(companyId)
+                .orElseThrow(CompanyService::companyNotFound);
+    }
+
     // 비활성화로 새 주문·입고를 먼저 끊어야, 확인한 "남은 업무 없음"이 삭제 시점까지 유지된다
     private void validateInactive(Company company) {
         if (company.isActive()) {
             throw new BusinessException(BUSINESS_RULE_VIOLATION, "비활성화한 업체만 삭제할 수 있습니다.", "companyId");
         }
-    }
-
-    // 업체 상태 변경 전용. 업체 행을 잠그고 조회한다 (404는 findCompany와 같음)
-    private Company findCompanyForUpdate(UUID companyId) {
-        return companyRepository.findByIdForUpdate(companyId)
-                .orElseThrow(CompanyService::companyNotFound);
     }
 
     // 값을 보냈고(null 아님) 기존 값과 다를 때만 "바뀜"으로 본다
