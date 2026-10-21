@@ -10,7 +10,6 @@ import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
-import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
 import com.yuksabal.hub.inventory.client.dto.ProductResponse;
 import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
@@ -47,9 +46,7 @@ import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.hub.inventory.repository.InventorySpecification.hubIdEquals;
 import static com.yuksabal.hub.inventory.repository.InventorySpecification.search;
 
-// 권한은 Gateway(#133)와 이 서비스가 둘 다 검사한다 (다층 방어)
-// Gateway를 거치지 않는 호출(내부망 직접 호출, Gateway 규칙 누락)에도 서비스가 스스로 막고,
-// COMPANY의 상품 소유권처럼 Gateway가 알 수 없는 조건은 서비스에서만 판단한다
+// 권한 검사는 InventoryAccessPolicy가 맡는다 (Gateway와 함께 검사하는 다층 방어)
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -68,13 +65,12 @@ public class InventoryService {
     private final InventoryLogRepository inventoryLogRepository;
     private final HubRepository hubRepository;
     private final CompanyClient companyClient;
+    private final InventoryAccessPolicy accessPolicy;
     private final TransactionTemplate transactionTemplate;
 
     // 전체 재고 목록은 MASTER만 조회할 수 있다. 없는 허브·상품 ID는 에러 없이 빈 목록
     public PageResponse<InventoryResponse> getInventories(InventorySearchRequest request, Pageable pageable, UserRole role) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
+        accessPolicy.checkMaster(role);
 
         Page<Inventory> inventories = inventoryRepository.findAll(
                 search(request.hubId(), request.productId()),
@@ -84,9 +80,7 @@ public class InventoryService {
 
     // 재고 변경 이력은 MASTER만 조회할 수 있다. 없는 재고·허브·주문 ID는 에러 없이 빈 목록
     public PageResponse<InventoryLogResponse> getInventoryLogs(InventoryLogSearchRequest request, Pageable pageable, UserRole role) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
+        accessPolicy.checkMaster(role);
 
         Page<InventoryLog> logs = inventoryLogRepository.findAll(
                 InventoryLogSpecification.search(request.inventoryId(), request.hubId(), request.orderId(), request.changeType()),
@@ -98,9 +92,7 @@ public class InventoryService {
     // TODO 허용된 사용자 기준이 정해지면 재고의 허브·상품으로 권한을 확인한다 (지금은 MASTER만)
     // 삭제된 재고는 @SQLRestriction으로 조회되지 않아 없는 재고와 같이 404로 응답한다.
     public InventoryResponse getInventory(UUID inventoryId, UserRole role) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
+        accessPolicy.checkMaster(role);
 
         return InventoryResponse.from(findInventory(inventoryId));
     }
@@ -109,9 +101,7 @@ public class InventoryService {
     // TODO 허용된 사용자 기준이 정해지면 허브로 권한을 확인한다 (지금은 MASTER만)
     // 없는 허브(삭제된 허브 포함)는 404, 허브는 있지만 재고가 없으면 빈 목록
     public PageResponse<InventoryResponse> getInventoriesByHub(UUID hubId, Pageable pageable, UserRole role) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
+        accessPolicy.checkMaster(role);
         if (!hubRepository.existsById(hubId)) {
             throw new BusinessException(
                     CommonErrorCode.RESOURCE_NOT_FOUND,
@@ -131,14 +121,10 @@ public class InventoryService {
     // company 호출(#2)을 기다리는 동안 DB 커넥션을 잡지 않도록 트랜잭션 없이 실행한다 (재고 조회는 Repository가 짧게 처리)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public InventoryResponse getInventoryByProduct(UUID productId, UUID userId, UserRole role) {
-        if (role != UserRole.MASTER && role != UserRole.COMPANY) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
+        accessPolicy.checkProductReadable(role);
 
         Inventory inventory = findSingleInventoryByProduct(productId);
-        if (role == UserRole.COMPANY) {
-            validateCompanyOwner(inventory.getCompanyId(), userId);
-        }
+        accessPolicy.checkProductOwner(inventory.getCompanyId(), userId, role);
         return InventoryResponse.from(inventory);
     }
 
@@ -156,9 +142,7 @@ public class InventoryService {
     // 값이 같으면 그 사이 변경의 순변화량이 0이라 조정 결과가 맞으므로 수량만 비교한다
     @Transactional
     public InventoryResponse adjustQuantity(UUID inventoryId, InventoryQuantityUpdateRequest request, UUID userId, UserRole role) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
+        accessPolicy.checkMaster(role);
         // 조회한 수량과 같은 값으로 조정하는 요청은 DTO 검증(isQuantityChanged)에서 400으로 막힌다
         int expectedQuantity = request.expectedQuantity();
         int quantity = request.quantity();
@@ -193,9 +177,7 @@ public class InventoryService {
     // company 호출(#1)은 트랜잭션 밖에서 하고, 재고 변경만 transactionTemplate으로 감싼다 (응답을 기다리는 동안 커넥션을 잡지 않도록)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public InventoryResponse inbound(InventoryInboundRequest request, UUID userId, UserRole role) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
+        accessPolicy.checkMaster(role);
         // 값싼 허브 확인을 먼저 해, 없는 허브면 company를 호출하지 않는다 (허브 404 → 상품 404 순서)
         if (!hubRepository.existsById(request.hubId())) {
             throw new BusinessException(
@@ -315,21 +297,5 @@ public class InventoryService {
                     .orElseThrow();
         }
         throw new BusinessException(HubErrorCode.INVENTORY_CONFLICT);
-    }
-
-    // 업체 관리자(ownerId) 본인만 허용. 업체가 없거나 삭제되면(404) 소유권을 확인할 수 없어 403
-    private void validateCompanyOwner(UUID companyId, UUID userId) {
-        CompanyResponse company;
-        try {
-            company = companyClient.getCompany(companyId).data();
-        } catch (FeignClientException e) {
-            if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
-                throw new BusinessException(CommonErrorCode.FORBIDDEN);
-            }
-            throw e;
-        }
-        if (!company.ownerId().equals(userId)) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN);
-        }
     }
 }
