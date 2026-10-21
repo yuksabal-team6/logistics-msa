@@ -74,7 +74,7 @@ public class DeliveryRouteLogService {
 
     // 경로 기록(허브→허브) 담당자 지정. 403 → 404 → 409 → user 확인(404·422) 순서
     // 1차 확인으로 담당자를 지정할 수 없는 경로 기록(허브를 출발했거나 끝남)이면 user를 부르지 않고, user 호출은 트랜잭션 밖에서 한다
-    // 1차 확인도 트랜잭션 안에서 한다: findRouteLog가 LAZY 프록시(delivery)를 거치기 때문
+    // 1차 확인도 트랜잭션 안에서 한다: 배송·경로 기록 조회를 한 트랜잭션으로 묶기 위해
     // 저장 트랜잭션에서 상태를 다시 확인해 그 사이에 지정할 수 없게 된 경로 기록은 409, 동시 수정은 @Version 충돌로 409
     public DeliveryRouteLogResponse assignRouteManager(UUID deliveryId, UUID routeLogId,
                                                        UUID deliveryManagerId, UserRole role) {
