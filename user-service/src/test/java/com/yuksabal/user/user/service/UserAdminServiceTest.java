@@ -48,6 +48,7 @@ class UserAdminServiceTest {
     void setUp() {
         given(userRepository.findById(requester.getId())).willReturn(Optional.of(requester));
         given(userRepository.findById(target.getId())).willReturn(Optional.of(target));
+        given(userRepository.findByIdForUpdate(target.getId())).willReturn(Optional.of(target));
     }
 
     // ---------- 마지막 활성 MASTER 보호 ----------

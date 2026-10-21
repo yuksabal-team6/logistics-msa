@@ -216,7 +216,7 @@ class UserServiceTest {
         // given
         UUID userId = UUID.randomUUID();
         User user = inactiveUser(userId);
-        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+        given(userRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
         UpdateMeRequest changeSlackId = new UpdateMeRequest(null, null, "U99999999", null);
 
         // when & then
@@ -233,7 +233,7 @@ class UserServiceTest {
         UUID userId = UUID.randomUUID();
         User user = inactiveUser(userId);
         String passwordBefore = user.getPassword();
-        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+        given(userRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
 
         // when & then
         assertThatThrownBy(() -> userService.changePassword(userId, new ChangePasswordRequest(RAW_PASSWORD, NEW_PASSWORD)))
@@ -263,7 +263,7 @@ class UserServiceTest {
         assertThatThrownBy(() -> userService.updateMe(UUID.randomUUID(), emptyRequest))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(CommonErrorCode.VALIDATION_ERROR);
-        verify(userRepository, never()).findById(any());
+        verify(userRepository, never()).findByIdForUpdate(any());
     }
 
     @Test
@@ -271,7 +271,7 @@ class UserServiceTest {
         // given
         UUID userId = UUID.randomUUID();
         User user = savedUser(userId, UserRole.USER);
-        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+        given(userRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
 
         // when
         userService.changePassword(userId, new ChangePasswordRequest(RAW_PASSWORD, NEW_PASSWORD));
@@ -287,7 +287,7 @@ class UserServiceTest {
         UUID userId = UUID.randomUUID();
         User user = savedUser(userId, UserRole.USER);
         String passwordBefore = user.getPassword();
-        given(userRepository.findById(userId)).willReturn(Optional.of(user));
+        given(userRepository.findByIdForUpdate(userId)).willReturn(Optional.of(user));
         ChangePasswordRequest wrongCurrent = new ChangePasswordRequest(WRONG_PASSWORD, NEW_PASSWORD);
 
         // when & then
@@ -301,7 +301,7 @@ class UserServiceTest {
     void 새_비밀번호가_현재와_같으면_400() {
         // given
         UUID userId = UUID.randomUUID();
-        given(userRepository.findById(userId)).willReturn(Optional.of(savedUser(userId, UserRole.USER)));
+        given(userRepository.findByIdForUpdate(userId)).willReturn(Optional.of(savedUser(userId, UserRole.USER)));
         ChangePasswordRequest samePassword = new ChangePasswordRequest(RAW_PASSWORD, RAW_PASSWORD);
 
         // when & then
