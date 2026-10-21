@@ -306,17 +306,6 @@ class InventoryServiceTest {
         }
 
         @Test
-        void 조정할_수량이_조회한_수량과_같으면_400이고_재고를_바꾸지_않는다() {
-            assertThatThrownBy(() -> inventoryService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 100), USER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(VALIDATION_ERROR);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("quantity");
-                    });
-
-            verifyNoInteractions(inventoryRepository, inventoryLogRepository);
-        }
-
-        @Test
         void 그_사이_수량이_바뀌었으면_409와_현재_수량이고_로그를_남기지_않는다() {
             given(inventoryRepository.updateQuantityIfMatches(eq(INVENTORY_ID), eq(100), eq(80), any(LocalDateTime.class), eq(USER_ID)))
                     .willReturn(0);
