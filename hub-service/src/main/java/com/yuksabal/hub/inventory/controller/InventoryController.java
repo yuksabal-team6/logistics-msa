@@ -128,7 +128,7 @@ public class InventoryController {
 
     @Operation(summary = "재고 수량 조정 (MASTER)",
             description = "실사 결과로 재고 수량을 직접 바꾼다. 조회할 때 본 수량(expectedQuantity)이 현재 수량과 다르면 409 "
-                    + "(그 사이 주문 차감·입고로 바뀐 경우, details에 현재 수량). 조정할 수량이 조회한 수량과 같으면 400, 재고가 없으면 404")
+                    + "(그 사이 주문 차감·입고로 바뀐 경우, details에 현재 수량). 조정할 수량이 조회한 수량과 같으면 400 (details의 field는 quantityChanged), 재고가 없으면 404")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, FORBIDDEN, RESOURCE_NOT_FOUND}, value = {INVENTORY_QUANTITY_CONFLICT})
     @PatchMapping("/{inventoryId}")
     public ResponseEntity<ApiResponse<InventoryResponse>> adjustQuantity(
