@@ -2,13 +2,9 @@ package com.yuksabal.hub.inventory.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.feign.FeignServerException;
-import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.inventory.client.CompanyClient;
-import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
 import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
 import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
@@ -68,7 +64,7 @@ class InventoryQueryServiceTest {
     @Mock
     private HubRepository hubRepository;
     @Mock
-    private CompanyClient companyClient;
+    private CompanyReader companyReader;
 
     private InventoryQueryService inventoryQueryService;
 
@@ -76,7 +72,7 @@ class InventoryQueryServiceTest {
     @BeforeEach
     void setUp() {
         inventoryQueryService = new InventoryQueryService(inventoryRepository, inventoryLogRepository, hubRepository,
-                new InventoryAccessPolicy(companyClient));
+                new InventoryAccessPolicy(companyReader));
     }
 
     @Nested
@@ -161,7 +157,7 @@ class InventoryQueryServiceTest {
             assertThatThrownBy(() -> inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.USER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
-            verifyNoInteractions(inventoryRepository, companyClient);
+            verifyNoInteractions(inventoryRepository, companyReader);
         }
 
         @Test
@@ -171,7 +167,7 @@ class InventoryQueryServiceTest {
             InventoryResponse response = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
 
             assertThat(response.quantity()).isEqualTo(10);
-            verifyNoInteractions(companyClient);
+            verifyNoInteractions(companyReader);
         }
 
         @Test
@@ -184,13 +180,13 @@ class InventoryQueryServiceTest {
                         assertThat(e.getDetails()).extracting("field").containsExactly("productId");
                     });
 
-            verifyNoInteractions(companyClient);
+            verifyNoInteractions(companyReader);
         }
 
         @Test
         void COMPANY가_상품_업체의_관리자면_조회한다() {
             given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willReturn(ApiResponse.success(new CompanyResponse(COMPANY_ID, USER_ID)));
+            given(companyReader.findOwnerId(COMPANY_ID)).willReturn(Optional.of(USER_ID));
 
             InventoryResponse response = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY);
 
@@ -200,7 +196,7 @@ class InventoryQueryServiceTest {
         @Test
         void COMPANY가_다른_업체_관리자면_403() {
             given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willReturn(ApiResponse.success(new CompanyResponse(COMPANY_ID, OTHER_USER_ID)));
+            given(companyReader.findOwnerId(COMPANY_ID)).willReturn(Optional.of(OTHER_USER_ID));
 
             assertThatThrownBy(() -> inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
@@ -210,17 +206,17 @@ class InventoryQueryServiceTest {
         @Test
         void COMPANY가_조회할_때_업체가_없으면_403() {
             given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willThrow(notFound());
+            given(companyReader.findOwnerId(COMPANY_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
         }
 
         @Test
-        void 업체_확인이_404가_아닌_오류면_그대로_전달한다() {
+        void 업체_확인이_실패하면_그대로_전달한다() {
             FeignServerException serverError = serverError();
             given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willThrow(serverError);
+            given(companyReader.findOwnerId(COMPANY_ID)).willThrow(serverError);
 
             assertThatThrownBy(() -> inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY))
                     .isSameAs(serverError);
@@ -310,12 +306,8 @@ class InventoryQueryServiceTest {
         return new InventoryLogSearchRequest(null, null, null, null);
     }
 
-    private static FeignClientException notFound() {
-        return new FeignClientException(404, "RESOURCE_NOT_FOUND", "요청한 리소스를 찾을 수 없습니다.", List.of());
-    }
-
     private static FeignServerException serverError() {
-        return new FeignServerException(503, "SERVICE_UNAVAILABLE", "서비스를 사용할 수 없습니다.", "CompanyClient#getProduct");
+        return new FeignServerException(503, "SERVICE_UNAVAILABLE", "서비스를 사용할 수 없습니다.", "CompanyClient#getCompany");
     }
 
     private static Hub hub(UUID hubId) {
