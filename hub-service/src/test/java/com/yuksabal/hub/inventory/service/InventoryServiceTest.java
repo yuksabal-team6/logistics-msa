@@ -22,13 +22,13 @@ import com.yuksabal.hub.inventory.entity.InventoryLog;
 import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import org.hibernate.exception.ConstraintViolationException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -87,8 +87,14 @@ class InventoryServiceTest {
     @Mock
     private TransactionTemplate transactionTemplate;
 
-    @InjectMocks
     private InventoryService inventoryService;
+
+    // 권한 정책은 가짜로 두지 않고 실제 객체를 쓴다. 서비스가 정책을 제대로 부르는지까지 기존 권한 테스트로 확인한다
+    @BeforeEach
+    void setUp() {
+        inventoryService = new InventoryService(inventoryRepository, inventoryLogRepository, hubRepository, companyClient,
+                new InventoryAccessPolicy(companyClient), transactionTemplate);
+    }
 
     @Nested
     class 재고_목록_조회 {
