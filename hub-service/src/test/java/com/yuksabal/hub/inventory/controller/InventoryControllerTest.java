@@ -13,6 +13,7 @@ import com.yuksabal.hub.inventory.entity.InventoryChangeType;
 import com.yuksabal.hub.inventory.entity.InventoryLog;
 import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
+import com.yuksabal.hub.inventory.service.InventoryAccessPolicy;
 import com.yuksabal.hub.inventory.service.InventoryService;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +60,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // 검색 조건(Specification)이 실제로 걸러내는지는 DB가 필요해 여기서는 응답 형식·정렬 검증만 확인한다
 @WebMvcTest(InventoryController.class)
-@Import({InventoryService.class, GlobalExceptionHandler.class})
+@Import({InventoryService.class, InventoryAccessPolicy.class, GlobalExceptionHandler.class})
 class InventoryControllerTest {
 
     private static final UUID SEOUL_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
