@@ -8,13 +8,9 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
-import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
 import com.yuksabal.hub.inventory.client.dto.ProductResponse;
 import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
-import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
-import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
-import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
 import com.yuksabal.hub.inventory.entity.Inventory;
 import com.yuksabal.hub.inventory.entity.InventoryChangeType;
@@ -26,15 +22,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -49,13 +40,11 @@ import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLAT
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
-import static com.yuksabal.hub.global.exception.HubErrorCode.INVENTORY_CONFLICT;
 import static com.yuksabal.hub.global.exception.HubErrorCode.INVENTORY_CREATE_CONFLICT;
 import static com.yuksabal.hub.global.exception.HubErrorCode.INVENTORY_QUANTITY_CONFLICT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -65,16 +54,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 // Repository·Feign·TransactionTemplate은 가짜로 두고, 검증 순서와 예외 코드만 확인한다
 // DB 제약(부분 유니크 인덱스, CHECK)과 조건부 UPDATE의 실제 동작은 여기서 확인하지 않는다
 @ExtendWith(MockitoExtension.class)
-class InventoryServiceTest {
+class InventoryCommandServiceTest {
 
     private static final UUID SEOUL_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID BUSAN_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
     private static final UUID PRODUCT_ID = UUID.fromString("40000000-0000-4000-8000-000000000001");
     private static final UUID COMPANY_ID = UUID.fromString("30000000-0000-4000-8000-000000000001");
     private static final UUID INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000001");
-    private static final UUID BUSAN_INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000004");
     private static final UUID USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000001");
-    private static final UUID OTHER_USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000002");
 
     @Mock
     private InventoryRepository inventoryRepository;
@@ -87,217 +74,13 @@ class InventoryServiceTest {
     @Mock
     private TransactionTemplate transactionTemplate;
 
-    private InventoryService inventoryService;
+    private InventoryCommandService inventoryCommandService;
 
     // 권한 정책은 가짜로 두지 않고 실제 객체를 쓴다. 서비스가 정책을 제대로 부르는지까지 기존 권한 테스트로 확인한다
     @BeforeEach
     void setUp() {
-        inventoryService = new InventoryService(inventoryRepository, inventoryLogRepository, hubRepository, companyClient,
+        inventoryCommandService = new InventoryCommandService(inventoryRepository, inventoryLogRepository, hubRepository, companyClient,
                 new InventoryAccessPolicy(companyClient), transactionTemplate);
-    }
-
-    @Nested
-    class 재고_목록_조회 {
-
-        @ParameterizedTest
-        @EnumSource(value = UserRole.class, names = {"USER", "COMPANY", "DELIVERY"})
-        void MASTER가_아니면_403이고_재고를_조회하지_않는다(UserRole role) {
-            assertThatThrownBy(() -> inventoryService.getInventories(new InventorySearchRequest(null, null), PageRequest.of(0, 10), role))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
-
-            verifyNoInteractions(inventoryRepository);
-        }
-
-        @Test
-        void 허용하지_않은_정렬_필드면_400이고_재고를_조회하지_않는다() {
-            PageRequest pageable = PageRequest.of(0, 10, Sort.by("productId"));
-
-            assertThatThrownBy(() -> inventoryService.getInventories(new InventorySearchRequest(null, null), pageable, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(VALIDATION_ERROR);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("sort");
-                    });
-
-            verifyNoInteractions(inventoryRepository);
-        }
-    }
-
-    @Nested
-    class 재고_상세_조회 {
-
-        @Test
-        void MASTER가_아니면_403이고_재고를_조회하지_않는다() {
-            assertThatThrownBy(() -> inventoryService.getInventory(INVENTORY_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
-
-            verifyNoInteractions(inventoryRepository);
-        }
-
-        @Test
-        void 재고가_없으면_404() {
-            given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.empty());
-
-            assertThatThrownBy(() -> inventoryService.getInventory(INVENTORY_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("inventoryId");
-                    });
-        }
-    }
-
-    @Nested
-    class 허브별_재고_조회 {
-
-        @Test
-        void MASTER가_아니면_403이고_허브를_확인하지_않는다() {
-            assertThatThrownBy(() -> inventoryService.getInventoriesByHub(SEOUL_ID, PageRequest.of(0, 10), UserRole.DELIVERY))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
-
-            verifyNoInteractions(hubRepository, inventoryRepository);
-        }
-
-        @Test
-        void 허브가_없으면_404이고_재고를_조회하지_않는다() {
-            given(hubRepository.existsById(SEOUL_ID)).willReturn(false);
-
-            assertThatThrownBy(() -> inventoryService.getInventoriesByHub(SEOUL_ID, PageRequest.of(0, 10), UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("hubId");
-                    });
-
-            verifyNoInteractions(inventoryRepository);
-        }
-    }
-
-    @Nested
-    class 상품별_재고_조회 {
-
-        @Test
-        void MASTER와_COMPANY가_아니면_403이고_재고와_업체를_확인하지_않는다() {
-            assertThatThrownBy(() -> inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.USER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
-
-            verifyNoInteractions(inventoryRepository, companyClient);
-        }
-
-        @Test
-        void MASTER는_업체를_확인하지_않는다() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-
-            InventoryResponse response = inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
-
-            assertThat(response.quantity()).isEqualTo(10);
-            verifyNoInteractions(companyClient);
-        }
-
-        @Test
-        void 재고가_없으면_404이고_업체를_확인하지_않는다() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of());
-
-            assertThatThrownBy(() -> inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("productId");
-                    });
-
-            verifyNoInteractions(companyClient);
-        }
-
-        @Test
-        void COMPANY가_상품_업체의_관리자면_조회한다() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willReturn(ApiResponse.success(new CompanyResponse(COMPANY_ID, USER_ID)));
-
-            InventoryResponse response = inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY);
-
-            assertThat(response.inventoryId()).isEqualTo(INVENTORY_ID);
-        }
-
-        @Test
-        void COMPANY가_다른_업체_관리자면_403() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willReturn(ApiResponse.success(new CompanyResponse(COMPANY_ID, OTHER_USER_ID)));
-
-            assertThatThrownBy(() -> inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
-        }
-
-        // 업체가 없거나 삭제되면 소유권을 확인할 수 없어 403
-        @Test
-        void COMPANY가_조회할_때_업체가_없으면_403() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willThrow(notFound());
-
-            assertThatThrownBy(() -> inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
-        }
-
-        @Test
-        void 업체_확인이_404가_아닌_오류면_그대로_전달한다() {
-            FeignServerException serverError = serverError();
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
-            given(companyClient.getCompany(COMPANY_ID)).willThrow(serverError);
-
-            assertThatThrownBy(() -> inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY))
-                    .isSameAs(serverError);
-        }
-
-        // 관리 허브가 서울 → 부산으로 바뀐 뒤 서울에 수량 0인 재고가 이력으로 남은 경우 (#162)
-        @Test
-        void 재고가_여러_건이면_수량이_남은_재고를_반환한다() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(
-                    inventory(INVENTORY_ID, SEOUL_ID, 0, LocalDateTime.of(2026, 10, 1, 9, 0)),
-                    inventory(BUSAN_INVENTORY_ID, BUSAN_ID, 20, LocalDateTime.of(2026, 10, 10, 9, 0))));
-
-            InventoryResponse response = inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
-
-            assertThat(response.hubId()).isEqualTo(BUSAN_ID);
-            assertThat(response.quantity()).isEqualTo(20);
-        }
-
-        @Test
-        void 재고가_여러_건이고_모두_0이면_가장_최근_재고를_반환한다() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(
-                    inventory(BUSAN_INVENTORY_ID, BUSAN_ID, 0, LocalDateTime.of(2026, 10, 10, 9, 0)),
-                    inventory(INVENTORY_ID, SEOUL_ID, 0, LocalDateTime.of(2026, 10, 1, 9, 0))));
-
-            InventoryResponse response = inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
-
-            assertThat(response.hubId()).isEqualTo(BUSAN_ID);
-        }
-
-        @Test
-        void 수량이_남은_재고가_여러_허브에_있으면_409() {
-            given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(
-                    inventory(INVENTORY_ID, SEOUL_ID, 10, LocalDateTime.of(2026, 10, 1, 9, 0)),
-                    inventory(BUSAN_INVENTORY_ID, BUSAN_ID, 20, LocalDateTime.of(2026, 10, 10, 9, 0))));
-
-            assertThatThrownBy(() -> inventoryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(INVENTORY_CONFLICT));
-        }
-    }
-
-    @Nested
-    class 재고_보유_여부 {
-
-        @Test
-        void 상품_기준이면_상품으로만_확인한다() {
-            given(inventoryRepository.existsByProductIdAndQuantityGreaterThan(PRODUCT_ID, 0)).willReturn(true);
-
-            assertThat(inventoryService.hasStock(new InventoryStockRequest(PRODUCT_ID, null)).hasStock()).isTrue();
-
-            then(inventoryRepository).should(never()).existsByCompanyIdAndQuantityGreaterThan(any(), anyInt());
-        }
-
-        @Test
-        void 업체_기준이면_업체로만_확인한다() {
-            given(inventoryRepository.existsByCompanyIdAndQuantityGreaterThan(COMPANY_ID, 0)).willReturn(false);
-
-            assertThat(inventoryService.hasStock(new InventoryStockRequest(null, COMPANY_ID)).hasStock()).isFalse();
-
-            then(inventoryRepository).should(never()).existsByProductIdAndQuantityGreaterThan(any(), anyInt());
-        }
     }
 
     @Nested
@@ -305,7 +88,7 @@ class InventoryServiceTest {
 
         @Test
         void MASTER가_아니면_403이고_재고를_바꾸지_않는다() {
-            assertThatThrownBy(() -> inventoryService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.COMPANY))
+            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
             verifyNoInteractions(inventoryRepository, inventoryLogRepository);
@@ -317,7 +100,7 @@ class InventoryServiceTest {
                     .willReturn(0);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 95)));
 
-            assertThatThrownBy(() -> inventoryService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(INVENTORY_QUANTITY_CONFLICT);
                         assertThat(e.getDetails()).extracting("reason").containsExactly("현재 재고는 95개입니다.");
@@ -332,7 +115,7 @@ class InventoryServiceTest {
                     .willReturn(0);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> inventoryService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND));
 
             verifyNoInteractions(inventoryLogRepository);
@@ -344,7 +127,7 @@ class InventoryServiceTest {
                     .willReturn(1);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 80)));
 
-            InventoryResponse response = inventoryService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER);
+            InventoryResponse response = inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER);
 
             assertThat(response.quantity()).isEqualTo(80);
             InventoryLog log = savedLog();
@@ -359,7 +142,7 @@ class InventoryServiceTest {
                     .willReturn(1);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 130)));
 
-            inventoryService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 130), USER_ID, UserRole.MASTER);
+            inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 130), USER_ID, UserRole.MASTER);
 
             InventoryLog log = savedLog();
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.ADJUST_INCREASE);
@@ -373,7 +156,7 @@ class InventoryServiceTest {
 
         @Test
         void MASTER가_아니면_403이고_허브와_company와_DB를_건드리지_않는다() {
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.COMPANY))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
             verifyNoInteractions(hubRepository, companyClient, transactionTemplate, inventoryRepository, inventoryLogRepository);
@@ -383,7 +166,7 @@ class InventoryServiceTest {
         void 허브가_없으면_404이고_company를_부르지_않는다() {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(false);
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId");
@@ -397,7 +180,7 @@ class InventoryServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(companyClient.getProduct(PRODUCT_ID)).willThrow(notFound());
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
                         assertThat(e.getDetails()).extracting("field").containsExactly("productId");
@@ -412,7 +195,7 @@ class InventoryServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(companyClient.getProduct(PRODUCT_ID)).willThrow(badRequest);
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isSameAs(badRequest);
 
             verifyNoInteractions(transactionTemplate);
@@ -424,7 +207,7 @@ class InventoryServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(companyClient.getProduct(PRODUCT_ID)).willThrow(serverError);
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isSameAs(serverError);
 
             verifyNoInteractions(transactionTemplate);
@@ -435,7 +218,7 @@ class InventoryServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(companyClient.getProduct(PRODUCT_ID)).willReturn(ApiResponse.success(product(SEOUL_ID, false)));
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
                         assertThat(e.getDetails()).extracting("field").containsExactly("productId");
@@ -451,7 +234,7 @@ class InventoryServiceTest {
             given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 100)));
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 150)));
 
-            InventoryResponse response = inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER);
+            InventoryResponse response = inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER);
 
             assertThat(response.quantity()).isEqualTo(150);
             then(inventoryRepository).should().increaseQuantity(eq(INVENTORY_ID), eq(50), any(LocalDateTime.class), eq(USER_ID));
@@ -469,7 +252,7 @@ class InventoryServiceTest {
             given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
             given(inventoryRepository.saveAndFlush(any(Inventory.class))).willAnswer(inv -> inv.getArgument(0));
 
-            InventoryResponse response = inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER);
+            InventoryResponse response = inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER);
 
             assertThat(response.quantity()).isEqualTo(50);
             ArgumentCaptor<Inventory> created = ArgumentCaptor.forClass(Inventory.class);
@@ -484,7 +267,7 @@ class InventoryServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(companyClient.getProduct(PRODUCT_ID)).willReturn(ApiResponse.success(product(BUSAN_ID, true)));
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId");
@@ -502,7 +285,7 @@ class InventoryServiceTest {
             given(inventoryRepository.saveAndFlush(any(Inventory.class)))
                     .willThrow(integrityViolation("uk_inventories_hub_id_product_id"));
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(INVENTORY_CREATE_CONFLICT));
 
             verifyNoInteractions(inventoryLogRepository);
@@ -516,33 +299,10 @@ class InventoryServiceTest {
             given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
             given(inventoryRepository.saveAndFlush(any(Inventory.class))).willThrow(otherViolation);
 
-            assertThatThrownBy(() -> inventoryService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isSameAs(otherViolation);
 
             verifyNoInteractions(inventoryLogRepository);
-        }
-    }
-
-    @Nested
-    class 재고_변경_이력_조회 {
-
-        @Test
-        void MASTER가_아니면_403이고_이력을_조회하지_않는다() {
-            assertThatThrownBy(() -> inventoryService.getInventoryLogs(logSearch(), PageRequest.of(0, 10), UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
-
-            verifyNoInteractions(inventoryLogRepository);
-        }
-
-        // 이력은 변경 순서로만 본다 (재고 목록에서 되는 quantity 정렬도 이력에서는 400)
-        @Test
-        void 허용하지_않은_정렬_필드면_400이고_이력을_조회하지_않는다() {
-            PageRequest pageable = PageRequest.of(0, 10, Sort.by("quantity"));
-
-            assertThatThrownBy(() -> inventoryService.getInventoryLogs(logSearch(), pageable, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(VALIDATION_ERROR));
-
-            then(inventoryLogRepository).should(never()).findAll(any(Specification.class), any(PageRequest.class));
         }
     }
 
@@ -565,10 +325,6 @@ class InventoryServiceTest {
 
     private static InventoryInboundRequest inboundRequest(int quantity) {
         return new InventoryInboundRequest(SEOUL_ID, PRODUCT_ID, quantity);
-    }
-
-    private static InventoryLogSearchRequest logSearch() {
-        return new InventoryLogSearchRequest(null, null, null, null);
     }
 
     private static ProductResponse product(UUID productHubId, boolean active) {
