@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 테스트 전용 로그 설정: 스프링 없이 도는 단위 테스트(OrderTest 등)에서도 주문 흐름 디버그 로그가 보이게 -->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <!-- 주문 상태 전이(엔티티), 주문 서비스 흐름 -->
+    <logger name="com.yuksabal.order.order.entity" level="DEBUG"/>
+    <logger name="com.yuksabal.order.order.service" level="DEBUG"/>
+</configuration>

@@ -137,7 +137,7 @@ public class OrderCreateService {
     }
 
     /**
-     * active 필드가 비활성인 경우 예외를 발생시킨다.
+     * 요청/공급 업체와 상품의 active 필드가 비활성인 경우 예외를 발생시킨다.
      * 비활성 상품, 업체는 주문할 수 없다.
      *
      * @param active  확인 대상 객체의 활성 상태
@@ -187,7 +187,7 @@ public class OrderCreateService {
             verifyOrdererActive(userId, "3-1. 주문자 재확인");
         } catch (RuntimeException e) {
             log.warn("[주문 생성] 3-1. 주문자 재확인 실패 orderId={} → FAILED + NOT_REQUIRED", order.getId());
-            failOrder(order.getId(), CompensationStatus.NOT_REQUIRED);
+            failOrder(order, CompensationStatus.NOT_REQUIRED);
             throw e;
         }
     }
@@ -212,7 +212,7 @@ public class OrderCreateService {
                     "requestCompanyId", "비활성 업체로는 주문할 수 없습니다.");
         } catch (RuntimeException e) {
             log.warn("[주문 생성] 3-2. 상품, 업체 재확인 실패 orderId={} → FAILED + NOT_REQUIRED", order.getId());
-            failOrder(order.getId(), CompensationStatus.NOT_REQUIRED);
+            failOrder(order, CompensationStatus.NOT_REQUIRED);
             throw e;
         }
         log.debug("[주문 생성] 3-2. 상품, 업체 재확인 통과 orderId={}", order.getId());
@@ -238,7 +238,7 @@ public class OrderCreateService {
                     order.getId(), e.getStatus(), e.getCode());
 
             // 주문 상태 FAILED, 보상 상태 NOT_REQUIRED 처리
-            failOrder(order.getId(), CompensationStatus.NOT_REQUIRED);
+            failOrder(order, CompensationStatus.NOT_REQUIRED);
             throw e;
         } catch (FeignServerException | RetryableException e) {
             // 5xx/타임아웃: 재시도는 common Feign이 이미 함 (order에서 재시도 구현 안 함, 겹치면 최대 9번 호출)
@@ -246,7 +246,7 @@ public class OrderCreateService {
             log.warn("[주문 생성] 4. 재고 차감 5xx/타임아웃 orderId={}, exception={} → FAILED + PENDING, 재고 복원",
                     order.getId(), e.getClass().getSimpleName());
 
-            failOrder(order.getId(), CompensationStatus.PENDING);
+            failOrder(order, CompensationStatus.PENDING);
             orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
 
             throw e;
@@ -255,7 +255,7 @@ public class OrderCreateService {
 
             log.error("[주문 생성] 4. 재고 차감 중 예상하지 못한 예외 orderId={} → FAILED + PENDING, 재고 복원", order.getId(), e);
 
-            failOrder(order.getId(), CompensationStatus.PENDING);
+            failOrder(order, CompensationStatus.PENDING);
             orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
 
             notifyUnexpectedError(order, "재고 차감 중 예상하지 못한 오류");
@@ -283,7 +283,7 @@ public class OrderCreateService {
                     order.getId(), e.getStatus(), e.getCode());
 
             // 4xx(허브 경로 없음 등)는 배송 생성 실패를 의미 -> 재고 차감된 상태이므로 재고 복원 후 delivery 오류 그대로 응답
-            failOrder(order.getId(), CompensationStatus.PENDING);
+            failOrder(order, CompensationStatus.PENDING);
             orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
 
             throw e;
@@ -293,7 +293,7 @@ public class OrderCreateService {
             log.warn("[주문 생성] 5. 배송 생성 5xx orderId={}, status={} → FAILED + PENDING, 재고 복원",
                     order.getId(), e.getStatus());
 
-            failOrder(order.getId(), CompensationStatus.PENDING);
+            failOrder(order, CompensationStatus.PENDING);
             orderCompensator.restoreStock(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
 
             throw e;
@@ -303,7 +303,7 @@ public class OrderCreateService {
             // → 재고 복원 + 배송 취소 둘 다 (배송 존재하지 않으면 delivery가 200). 응답은 502
             log.warn("[주문 생성] 5. 배송 생성 타임아웃 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId());
 
-            failOrder(order.getId(), CompensationStatus.PENDING);
+            failOrder(order, CompensationStatus.PENDING);
             orderCompensator.restoreStockAndCancelDelivery(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
 
             throw e;
@@ -312,7 +312,7 @@ public class OrderCreateService {
             // 예상하지 못한 예외(응답 해석 실패, 응답 data 없음 등): 배송이 만들어졌는지 모름 → 타임아웃과 같이 재고 복원 + 배송 취소
             log.error("[주문 생성] 5. 배송 생성 중 예상하지 못한 예외 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
 
-            failOrder(order.getId(), CompensationStatus.PENDING);
+            failOrder(order, CompensationStatus.PENDING);
             orderCompensator.restoreStockAndCancelDelivery(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
             notifyUnexpectedError(order, "배송 생성 중 예상하지 못한 오류");
 
@@ -331,11 +331,21 @@ public class OrderCreateService {
                 saved.confirm(deliveryId);
                 return saved;
             });
-        } catch (RuntimeException e) {
-            // 확정 저장 실패(DB 오류 등): 재고 차감, 배송 생성까지 끝난 상태라 PENDING으로 남으면 아무도 모름
+        } catch (BusinessException e) { // 확정 중 상태 전이 거절:
+
+            // 생성 흐름 밖에서 상태가 바뀐 것 → 무엇으로 바뀌었는지 모르므로 자동 보상 x, 수동 확인
+            //  엔티티 내 fail()(pending -> failed)도 같은 이유로 거절되므로 타지 않음
+            if (e.getErrorCode() == OrderErrorCode.INVALID_STATUS_TRANSITION) {
+                handleTransitionRejected(order, "6. 주문 CONFIRM 처리", CompensationStatus.PENDING);
+            }
+            throw e;
+        } catch (RuntimeException e) { // 확정 저장 실패(DB 오류 등):
+
+            // 재고 차감, 배송 생성까지 끝난 상태라 PENDING으로 남으면 아무도 모름
             //  → FAILED + 재고 복원 + 배송 취소 (보상까지 실패하면 Slack 수동 처리)
-            log.error("[주문 생성] 6. 주문 확정 저장 실패 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
-            failOrder(order.getId(), CompensationStatus.PENDING);
+            log.error("[주문 생성] 6. 주문 CONFIRM 저장 실패 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
+            failOrder(order, CompensationStatus.PENDING);
+
             orderCompensator.restoreStockAndCancelDelivery(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
             notifyUnexpectedError(order, "주문 확정 저장 중 예상하지 못한 오류");
             throw e;
@@ -346,13 +356,16 @@ public class OrderCreateService {
 
     /**
      * 보상이 완료된 주문에서 예상치 못한 오류가 발생하면 Slack으로 확인 알림을 보낸다.
+     * <p>
      * 보상 실패 시에는 수동 처리 알림이 미리 전송되므로 완료일 때만 전송한다.
      *
      * @param order  확인 대상 주문 엔티티
      * @param reason 오류 사유
      */
     private void notifyUnexpectedError(Order order, String reason) {
-        Order current = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(order.getId()));
+        Order current = transactionTemplate.execute(
+                status -> orderRepository
+                        .findByIdOrThrow(order.getId()));
         if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
             slackNotifier.notifyCheckNeeded(current, reason);
         }
@@ -417,11 +430,65 @@ public class OrderCreateService {
      * 주문 실패 시 주문 상태/보상 상태를 변경, 저장한다.
      * 별도의 짧은 트랜잭션에서 처리한다.
      *
-     * @param orderId            상태를 변경할 주문 ID
+     * @param order              상태를 변경할 주문
      * @param compensationStatus 변경할 보상 상태
      */
-    private void failOrder(UUID orderId, CompensationStatus compensationStatus) {
-        transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(orderId).fail(compensationStatus));
+    private void failOrder(Order order, CompensationStatus compensationStatus) {
+        try {
+            // DB에서 조회
+            transactionTemplate.executeWithoutResult(
+                    status -> orderRepository.findByIdOrThrow(order.getId())
+                            .fail(compensationStatus));
+        } catch (BusinessException e) {
+            // 실패 처리 도중 상태 전이 거절된 경우
+
+            //  -> 주문 상태를 알 수 없어 자동 보상 x (ex. confirmed -> failed 시도)
+            //  -> 로그, slack으로 넘기고 예외를 다시 던져 뒤의 보상 플로우를 타지 않게 함.
+            if (e.getErrorCode() == OrderErrorCode.INVALID_STATUS_TRANSITION) {
+                handleTransitionRejected(order, "주문 실패 처리", compensationStatus);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 주문 생성 중 상태 전이가 거절된 상황을 기록한다.
+     * 보상 상태가 PENDING 이면 수동 처리 slack 알림을 전송한다.
+     *
+     * @param order              상태 전이가 거절된 주문
+     * @param step               상태 전이가 거절된 처리 단계
+     * @param compensationStatus 해당 단계에서 필요한 보상 상태 (호출한 단계가 넘긴 값. DB 값이 아님)
+     */
+    private void handleTransitionRejected(Order order, String step, CompensationStatus compensationStatus) {
+        // 상태 전이 거절 후, DB 실제 저장된 주문 상태 확인 (재조회) -> 로그, slack 알림에 사용
+        //   재조회가 실패해도 (DB 오류, 삭제 등) 원래 상태 전이 예외를 덮어쓰지 않도록 여기서 던지고,
+        //   가지고 있던 주문으로 slack 알림을 보낸다.
+        Order current;
+        try {
+            current = transactionTemplate.execute( // 주문 재조회
+                    status -> orderRepository
+                            .findByIdOrThrow(order.getId()));
+        } catch (RuntimeException e) {
+
+            log.error("[주문 생성] {} 중 상태 전이 거절, 현재 주문 재조회 실패 orderId={} → 자동 보상 안 함",
+                    step, order.getId(), e);
+
+            if (compensationStatus == CompensationStatus.PENDING) {
+                slackNotifier.notifyManualAction(order,
+                        "주문 생성 중 상태 전이 거절 (" + step + "), 현재 상태 조회 실패: 주문, 재고, 배송 확인 필요");
+            }
+            return;
+        }
+
+        // 버그 추적용 에러 로그
+        log.error("[주문 생성] {} 중 상태 전이 거절 orderId={}, 현재 status={}, 보상={} → 자동 보상 안 함",
+                step, order.getId(), current.getStatus(), current.getCompensationStatus());
+
+        // 다른 서비스를 이미 건드려 보상이 필할 수 있는 단계 (재고 차감, 배송 생성) -> 자동 보상 불가하므로 운영자 확인
+        if (compensationStatus == CompensationStatus.PENDING) {
+            slackNotifier.notifyManualAction(current, "주문 생성 중 상태 전이 거절 (" + step + "): 재고, 배송 확인 필요");
+        }
+        // NOT_REQUIRED 의 경우 -> 수동 처리 필요 x 로그만 기록
     }
 
     /**
