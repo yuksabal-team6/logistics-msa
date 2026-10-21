@@ -8,6 +8,7 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.hibernate.annotations.SQLRestriction;
 import org.springframework.data.domain.Persistable;
 
@@ -16,6 +17,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
+@Slf4j
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @SQLRestriction("deleted_at IS NULL")
@@ -135,20 +137,45 @@ public class Order extends BaseEntity implements Persistable<UUID> {
         return getCreatedAt() == null;
     }
 
-    // 배송 생성 성공 (결정 #17)
+    /**
+     * 배송 생성 성공 시 PENDING 상태 주문을 CONFIRMED로 변경하고 배송 ID를 저장한다.
+     *
+     * @param deliveryId 배송 생성 응답으로 받은 배송 ID
+     */
     public void confirm(UUID deliveryId) {
+        validatePending("PENDING 상태인 주문만 확정할 수 있습니다.");
         this.deliveryId = deliveryId;
         this.status = OrderStatus.CONFIRMED;
+        log.debug("[주문 상태] PENDING → CONFIRMED orderId={}, deliveryId={}", id, deliveryId);
     }
 
     /**
-     * 주문 상태를 FAILED로 변경하고 보상 상태를 설정한다.
+     * 배송 생성 실패 시 PENDING 상태 주문을 FAILED로 변경하고 보상 상태를 설정한다.
      *
      * @param compensationStatus 설정할 보상 상태
      */
     public void fail(CompensationStatus compensationStatus) {
+        validatePending("PENDING 상태인 주문만 실패 처리할 수 있습니다.");
         this.status = OrderStatus.FAILED;
         this.compensationStatus = compensationStatus;
+        log.debug("[주문 상태] PENDING → FAILED orderId={}, 보상={}", id, compensationStatus);
+    }
+
+    /**
+     * 주문 상태가 PENDING인지 검증하고, 아니면 예외를 발생시킨다.
+     *
+     * @param message 상태 검증 실패 시 사용할 예외 메시지
+     */
+    private void validatePending(String message) {
+        if (status != OrderStatus.PENDING) {
+            rejectTransition(message);
+            throw new BusinessException(OrderErrorCode.INVALID_STATUS_TRANSITION, message, "orderId");
+        }
+    }
+
+    // 허용되지 않은 상태 전이 (GlobalExceptionHandler는 BusinessException을 로그 없이 응답만 하므로 여기서 남김)
+    private void rejectTransition(String reason) {
+        log.warn("[주문 상태] 전이 거절 orderId={}, status={}, 보상={} → 409 ({})", id, status, compensationStatus, reason);
     }
 
     /**
@@ -158,6 +185,7 @@ public class Order extends BaseEntity implements Persistable<UUID> {
     public void completeCompensation() {
         validateCompensationPending();
         this.compensationStatus = CompensationStatus.COMPLETED;
+        log.debug("[주문 상태] 보상 PENDING → COMPLETED orderId={}, status={}", id, status);
     }
 
     /**
@@ -167,6 +195,7 @@ public class Order extends BaseEntity implements Persistable<UUID> {
     public void failCompensation() {
         validateCompensationPending();
         this.compensationStatus = CompensationStatus.FAILED;
+        log.debug("[주문 상태] 보상 PENDING → FAILED orderId={}, status={}", id, status);
     }
 
     /**
@@ -175,6 +204,7 @@ public class Order extends BaseEntity implements Persistable<UUID> {
      */
     private void validateCompensationPending() {
         if (compensationStatus != CompensationStatus.PENDING) {
+            rejectTransition("보상 진행 중인 주문만 보상 결과를 기록할 수 있습니다.");
             throw new BusinessException(
                     OrderErrorCode.INVALID_STATUS_TRANSITION,
                     "보상 진행 중인 주문만 보상 결과를 기록할 수 있습니다.",
@@ -188,15 +218,18 @@ public class Order extends BaseEntity implements Persistable<UUID> {
      */
     public void complete() {
         if (status == OrderStatus.COMPLETED) {
+            log.debug("[주문 상태] 이미 COMPLETED, 변경 없음 orderId={}", id);
             return;
         }
         if (status != OrderStatus.CONFIRMED) {
+            rejectTransition("배송 중인 주문만 완료 처리할 수 있습니다.");
             throw new BusinessException(
                     OrderErrorCode.INVALID_STATUS_TRANSITION,
                     "배송 중인 주문만 완료 처리할 수 있습니다.",
                     "orderId");
         }
         this.status = OrderStatus.COMPLETED;
+        log.debug("[주문 상태] CONFIRMED → COMPLETED orderId={}", id);
     }
 
     /**
@@ -209,11 +242,13 @@ public class Order extends BaseEntity implements Persistable<UUID> {
      */
     public void cancel() {
         if (status != OrderStatus.CONFIRMED) {
+            rejectTransition("확정된 주문만 취소할 수 있습니다.");
             throw new BusinessException(OrderErrorCode.INVALID_STATUS_TRANSITION,
                     "확정된 주문만 취소할 수 있습니다.", "orderId");
         }
         this.status = OrderStatus.CANCELLED;
         this.compensationStatus = CompensationStatus.PENDING;
+        log.debug("[주문 상태] CONFIRMED → CANCELLED, 보상 PENDING orderId={}", id);
     }
 
     /**
@@ -222,18 +257,21 @@ public class Order extends BaseEntity implements Persistable<UUID> {
      */
     public void revertCancel() {
         if (status != OrderStatus.CANCELLED || compensationStatus != CompensationStatus.PENDING) {
+            rejectTransition("취소 진행 중인 주문만 되돌릴 수 있습니다.");
             throw new BusinessException(OrderErrorCode.INVALID_STATUS_TRANSITION,
                     "취소 진행 중인 주문만 되돌릴 수 있습니다.", "orderId");
         }
         this.status = OrderStatus.CONFIRMED;
         this.compensationStatus = CompensationStatus.NOT_REQUIRED;
+        log.debug("[주문 상태] CANCELLED → CONFIRMED 되돌림, 보상 NOT_REQUIRED orderId={}", id);
     }
 
     /**
      * 주문의 삭제 가능 여부를 판단한다.
-     *
-     * 완료된 주문 또는 보상 처리가 끝난 실패/취소 주문만 삭제할 수 있다.
-     * COMPLETED, 또는 보상이 끝났거나 필요 없는 FAILED/CANCELLED
+     * <ul>
+     *     <li>완료된 주문 또는 보상 처리가 끝난 실패/취소 주문만 삭제할 수 있다.</li>
+     *     <li>COMPLETED, 또는 보상이 끝났거나 필요 없는 FAILED/CANCELLED</li>
+     * </ul>
      *
      * @return 삭제 가능하면 true, 그렇지 않으면 false
      */
