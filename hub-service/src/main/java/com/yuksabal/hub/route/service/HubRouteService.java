@@ -1,8 +1,7 @@
 package com.yuksabal.hub.route.service;
 
-import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.PageResponse;
+import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.route.entity.HubRoute;
 import com.yuksabal.hub.route.repository.HubRouteRepository;
 import com.yuksabal.hub.route.dto.request.HubRouteSearchRequest;
@@ -32,9 +31,7 @@ public class HubRouteService {
     // 같은 허브끼리는 경로가 없고(결정 #16), 없는 허브 ID도 경로가 없으므로 모두 404로 응답한다.
     public HubRouteResponse getHubRoute(UUID from, UUID to) {
         HubRoute hubRoute = hubRouteRepository.findByDepartureHub_IdAndArrivalHub_Id(from, to)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 허브 경로입니다."));
+                .orElseThrow(HubExceptions::hubRouteNotFound);
         return HubRouteResponse.from(hubRoute);
     }
 
@@ -49,10 +46,7 @@ public class HubRouteService {
     // 삭제된 경로는 @SQLRestriction으로 조회되지 않아 없는 경로와 같이 404로 응답한다.
     public HubRouteResponse getHubRouteById(UUID routeId) {
         HubRoute hubRoute = hubRouteRepository.findById(routeId)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 허브 경로입니다.",
-                        "routeId"));
+                .orElseThrow(() -> HubExceptions.hubRouteNotFound("routeId"));
         return HubRouteResponse.from(hubRoute);
     }
 
