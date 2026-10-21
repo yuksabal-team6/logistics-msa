@@ -23,6 +23,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -327,6 +329,63 @@ class AffiliationValidationIntegrationTest {
     }
 
     // ---------- helpers ----------
+
+    // ---------- 트랜잭션 경계: 내부 API 호출 중에 DB 연결을 잡고 있지 않는다 ----------
+
+    @Test
+    void 가입_중_허브_확인은_트랜잭션_밖에서_한다() throws Exception {
+        // given
+        AtomicBoolean inTransaction = new AtomicBoolean(true);
+        given(hubClient.getHub(HUB)).willAnswer(invocation -> {
+            inTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return null;
+        });
+
+        // when
+        ResultActions result = register(Map.of("hubId", HUB.toString()));
+
+        // then
+        result.andExpect(status().isCreated());
+        assertThat(inTransaction).isFalse();
+    }
+
+    @Test
+    void 수정_중_업체_확인은_트랜잭션_밖에서_한다() throws Exception {
+        // given
+        AtomicBoolean inTransaction = new AtomicBoolean(true);
+        given(companyClient.getCompany(OTHER_COMPANY)).willAnswer(invocation -> {
+            inTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return null;
+        });
+
+        // when
+        ResultActions result = updateAlice(master, Map.of("companyId", OTHER_COMPANY.toString()));
+
+        // then
+        result.andExpect(status().isOk());
+        assertThat(inTransaction).isFalse();
+    }
+
+    @Test
+    void 확인하는_동안_다른_변경이_있었으면_422이고_요청한_변경은_저장하지_않는다() throws Exception {
+        // given: 허브를 확인하는 사이 다른 MASTER가 alice를 수정한다
+        given(hubClient.getHub(OTHER_HUB)).willAnswer(invocation -> {
+            User concurrent = reload(alice);
+            concurrent.updateProfile(null, null, "U88888888", null);
+            userRepository.saveAndFlush(concurrent);
+            return null;
+        });
+
+        // when
+        ResultActions result = updateAlice(master, Map.of("hubId", OTHER_HUB.toString()));
+
+        // then
+        result.andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error.code").value("BUSINESS_RULE_VIOLATION"));
+        User saved = reload(alice);
+        assertThat(saved.getHubId()).isEqualTo(HUB);
+        assertThat(saved.getSlackId()).isEqualTo("U88888888");
+    }
 
     private FeignClientException notFound() {
         return new FeignClientException(404, "RESOURCE_NOT_FOUND", "not found", List.of());

@@ -34,11 +34,11 @@ import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 // - 대상이 없거나 탈퇴(소프트 삭제)했으면 404. 비활성 회원은 대상이 될 수 있다 (다시 활성화하려면 필요)
 // - 자기 자신의 역할 변경·비활성화·삭제, 마지막 활성 MASTER의 강등·비활성화·삭제는 422
 // - 이미 같은 역할·상태면 변경 없이 200 (같은 요청을 다시 보내도 결과가 같다)
-// - 역할 변경·상태 변경·삭제는 다른 서비스 확인(Feign)을 트랜잭션 밖에서 하고, DB 쓰기는 UserStateTransition이 한다
+// - 다른 서비스 확인(Feign)은 DB 연결을 잡지 않도록 트랜잭션 밖에서 하고, DB 쓰기는 UserStateTransition이 한다
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class UserAdminService {
 
     private static final String DUPLICATE_MESSAGE = "이미 사용 중인 아이디 또는 이메일입니다.";
@@ -59,6 +59,7 @@ public class UserAdminService {
 
     // 허브·업체는 값이 바뀔 때만 내부 API로 존재를 확인한다 (현재 값과 같으면 호출하지 않음)
     // 업체 관리자(COMPANY)의 companyId는 관리 업체로만 바꿀 수 있다 (422, CompanyOwnerGuard)
+    // 확인한 뒤 저장 전에 다른 변경이 끼어들면(역할·소속 변경 등) 확인 결과가 맞지 않으므로 422 (UserStateTransition)
     public UserResponse updateUser(UUID requesterId, UserRole headerRole, UUID userId, AdminUpdateUserRequest request) {
         requesterValidator.verifyMaster(requesterId, headerRole);
         if (request.hasNoChanges()) {
@@ -70,17 +71,12 @@ public class UserAdminService {
         affiliationValidator.validate(changedOrNull(request.hubId(), user.getHubId()), changedCompanyId);
         companyOwnerGuard.validateCompanyChange(user, changedCompanyId);
 
-        user.updateProfile(request.username(), request.email(), request.slackId(), request.isPublic());
-        user.changeAffiliation(request.hubId(), request.companyId());
-        // 동시 수정으로 중복 확인을 함께 통과하면 부분 유니크 인덱스(#15)가 막고 common 핸들러가 409로 응답한다
-        userRepository.flush();
-        return UserResponse.from(user);
+        return UserResponse.from(stateTransition.update(userId, user.getUpdatedAt(), request));
     }
 
     // 역할을 바꿔도 대상이 이미 받은 토큰에는 예전 역할이 남아 있다 (토큰 무효화 없음).
     // user-service는 헤더 역할과 DB 역할이 다르면 403이라, 대상은 다시 로그인해야 한다
     // DELIVERY → 다른 역할은 진행 중 배송이 있으면 409 (역할이 바뀌어도 배송 건에 담당자로 남으므로, delivery 답변)
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public UserResponse changeRole(UUID requesterId, UserRole headerRole, UUID userId, ChangeRoleRequest request) {
         requesterValidator.verifyMaster(requesterId, headerRole);
         User user = findTarget(userId);
@@ -110,7 +106,6 @@ public class UserAdminService {
     // 비활성화해도 대상이 이미 받은 토큰은 만료 전까지 유효하다. user-service API는 DB를 확인해 403으로 막지만,
     // 헤더만 신뢰하는 다른 서비스는 만료(최대 1시간)까지 막지 못한다
     // 진행 중 배송이 있으면 비활성화도 409 (delivery 답변). 주문·업체 관리자는 막지 않는다 (company 답변: 즉시 잠금 필요)
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public UserResponse changeStatus(UUID requesterId, UserRole headerRole, UUID userId, ChangeStatusRequest request) {
         requesterValidator.verifyMaster(requesterId, headerRole);
         User user = findTarget(userId);
@@ -138,7 +133,6 @@ public class UserAdminService {
     // 소프트 삭제: deleted_at·deleted_by(요청한 MASTER) 기록. 이미 삭제된 회원은 조회되지 않아 404 (PROJECT_SETUP 8절)
     // 순서: 권한 → 대상(404) → 경계 조건(422) → 비활성화 → 진행 중인 업무(409, 확인 불가 502·503) → 삭제
     // 진행 중인 업무가 있거나 확인하지 못하면 비활성화를 되돌린다
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deleteUser(UUID requesterId, UserRole headerRole, UUID userId) {
         requesterValidator.verifyMaster(requesterId, headerRole);
         User user = findTarget(userId);

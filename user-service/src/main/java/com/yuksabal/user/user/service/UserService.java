@@ -17,6 +17,7 @@ import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -46,7 +47,8 @@ public class UserService {
 
     // 역할은 항상 USER. 아이디·이메일 중복(409)을 먼저 보고, 허브·업체 존재는 내부 API(#7, #2)로 확인한다
     // (없으면 400, 확인 실패면 502)
-    @Transactional
+    // 내부 API 호출(최대 수 초)이 DB 연결을 잡고 있지 않도록 트랜잭션 밖에서 확인하고, 저장만 saveAndFlush의 트랜잭션으로 한다
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RegisterResponse register(RegisterRequest request) {
         validateNotDuplicated(request);
         affiliationValidator.validate(request.hubId(), request.companyId());

@@ -367,6 +367,7 @@ class UserAdminServiceTest {
                 .slackId("U1").role(UserRole.COMPANY).companyId(UUID.randomUUID()).build();
         ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
         given(userRepository.findById(user.getId())).willReturn(Optional.of(user));
+        given(userRepository.findByIdForUpdate(user.getId())).willReturn(Optional.of(user));
         return user;
     }
 
