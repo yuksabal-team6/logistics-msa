@@ -2,6 +2,7 @@ package com.yuksabal.user.user.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.user.user.dto.request.AdminUpdateUserRequest;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -84,6 +85,22 @@ public class UserStateTransition {
             return;
         }
         user.get().changeActive(true);
+    }
+
+    // MASTER 회원 정보 수정. 확인(중복·소속·업체 관리자)은 UserAdminService가 트랜잭션 밖에서 끝냈다.
+    // 확인할 때 읽은 updated_at과 다르면 그사이 다른 변경이 있었던 것이므로 저장하지 않고 422
+    // 동시 수정으로 중복 확인을 함께 통과하면 부분 유니크 인덱스(#15)가 막고 common 핸들러가 409로 응답한다
+    @Transactional
+    public User update(UUID userId, LocalDateTime checkedUpdatedAt, AdminUpdateUserRequest request) {
+        User user = userRepository.findByIdForUpdate(userId).orElseThrow(UserStateTransition::notFound);
+        if (!Objects.equals(user.getUpdatedAt(), checkedUpdatedAt)) {
+            log.warn("회원 정보 수정 중단: 확인 중 다른 변경이 있었음. userId={}", userId);
+            throw new BusinessException(BUSINESS_RULE_VIOLATION, CHANGED_MESSAGE);
+        }
+        user.updateProfile(request.username(), request.email(), request.slackId(), request.isPublic());
+        user.changeAffiliation(request.hubId(), request.companyId());
+        userRepository.flush();
+        return user;
     }
 
     // 진행 중 업무 확인이 필요 없는 변경

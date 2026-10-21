@@ -3,6 +3,7 @@ package com.yuksabal.user.user.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
+import com.yuksabal.user.user.dto.request.AdminUpdateUserRequest;
 import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -156,6 +157,39 @@ class UserStateTransitionTest {
         // then
         assertThat(user.isActive()).isFalse();
         verify(userRepository, never()).findByIdForUpdate(any());
+    }
+
+    // ---------- update: MASTER 회원 정보 수정 ----------
+
+    @Test
+    void 확인할_때와_updated_at이_같으면_보낸_값만_저장한다() {
+        // given
+        updatedAt(HELD_AT);
+        UUID hubId = UUID.randomUUID();
+
+        // when
+        transition.update(user.getId(), HELD_AT, new AdminUpdateUserRequest(null, null, "U22222222", null, hubId, null));
+
+        // then
+        assertThat(user.getSlackId()).isEqualTo("U22222222");
+        assertThat(user.getHubId()).isEqualTo(hubId);
+        assertThat(user.getUsername()).isEqualTo("driver01");
+        verify(userRepository).flush();
+    }
+
+    @Test
+    void 확인하는_동안_다른_변경이_있었으면_수정하지_않고_422() {
+        // given
+        updatedAt(HELD_AT.plusSeconds(1));
+        UUID hubId = UUID.randomUUID();
+
+        // when & then
+        assertThatThrownBy(() -> transition.update(user.getId(), HELD_AT,
+                new AdminUpdateUserRequest(null, null, null, null, hubId, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CommonErrorCode.BUSINESS_RULE_VIOLATION);
+        assertThat(user.getHubId()).isNull();
+        verify(userRepository, never()).flush();
     }
 
     // hold 직후 상태: 비활성, updated_at = HELD_AT
