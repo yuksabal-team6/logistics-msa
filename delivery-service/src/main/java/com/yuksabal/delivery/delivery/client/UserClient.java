@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.UUID;
 
-// 배송·경로 기록 담당자 지정에서 같이 쓴다 (routelog도 이 클라이언트를 사용)
+// DeliveryManagerValidator를 통해 배송·경로 기록 담당자 지정에서 같이 쓴다
 @FeignClient(name = "user-service")
 public interface UserClient {
 

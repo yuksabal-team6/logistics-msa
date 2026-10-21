@@ -18,7 +18,7 @@ public class JpaAuditingConfig {
     // 게이트웨이가 JWT 검증 후 넘겨주는 요청자 ID 헤더
     private static final String USER_ID_HEADER = "X-User-Id";
 
-    // created_by·updated_by를 요청 헤더의 회원 ID로 채운다. 헤더가 없거나(회원가입 등) 형식이 틀리면 null.
+    // created_by·updated_by를 요청 헤더의 회원 ID로 채운다. 헤더가 없거나(내부 API 호출 등) 형식이 틀리면 null.
     @Bean
     public AuditorAware<UUID> auditorAware() {
         return () -> {
