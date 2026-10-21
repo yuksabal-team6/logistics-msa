@@ -2,13 +2,9 @@ package com.yuksabal.hub.inventory.service;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.feign.FeignServerException;
-import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.inventory.client.CompanyClient;
-import com.yuksabal.hub.inventory.client.dto.ProductResponse;
 import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
@@ -32,7 +28,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -70,7 +65,9 @@ class InventoryCommandServiceTest {
     @Mock
     private HubRepository hubRepository;
     @Mock
-    private CompanyClient companyClient;
+    private ProductReader productReader;
+    @Mock
+    private CompanyReader companyReader;
     @Mock
     private TransactionTemplate transactionTemplate;
 
@@ -79,8 +76,8 @@ class InventoryCommandServiceTest {
     // 권한 정책은 가짜로 두지 않고 실제 객체를 쓴다. 서비스가 정책을 제대로 부르는지까지 기존 권한 테스트로 확인한다
     @BeforeEach
     void setUp() {
-        inventoryCommandService = new InventoryCommandService(inventoryRepository, inventoryLogRepository, hubRepository, companyClient,
-                new InventoryAccessPolicy(companyClient), transactionTemplate);
+        inventoryCommandService = new InventoryCommandService(inventoryRepository, inventoryLogRepository, hubRepository, productReader,
+                new InventoryAccessPolicy(companyReader), transactionTemplate);
     }
 
     @Nested
@@ -159,7 +156,7 @@ class InventoryCommandServiceTest {
             assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
-            verifyNoInteractions(hubRepository, companyClient, transactionTemplate, inventoryRepository, inventoryLogRepository);
+            verifyNoInteractions(hubRepository, productReader, transactionTemplate, inventoryRepository, inventoryLogRepository);
         }
 
         @Test
@@ -172,13 +169,13 @@ class InventoryCommandServiceTest {
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId");
                     });
 
-            verifyNoInteractions(companyClient, transactionTemplate);
+            verifyNoInteractions(productReader, transactionTemplate);
         }
 
         @Test
         void 상품이_없으면_404이고_DB_작업을_하지_않는다() {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-            given(companyClient.getProduct(PRODUCT_ID)).willThrow(notFound());
+            given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -189,23 +186,12 @@ class InventoryCommandServiceTest {
             verifyNoInteractions(transactionTemplate);
         }
 
+        // 404 외의 company 오류를 어떻게 넘기는지는 CompanyFeignAdapterTest가 확인한다
         @Test
-        void company가_404가_아닌_4xx로_실패하면_그대로_전달하고_DB_작업을_하지_않는다() {
-            FeignClientException badRequest = new FeignClientException(400, "VALIDATION_ERROR", "잘못된 요청입니다.", List.of());
-            given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-            given(companyClient.getProduct(PRODUCT_ID)).willThrow(badRequest);
-
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
-                    .isSameAs(badRequest);
-
-            verifyNoInteractions(transactionTemplate);
-        }
-
-        @Test
-        void company가_5xx로_실패하면_그대로_전달하고_DB_작업을_하지_않는다() {
+        void 상품_조회가_실패하면_그대로_전달하고_DB_작업을_하지_않는다() {
             FeignServerException serverError = serverError();
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-            given(companyClient.getProduct(PRODUCT_ID)).willThrow(serverError);
+            given(productReader.findProduct(PRODUCT_ID)).willThrow(serverError);
 
             assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isSameAs(serverError);
@@ -216,7 +202,7 @@ class InventoryCommandServiceTest {
         @Test
         void 비활성_상품이면_422이고_DB_작업을_하지_않는다() {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-            given(companyClient.getProduct(PRODUCT_ID)).willReturn(ApiResponse.success(product(SEOUL_ID, false)));
+            given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.of(product(SEOUL_ID, false)));
 
             assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -265,7 +251,7 @@ class InventoryCommandServiceTest {
         @Test
         void 상품_업체의_관리_허브가_아니면_422이고_DB_작업을_하지_않는다() {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-            given(companyClient.getProduct(PRODUCT_ID)).willReturn(ApiResponse.success(product(BUSAN_ID, true)));
+            given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.of(product(BUSAN_ID, true)));
 
             assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
@@ -314,7 +300,7 @@ class InventoryCommandServiceTest {
     private void givenActiveProduct(UUID productHubId) {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
         given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(hub(SEOUL_ID));
-        given(companyClient.getProduct(PRODUCT_ID)).willReturn(ApiResponse.success(product(productHubId, true)));
+        given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.of(product(productHubId, true)));
     }
 
     private InventoryLog savedLog() {
@@ -327,12 +313,8 @@ class InventoryCommandServiceTest {
         return new InventoryInboundRequest(SEOUL_ID, PRODUCT_ID, quantity);
     }
 
-    private static ProductResponse product(UUID productHubId, boolean active) {
-        return new ProductResponse(PRODUCT_ID, COMPANY_ID, productHubId, active);
-    }
-
-    private static FeignClientException notFound() {
-        return new FeignClientException(404, "RESOURCE_NOT_FOUND", "요청한 리소스를 찾을 수 없습니다.", List.of());
+    private static ProductInfo product(UUID productHubId, boolean active) {
+        return new ProductInfo(PRODUCT_ID, COMPANY_ID, productHubId, active);
     }
 
     private static FeignServerException serverError() {
