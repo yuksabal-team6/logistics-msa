@@ -3,6 +3,7 @@ package com.yuksabal.hub.inventory.controller;
 import com.yuksabal.common.exception.GlobalExceptionHandler;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
+import com.yuksabal.hub.inventory.client.CompanyFeignAdapter;
 import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import com.yuksabal.hub.inventory.service.InventoryAccessPolicy;
@@ -28,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // 수량 > 0·삭제 제외 조건이 실제로 걸러내는지는 DB가 필요해 여기서는 분기와 응답 형식만 확인한다
 @WebMvcTest(InventoryInternalController.class)
-@Import({InventoryQueryService.class, InventoryAccessPolicy.class, GlobalExceptionHandler.class})
+@Import({InventoryQueryService.class, InventoryAccessPolicy.class, CompanyFeignAdapter.class, GlobalExceptionHandler.class})
 class InventoryInternalControllerTest {
 
     private static final UUID PRODUCT_ID = UUID.fromString("40000000-0000-4000-8000-000000000001");
