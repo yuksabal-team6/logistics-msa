@@ -662,6 +662,25 @@ class OrderCreateIntegrationTest {
     }
 
     @Test
+    void 확정_거절_후_현재_주문_재조회가_실패해도_409_유지하고_Slack_수동_처리() throws Exception {
+        given(deliveryClient.createDelivery(any())).willAnswer(invocation -> {
+            changeStatusInDb(OrderStatus.FAILED);
+            return ApiResponse.success(new DeliveryCreateResponse(deliveryId));
+        });
+        // 트랜잭션 순서: 1 PENDING 저장, 2 확정(거절), 3 거절 후 재조회 → 3번만 실패시킴
+        doCallRealMethod().doCallRealMethod().doThrow(new IllegalStateException("DB 오류")).doCallRealMethod()
+                .when(transactionTemplate).execute(any());
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_TRANSITION"));
+
+        verify(hubClient, never()).restoreStock(any());
+        verify(deliveryClient, never()).cancelDelivery(any());
+        verify(slackNotifier).notifyManualAction(any(Order.class), argThat(reason -> reason.contains("현재 상태 조회 실패")));
+    }
+
+    @Test
     void 보상이_필요한_실패_처리가_거절되면_자동_보상_없이_Slack_수동_처리() throws Exception {
         given(deliveryClient.createDelivery(any())).willAnswer(invocation -> {
             changeStatusInDb(OrderStatus.CONFIRMED);
