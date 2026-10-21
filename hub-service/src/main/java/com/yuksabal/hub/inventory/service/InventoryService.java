@@ -7,6 +7,7 @@ import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubErrorCode;
+import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.inventory.client.CompanyClient;
@@ -103,10 +104,7 @@ public class InventoryService {
     public PageResponse<InventoryResponse> getInventoriesByHub(UUID hubId, Pageable pageable, UserRole role) {
         accessPolicy.checkMaster(role);
         if (!hubRepository.existsById(hubId)) {
-            throw new BusinessException(
-                    CommonErrorCode.RESOURCE_NOT_FOUND,
-                    "존재하지 않는 허브입니다.",
-                    "hubId");
+            throw HubExceptions.hubNotFound();
         }
 
         Page<Inventory> inventories = inventoryRepository.findAll(
@@ -152,10 +150,7 @@ public class InventoryService {
         if (updated == 0) {
             // 재고가 없으면 404, 있으면 그 사이 수량이 바뀐 것이라 409 (현재 수량은 다시 바뀔 수 있어 참고용)
             Inventory current = findInventory(inventoryId);
-            throw new BusinessException(
-                    HubErrorCode.INVENTORY_QUANTITY_CONFLICT,
-                    HubErrorCode.INVENTORY_QUANTITY_CONFLICT.getMessage(),
-                    List.of(new ApiErrorDetail("quantity", "현재 재고는 " + current.getQuantity() + "개입니다.")));
+            throw HubExceptions.withCurrentQuantity(HubErrorCode.INVENTORY_QUANTITY_CONFLICT, current.getQuantity());
         }
 
         Inventory inventory = findInventory(inventoryId);
@@ -180,10 +175,7 @@ public class InventoryService {
         accessPolicy.checkMaster(role);
         // 값싼 허브 확인을 먼저 해, 없는 허브면 company를 호출하지 않는다 (허브 404 → 상품 404 순서)
         if (!hubRepository.existsById(request.hubId())) {
-            throw new BusinessException(
-                    CommonErrorCode.RESOURCE_NOT_FOUND,
-                    "존재하지 않는 허브입니다.",
-                    "hubId");
+            throw HubExceptions.hubNotFound();
         }
 
         ProductResponse product = findProduct(request.productId());
@@ -253,10 +245,7 @@ public class InventoryService {
             return companyClient.getProduct(productId).data();
         } catch (FeignClientException e) {
             if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
-                throw new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 상품입니다.",
-                        "productId");
+                throw HubExceptions.productNotFound();
             }
             throw e;
         }
@@ -264,10 +253,7 @@ public class InventoryService {
 
     private Inventory findInventory(UUID inventoryId) {
         return inventoryRepository.findById(inventoryId)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 재고입니다.",
-                        "inventoryId"));
+                .orElseThrow(() -> HubExceptions.inventoryNotFound("inventoryId"));
     }
 
     // 업체 관리 허브가 바뀌면 이전 허브에 재고 행이 이력으로 남아(수량 0, 삭제하지 않음) 같은 상품 재고가 여러 건이 된다
@@ -276,10 +262,7 @@ public class InventoryService {
     private Inventory findSingleInventoryByProduct(UUID productId) {
         List<Inventory> inventories = inventoryRepository.findByProductId(productId);
         if (inventories.isEmpty()) {
-            throw new BusinessException(
-                    CommonErrorCode.RESOURCE_NOT_FOUND,
-                    "존재하지 않는 재고입니다.",
-                    "productId");
+            throw HubExceptions.inventoryNotFound("productId");
         }
         if (inventories.size() == 1) {
             return inventories.get(0);
