@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.util.Objects;
 import java.util.UUID;
 
 // 재고 변경 이력. 기록용이자 (order_id, change_type) 멱등성 키라 삭제하지 않는다 (결정 #18).
@@ -39,11 +40,15 @@ public class InventoryLog extends BaseEntity {
     @Column(nullable = false)
     private Integer quantity;
 
+    // 엔티티 불변식. 서비스가 만드는 값만 들어오므로 정상 흐름에서는 걸리지 않는다 (걸리면 코드 버그 → 500)
     @Builder
     public InventoryLog(Inventory inventory, UUID orderId, InventoryChangeType changeType, Integer quantity) {
-        this.inventory = inventory;
+        this.inventory = Objects.requireNonNull(inventory, "로그의 재고는 필수입니다.");
         this.orderId = orderId;
-        this.changeType = changeType;
-        this.quantity = quantity;
+        this.changeType = Objects.requireNonNull(changeType, "로그의 변경 유형은 필수입니다.");
+        this.quantity = Objects.requireNonNull(quantity, "로그의 수량은 필수입니다.");
+        if (quantity < 0) {
+            throw new IllegalArgumentException("로그 수량은 0 이상이어야 합니다.");
+        }
     }
 }
