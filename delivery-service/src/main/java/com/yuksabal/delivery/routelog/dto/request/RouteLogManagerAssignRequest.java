@@ -7,7 +7,8 @@ import java.util.UUID;
 
 // 경로 기록(허브→허브) 담당자 지정. 활성 DELIVERY 회원만 가능
 public record RouteLogManagerAssignRequest(
-        @Schema(description = "지정할 허브 간 이동 담당자 회원 ID (활성 DELIVERY 회원)")
+        @Schema(description = "지정할 허브 간 이동 담당자 회원 ID (활성 DELIVERY 회원)",
+                example = "10000000-0000-4000-8000-000000000004")
         @NotNull UUID deliveryManagerId
 ) {
 }
