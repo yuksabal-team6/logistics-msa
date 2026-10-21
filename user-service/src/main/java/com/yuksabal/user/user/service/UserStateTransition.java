@@ -128,8 +128,9 @@ public class UserStateTransition {
         return user;
     }
 
+    // 행을 잠그고 읽는다. User는 모든 컬럼을 다시 쓰므로, 잠그지 않으면 그사이 커밋된 본인 수정(updateMe·비밀번호)을 덮어쓴다
     private User findTarget(UUID userId) {
-        return userRepository.findById(userId).orElseThrow(UserStateTransition::notFound);
+        return userRepository.findByIdForUpdate(userId).orElseThrow(UserStateTransition::notFound);
     }
 
     private static BusinessException notFound() {

@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -97,7 +98,7 @@ public class UserService {
         if (request.hasNoChanges()) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "수정할 항목이 없습니다.");
         }
-        User user = findActiveUser(userId);
+        User user = findActiveUserForUpdate(userId);
         validateNotDuplicatedForUpdate(userId, request);
 
         user.updateProfile(request.username(), request.email(), request.slackId(), request.isPublic());
@@ -109,7 +110,7 @@ public class UserService {
     // 현재 비밀번호 불일치 401, 새 비밀번호 정책 위반(형식은 DTO, 기존과 동일 여부는 여기서) 400
     @Transactional
     public void changePassword(UUID userId, ChangePasswordRequest request) {
-        User user = findActiveUser(userId);
+        User user = findActiveUserForUpdate(userId);
         if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
             throw new BusinessException(UserErrorCode.INVALID_PASSWORD);
         }
@@ -123,7 +124,17 @@ public class UserService {
     // 토큰은 유효하지만 탈퇴(소프트 삭제)한 회원이면 404 — 토큰 무효화가 없어 생길 수 있다
     // 비활성 계정은 토큰이 아직 유효해도 403 ACCOUNT_DISABLED (#67)
     private User findActiveUser(UUID userId) {
-        User user = userRepository.findById(userId)
+        return checkActive(userRepository.findById(userId));
+    }
+
+    // 쓰기용: 행을 잠그고 읽는다. 잠그지 않으면 엔티티의 모든 컬럼을 다시 쓰므로,
+    // 읽은 뒤 커밋된 MASTER의 비활성화·역할 변경을 이 요청이 옛 값으로 덮어쓴다 (UserStateTransition도 같은 잠금)
+    private User findActiveUserForUpdate(UUID userId) {
+        return checkActive(userRepository.findByIdForUpdate(userId));
+    }
+
+    private User checkActive(Optional<User> found) {
+        User user = found
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND, "존재하지 않거나 탈퇴한 회원입니다."));
         if (!user.isActive()) {
             throw new BusinessException(UserErrorCode.ACCOUNT_DISABLED);
