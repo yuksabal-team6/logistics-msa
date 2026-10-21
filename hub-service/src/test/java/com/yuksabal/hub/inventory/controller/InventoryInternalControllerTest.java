@@ -6,7 +6,7 @@ import com.yuksabal.hub.inventory.client.CompanyClient;
 import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
 import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import com.yuksabal.hub.inventory.service.InventoryAccessPolicy;
-import com.yuksabal.hub.inventory.service.InventoryService;
+import com.yuksabal.hub.inventory.service.InventoryQueryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -14,7 +14,6 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.mapping.JpaMetamodelMappingContext;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
 
@@ -29,7 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // 수량 > 0·삭제 제외 조건이 실제로 걸러내는지는 DB가 필요해 여기서는 분기와 응답 형식만 확인한다
 @WebMvcTest(InventoryInternalController.class)
-@Import({InventoryService.class, InventoryAccessPolicy.class, GlobalExceptionHandler.class})
+@Import({InventoryQueryService.class, InventoryAccessPolicy.class, GlobalExceptionHandler.class})
 class InventoryInternalControllerTest {
 
     private static final UUID PRODUCT_ID = UUID.fromString("40000000-0000-4000-8000-000000000001");
@@ -50,10 +49,6 @@ class InventoryInternalControllerTest {
 
     @MockBean
     private CompanyClient companyClient;
-
-    // InventoryService 생성자 주입용 (재고 확인은 트랜잭션 템플릿을 쓰지 않는다)
-    @MockBean
-    private TransactionTemplate transactionTemplate;
 
     // JpaAuditingConfig가 요구하는 JPA 메타모델 (WebMvcTest에는 JPA가 없다)
     @MockBean
