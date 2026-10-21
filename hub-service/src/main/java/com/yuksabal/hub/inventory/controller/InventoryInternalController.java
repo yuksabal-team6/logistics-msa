@@ -4,7 +4,7 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
 import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryStockResponse;
-import com.yuksabal.hub.inventory.service.InventoryService;
+import com.yuksabal.hub.inventory.service.InventoryQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -24,7 +24,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 @RequestMapping("/internal/inventories")
 public class InventoryInternalController {
 
-    private final InventoryService inventoryService;
+    private final InventoryQueryService inventoryQueryService;
 
     // ?productId={상품 ID} 또는 ?companyId={업체 ID}
     @Operation(summary = "상품·업체 기준 재고 보유 여부",
@@ -34,6 +34,6 @@ public class InventoryInternalController {
     @GetMapping("/stock")
     public ResponseEntity<ApiResponse<InventoryStockResponse>> hasStock(
             @Valid @ParameterObject InventoryStockRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(inventoryService.hasStock(request)));
+        return ResponseEntity.ok(ApiResponse.success(inventoryQueryService.hasStock(request)));
     }
 }
