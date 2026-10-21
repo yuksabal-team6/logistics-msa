@@ -1,6 +1,7 @@
 package com.yuksabal.hub.inventory.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 
@@ -17,4 +18,12 @@ public record InventoryQuantityUpdateRequest(
         @PositiveOrZero(message = "조정할 재고 수량은 0 이상이어야 합니다.")
         Integer quantity
 ) {
+
+    // 요청만 보고 판단할 수 있어 DTO에서 검증한다. 검증 실패 시 details의 field는 "quantityChanged"
+    // 둘 중 하나가 null이면 @NotNull이 알려 주므로 여기서는 통과시킨다
+    @Schema(hidden = true)
+    @AssertTrue(message = "조정할 재고 수량이 조회한 수량과 같습니다.")
+    public boolean isQuantityChanged() {
+        return expectedQuantity == null || quantity == null || !expectedQuantity.equals(quantity);
+    }
 }
