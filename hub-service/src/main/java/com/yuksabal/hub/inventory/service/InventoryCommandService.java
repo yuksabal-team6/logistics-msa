@@ -3,14 +3,11 @@ package com.yuksabal.hub.inventory.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
-import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.inventory.client.CompanyClient;
-import com.yuksabal.hub.inventory.client.dto.ProductResponse;
 import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
@@ -22,7 +19,6 @@ import com.yuksabal.hub.inventory.repository.InventoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,7 +41,7 @@ public class InventoryCommandService {
     private final InventoryRepository inventoryRepository;
     private final InventoryLogRepository inventoryLogRepository;
     private final HubRepository hubRepository;
-    private final CompanyClient companyClient;
+    private final ProductReader productReader;
     private final InventoryAccessPolicy accessPolicy;
     private final TransactionTemplate transactionTemplate;
 
@@ -92,7 +88,9 @@ public class InventoryCommandService {
             throw HubExceptions.hubNotFound();
         }
 
-        ProductResponse product = findProduct(request.productId());
+        // 없거나 삭제된 상품이면 company-service가 404로 응답한다
+        ProductInfo product = productReader.findProduct(request.productId())
+                .orElseThrow(HubExceptions::productNotFound);
         if (!product.active()) {
             throw new BusinessException(
                     CommonErrorCode.BUSINESS_RULE_VIOLATION,
@@ -111,7 +109,7 @@ public class InventoryCommandService {
     }
 
     // 입고의 DB 작업 (transactionTemplate 안에서 실행). 예외가 나면 재고 변경·로그가 함께 롤백된다
-    private InventoryResponse saveInbound(InventoryInboundRequest request, ProductResponse product, UUID userId) {
+    private InventoryResponse saveInbound(InventoryInboundRequest request, ProductInfo product, UUID userId) {
         // 허브는 고정 데이터라 삭제되지 않아, 앞에서 확인한 허브를 다시 조회하지 않고 참조만 쓴다
         Hub hub = hubRepository.getReferenceById(request.hubId());
         Inventory inventory = inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
@@ -134,7 +132,7 @@ public class InventoryCommandService {
 
     // 관리 허브 확인은 inbound에서 끝났다
     // 같은 허브·상품을 동시에 처음 입고하면 늦은 쪽이 (hub_id, product_id) 유니크 인덱스 위반으로 실패해 409로 응답한다
-    private Inventory createInventory(Hub hub, ProductResponse product, InventoryInboundRequest request) {
+    private Inventory createInventory(Hub hub, ProductInfo product, InventoryInboundRequest request) {
         try {
             // 유니크 위반이 여기서 나도록 바로 flush 한다
             return inventoryRepository.saveAndFlush(Inventory.builder()
@@ -148,18 +146,6 @@ public class InventoryCommandService {
             if (e.getCause() instanceof ConstraintViolationException cause
                     && INVENTORY_UNIQUE_INDEX.equals(cause.getConstraintName())) {
                 throw new BusinessException(HubErrorCode.INVENTORY_CREATE_CONFLICT);
-            }
-            throw e;
-        }
-    }
-
-    // 없거나 삭제된 상품이면 company-service가 404로 응답한다
-    private ProductResponse findProduct(UUID productId) {
-        try {
-            return companyClient.getProduct(productId).data();
-        } catch (FeignClientException e) {
-            if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
-                throw HubExceptions.productNotFound();
             }
             throw e;
         }
