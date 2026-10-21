@@ -47,6 +47,9 @@ import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.hub.inventory.repository.InventorySpecification.hubIdEquals;
 import static com.yuksabal.hub.inventory.repository.InventorySpecification.search;
 
+// 권한은 Gateway(#133)와 이 서비스가 둘 다 검사한다 (다층 방어)
+// Gateway를 거치지 않는 호출(내부망 직접 호출, Gateway 규칙 누락)에도 서비스가 스스로 막고,
+// COMPANY의 상품 소유권처럼 Gateway가 알 수 없는 조건은 서비스에서만 판단한다
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -156,14 +159,9 @@ public class InventoryService {
         if (role != UserRole.MASTER) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
+        // 조회한 수량과 같은 값으로 조정하는 요청은 DTO 검증(isQuantityChanged)에서 400으로 막힌다
         int expectedQuantity = request.expectedQuantity();
         int quantity = request.quantity();
-        if (expectedQuantity == quantity) {
-            throw new BusinessException(
-                    CommonErrorCode.VALIDATION_ERROR,
-                    "조정할 재고 수량이 조회한 수량과 같습니다.",
-                    "quantity");
-        }
 
         int updated = inventoryRepository.updateQuantityIfMatches(
                 inventoryId, expectedQuantity, quantity, LocalDateTime.now(), userId);
