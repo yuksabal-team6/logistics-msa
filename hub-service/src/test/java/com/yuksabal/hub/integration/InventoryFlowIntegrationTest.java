@@ -300,7 +300,7 @@ class InventoryFlowIntegrationTest extends IntegrationTestSupport {
 
             asMaster(patchJson("/api/v1/inventories/" + inventoryId, Map.of("expectedQuantity", 10, "quantity", 10)))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error.details[0].field").value("quantity"));
+                    .andExpect(jsonPath("$.error.details[0].field").value("quantityChanged"));
         }
 
         @Test

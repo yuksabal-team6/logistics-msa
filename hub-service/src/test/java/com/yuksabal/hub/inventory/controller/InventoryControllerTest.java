@@ -542,7 +542,8 @@ class InventoryControllerTest {
         mockMvc.perform(adjustRequest("MASTER", adjustBody(100, 100)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.error.details[0].field").value("quantity"));
+                .andExpect(jsonPath("$.error.details[0].field").value("quantityChanged"))
+                .andExpect(jsonPath("$.error.details[0].reason").value("조정할 재고 수량이 조회한 수량과 같습니다."));
 
         then(inventoryRepository).should(never())
                 .updateQuantityIfMatches(any(UUID.class), anyInt(), anyInt(), any(LocalDateTime.class), any(UUID.class));
