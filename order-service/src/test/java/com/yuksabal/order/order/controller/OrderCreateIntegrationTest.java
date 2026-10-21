@@ -49,6 +49,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doCallRealMethod;
@@ -641,6 +642,57 @@ class OrderCreateIntegrationTest {
     }
 
     @Test
+    void 확정_중_상태_전이가_거절되면_자동_보상_없이_Slack_수동_처리() throws Exception {
+        // 배송 생성 중에 생성 흐름 밖에서 주문 상태가 바뀐 상황 (정상이면 일어나지 않음)
+        given(deliveryClient.createDelivery(any())).willAnswer(invocation -> {
+            changeStatusInDb(OrderStatus.FAILED);
+            return ApiResponse.success(new DeliveryCreateResponse(deliveryId));
+        });
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_TRANSITION"));
+
+        assertThat(orderRepository.findAll().get(0).getStatus()).isEqualTo(OrderStatus.FAILED);
+        verify(hubClient, never()).restoreStock(any());
+        verify(deliveryClient, never()).cancelDelivery(any());
+        // 확정 단계에서 바로 거절로 구분 (확정 저장 실패 경로로 가서 실패 처리를 타지 않음)
+        verify(slackNotifier).notifyManualAction(any(Order.class), argThat(reason -> reason.contains("6. 주문 CONFIRM 처리")));
+        verify(slackNotifier, never()).notifyCheckNeeded(any(), anyString());
+    }
+
+    @Test
+    void 보상이_필요한_실패_처리가_거절되면_자동_보상_없이_Slack_수동_처리() throws Exception {
+        given(deliveryClient.createDelivery(any())).willAnswer(invocation -> {
+            changeStatusInDb(OrderStatus.CONFIRMED);
+            throw new FeignServerException(503, "SERVICE_UNAVAILABLE", "delivery 오류", "createDelivery");
+        });
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_TRANSITION"));
+
+        assertThat(orderRepository.findAll().get(0).getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        verify(hubClient, never()).restoreStock(any());
+        verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
+    }
+
+    @Test
+    void 다른_서비스를_건드리기_전_실패_처리가_거절되면_Slack_없이_로그만() throws Exception {
+        given(hubClient.decreaseStock(any())).willAnswer(invocation -> {
+            changeStatusInDb(OrderStatus.CONFIRMED);
+            throw new FeignClientException(409, "INSUFFICIENT_STOCK", "주문 가능한 재고가 부족합니다.", List.of());
+        });
+
+        create(validBody())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_TRANSITION"));
+
+        verify(hubClient, never()).restoreStock(any());
+        verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+    }
+
+    @Test
     void 예상하지_못한_예외에_보상도_실패하면_수동_처리_알림만() throws Exception {
         given(hubClient.decreaseStock(any())).willThrow(new IllegalStateException("응답 해석 실패"));
         given(hubClient.restoreStock(any())).willThrow(new FeignServerException(500, "INTERNAL_SERVER_ERROR", "hub 오류", "restoreStock"));
@@ -685,6 +737,13 @@ class OrderCreateIntegrationTest {
         create(body)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.details[*].field", org.hamcrest.Matchers.containsInAnyOrder("recipientName", "deliveryAddress")));
+    }
+
+    // 생성 흐름 도중 다른 곳에서 주문 상태를 바꾼 것처럼 DB 값을 직접 변경
+    private void changeStatusInDb(OrderStatus status) {
+        Order saved = orderRepository.findAll().get(0);
+        ReflectionTestUtils.setField(saved, "status", status);
+        orderRepository.saveAndFlush(saved);
     }
 
     private void givenRestoreSucceeds() {

@@ -138,24 +138,24 @@ public class Order extends BaseEntity implements Persistable<UUID> {
     }
 
     /**
-     * 배송 생성 성공 시 주문 상태를 PENDING 에서 CONFIRMED로 변경하고 배송 ID를 저장한다.
+     * 배송 생성 성공 시 PENDING 상태 주문을 CONFIRMED로 변경하고 배송 ID를 저장한다.
      *
      * @param deliveryId 배송 생성 응답으로 받은 배송 ID
      */
     public void confirm(UUID deliveryId) {
-        validatePending("처리 중인 주문만 확정할 수 있습니다.");
+        validatePending("PENDING 상태인 주문만 확정할 수 있습니다.");
         this.deliveryId = deliveryId;
         this.status = OrderStatus.CONFIRMED;
         log.debug("[주문 상태] PENDING → CONFIRMED orderId={}, deliveryId={}", id, deliveryId);
     }
 
     /**
-     * 주문 상태를 FAILED로 변경하고 보상 상태를 설정한다.
+     * 배송 생성 실패 시 PENDING 상태 주문을 FAILED로 변경하고 보상 상태를 설정한다.
      *
      * @param compensationStatus 설정할 보상 상태
      */
     public void fail(CompensationStatus compensationStatus) {
-        validatePending("처리 중인 주문만 실패 처리할 수 있습니다.");
+        validatePending("PENDING 상태인 주문만 실패 처리할 수 있습니다.");
         this.status = OrderStatus.FAILED;
         this.compensationStatus = compensationStatus;
         log.debug("[주문 상태] PENDING → FAILED orderId={}, 보상={}", id, compensationStatus);

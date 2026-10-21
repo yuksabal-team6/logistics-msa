@@ -137,7 +137,7 @@ public class OrderCreateService {
     }
 
     /**
-     * active 필드가 비활성인 경우 예외를 발생시킨다.
+     * 요청/공급 업체와 상품의 active 필드가 비활성인 경우 예외를 발생시킨다.
      * 비활성 상품, 업체는 주문할 수 없다.
      *
      * @param active  확인 대상 객체의 활성 상태
@@ -331,11 +331,21 @@ public class OrderCreateService {
                 saved.confirm(deliveryId);
                 return saved;
             });
-        } catch (RuntimeException e) {
-            // 확정 저장 실패(DB 오류 등): 재고 차감, 배송 생성까지 끝난 상태라 PENDING으로 남으면 아무도 모름
+        } catch (BusinessException e) { // 확정 중 상태 전이 거절:
+
+            // 생성 흐름 밖에서 상태가 바뀐 것 → 무엇으로 바뀌었는지 모르므로 자동 보상 x, 수동 확인
+            //  엔티티 내 fail()(pending -> failed)도 같은 이유로 거절되므로 타지 않음
+            if (e.getErrorCode() == OrderErrorCode.INVALID_STATUS_TRANSITION) {
+                handleTransitionRejected(order.getId(), "6. 주문 CONFIRM 처리", CompensationStatus.PENDING);
+            }
+            throw e;
+        } catch (RuntimeException e) { // 확정 저장 실패(DB 오류 등):
+
+            // 재고 차감, 배송 생성까지 끝난 상태라 PENDING으로 남으면 아무도 모름
             //  → FAILED + 재고 복원 + 배송 취소 (보상까지 실패하면 Slack 수동 처리)
-            log.error("[주문 생성] 6. 주문 확정 저장 실패 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
+            log.error("[주문 생성] 6. 주문 CONFIRM 저장 실패 orderId={} → FAILED + PENDING, 재고 복원 + 배송 취소", order.getId(), e);
             failOrder(order.getId(), CompensationStatus.PENDING);
+
             orderCompensator.restoreStockAndCancelDelivery(order, "주문 생성 보상 실패 (재고 복원 또는 배송 취소)");
             notifyUnexpectedError(order, "주문 확정 저장 중 예상하지 못한 오류");
             throw e;
@@ -346,13 +356,16 @@ public class OrderCreateService {
 
     /**
      * 보상이 완료된 주문에서 예상치 못한 오류가 발생하면 Slack으로 확인 알림을 보낸다.
+     * <p>
      * 보상 실패 시에는 수동 처리 알림이 미리 전송되므로 완료일 때만 전송한다.
      *
      * @param order  확인 대상 주문 엔티티
      * @param reason 오류 사유
      */
     private void notifyUnexpectedError(Order order, String reason) {
-        Order current = transactionTemplate.execute(status -> orderRepository.findByIdOrThrow(order.getId()));
+        Order current = transactionTemplate.execute(
+                status -> orderRepository
+                        .findByIdOrThrow(order.getId()));
         if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
             slackNotifier.notifyCheckNeeded(current, reason);
         }
@@ -421,7 +434,46 @@ public class OrderCreateService {
      * @param compensationStatus 변경할 보상 상태
      */
     private void failOrder(UUID orderId, CompensationStatus compensationStatus) {
-        transactionTemplate.executeWithoutResult(status -> orderRepository.findByIdOrThrow(orderId).fail(compensationStatus));
+        try {
+            // DB에서 조회
+            transactionTemplate.executeWithoutResult(
+                    status -> orderRepository.findByIdOrThrow(orderId)
+                            .fail(compensationStatus));
+        } catch (BusinessException e) {
+            // 실패 처리 도중 상태 전이 거절된 경우
+
+            //  -> 주문 상태를 알 수 없어 자동 보상 x (ex. confirmed -> failed 시도)
+            //  -> 로그, slack으로 넘기고 예외를 다시 던져 뒤의 보상 플로우를 타지 않게 함.
+            if (e.getErrorCode() == OrderErrorCode.INVALID_STATUS_TRANSITION) {
+                handleTransitionRejected(orderId, "주문 실패 처리", compensationStatus);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 주문 생성 중 상태 전이가 거절된 상황을 기록한다.
+     * 보상 상태가 PENDING 이면 수동 처리 slack 알림을 전송한다.
+     *
+     * @param orderId            상태 전이가 거절된 주문의 ID
+     * @param step               상태 전이가 거절된 처리 단계
+     * @param compensationStatus 해당 단계에서 필요한 보상 상태 (호출한 단계가 넘긴 값. DB 값이 아님)
+     */
+    private void handleTransitionRejected(UUID orderId, String step, CompensationStatus compensationStatus) {
+        // 상태 전이 거절 후, DB 실제 저장된 주문 상태 확인 -> 로그, slack 알림에 사용
+        Order current = transactionTemplate.execute(
+                status -> orderRepository
+                        .findByIdOrThrow(orderId));
+
+        // 버그 추적용 에러 로그
+        log.error("[주문 생성] {} 중 상태 전이 거절 orderId={}, 현재 status={}, 보상={} → 자동 보상 안 함",
+                step, orderId, current.getStatus(), current.getCompensationStatus());
+
+        // 다른 서비스를 이미 건드려 보상이 필할 수 있는 단계 (재고 차감, 배송 생성) -> 자동 보상 불가하므로 운영자 확인
+        if (compensationStatus == CompensationStatus.PENDING) {
+            slackNotifier.notifyManualAction(current, "주문 생성 중 상태 전이 거절 (" + step + "): 재고, 배송 확인 필요");
+        }
+        // NOT_REQUIRED 의 경우 -> 수동 처리 필요 x 로그만 기록
     }
 
     /**
