@@ -4,6 +4,7 @@ import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.hub.global.exception.HubErrorCode;
+import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.inventory.dto.request.StockRequest;
 import com.yuksabal.hub.inventory.dto.response.StockDecreaseResponse;
 import com.yuksabal.hub.inventory.dto.response.StockRestoreResponse;
@@ -71,10 +72,7 @@ public class StockService {
         int updated = inventoryRepository.decreaseQuantityIfEnough(
                 request.hubId(), request.productId(), request.quantity(), LocalDateTime.now(), userId);
         if (updated == 0) {
-            throw new BusinessException(
-                    HubErrorCode.INSUFFICIENT_STOCK,
-                    HubErrorCode.INSUFFICIENT_STOCK.getMessage(),
-                    List.of(new ApiErrorDetail("quantity", "현재 재고는 " + locked.getQuantity() + "개입니다.")));
+            throw HubExceptions.withCurrentQuantity(HubErrorCode.INSUFFICIENT_STOCK, locked.getQuantity());
         }
 
         // 5. 차감 후 수량으로 다시 조회한다 (UPDATE가 영속성 컨텍스트를 비워 차감 전 엔티티는 남지 않는다)
@@ -162,20 +160,13 @@ public class StockService {
     // 재고 잠금 조회 (SELECT ... FOR UPDATE)
     private Inventory findInventoryForUpdate(StockRequest request) {
         return inventoryRepository.findByHubIdAndProductIdForUpdate(request.hubId(), request.productId())
-                .orElseThrow(() -> inventoryNotFound());
+                .orElseThrow(HubExceptions::stockNotFound);
     }
 
     // 재고 조회
     private Inventory findInventory(StockRequest request) {
         return inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
-                .orElseThrow(() -> inventoryNotFound());
-    }
-
-    private BusinessException inventoryNotFound() {
-        return new BusinessException(
-                CommonErrorCode.RESOURCE_NOT_FOUND,
-                "해당 허브에 상품 재고가 없습니다.",
-                "productId");
+                .orElseThrow(HubExceptions::stockNotFound);
     }
 
     // 로그 조회(orderId, changeType)
