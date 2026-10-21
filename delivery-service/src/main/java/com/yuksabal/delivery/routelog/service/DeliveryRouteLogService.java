@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.yuksabal.delivery.global.auth.RoleGuard.requireMaster;
+
 @Service
 @RequiredArgsConstructor
 public class DeliveryRouteLogService {
@@ -87,12 +89,6 @@ public class DeliveryRouteLogService {
             routeLog.assignManager(deliveryManagerId);
             return DeliveryRouteLogResponse.from(routeLog);
         });
-    }
-
-    private void requireMaster(UserRole role, String message) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN, message);
-        }
     }
 
     private Delivery findDelivery(UUID deliveryId) {
