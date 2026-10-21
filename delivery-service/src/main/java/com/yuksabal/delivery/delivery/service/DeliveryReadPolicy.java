@@ -44,7 +44,7 @@ public class DeliveryReadPolicy {
         };
         if (!readable) {
             throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED,
-                    "MASTER, 배송 담당자, 주문자 본인만 조회할 수 있습니다.");
+                    "MASTER, 담당 배송 기사(배송·경로 기록), 주문자 본인만 조회할 수 있습니다.");
         }
     }
 }
