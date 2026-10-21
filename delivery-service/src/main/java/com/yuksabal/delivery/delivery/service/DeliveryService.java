@@ -38,6 +38,7 @@ import java.util.UUID;
 
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.delivery.delivery.repository.DeliverySpecification.search;
+import static com.yuksabal.delivery.global.auth.RoleGuard.requireMaster;
 
 @Slf4j
 @Service
@@ -225,12 +226,6 @@ public class DeliveryService {
                 || deliveryRouteLogRepository.existsByDeliveryManagerIdAndRouteStatusIn(
                         deliveryManagerId, RouteStatus.inProgressStatuses());
         return new DeliveryInProgressResponse(deliveryManagerId, exists);
-    }
-
-    private void requireMaster(UserRole role, String message) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(CommonErrorCode.FORBIDDEN, message);
-        }
     }
 
     private Delivery findDelivery(UUID deliveryId) {
