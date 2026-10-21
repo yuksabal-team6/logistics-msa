@@ -3,11 +3,7 @@ package com.yuksabal.hub.inventory.service;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
-import com.yuksabal.common.feign.FeignClientException;
-import com.yuksabal.hub.inventory.client.CompanyClient;
-import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -21,7 +17,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class InventoryAccessPolicy {
 
-    private final CompanyClient companyClient;
+    private final CompanyReader companyReader;
 
     // 재고 목록·상세·허브별·로그 조회, 수량 조정, 입고는 MASTER만
     public void checkMaster(UserRole role) {
@@ -39,21 +35,15 @@ public class InventoryAccessPolicy {
     }
 
     // COMPANY는 재고 업체의 관리자(ownerId) 본인만 허용. MASTER는 company를 호출하지 않는다
-    // 업체가 없거나 삭제되면(404) 소유권을 확인할 수 없어 403
+    // 업체가 없거나 삭제되면 소유권을 확인할 수 없어 403
     public void checkProductOwner(UUID companyId, UUID userId, UserRole role) {
         if (role != UserRole.COMPANY) {
             return;
         }
-        CompanyResponse company;
-        try {
-            company = companyClient.getCompany(companyId).data();
-        } catch (FeignClientException e) {
-            if (e.getStatus() == HttpStatus.NOT_FOUND.value()) {
-                throw new BusinessException(CommonErrorCode.FORBIDDEN);
-            }
-            throw e;
-        }
-        if (!company.ownerId().equals(userId)) {
+        boolean owner = companyReader.findOwnerId(companyId)
+                .map(userId::equals)
+                .orElse(false);
+        if (!owner) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
         }
     }
