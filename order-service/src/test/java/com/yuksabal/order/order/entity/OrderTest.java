@@ -56,6 +56,53 @@ class OrderTest {
     }
 
     @Test
+    void 확정_PENDING이면_CONFIRMED_배송ID_저장() {
+        Order order = order();
+        UUID deliveryId = UUID.randomUUID();
+
+        order.confirm(deliveryId);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(order.getDeliveryId()).isEqualTo(deliveryId);
+    }
+
+    @ParameterizedTest(name = "{0} → 409")
+    @CsvSource({"CONFIRMED", "FAILED", "CANCELLED", "COMPLETED"})
+    void 확정_PENDING이_아니면_409_상태_그대로(OrderStatus status) {
+        Order order = order();
+        ReflectionTestUtils.setField(order, "status", status);
+
+        assertThatThrownBy(() -> order.confirm(UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(OrderErrorCode.INVALID_STATUS_TRANSITION);
+        assertThat(order.getStatus()).isEqualTo(status);
+        assertThat(order.getDeliveryId()).isNull();
+    }
+
+    @Test
+    void 실패_처리_PENDING이면_FAILED_보상_상태_저장() {
+        Order order = order();
+
+        order.fail(CompensationStatus.PENDING);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.PENDING);
+    }
+
+    @ParameterizedTest(name = "{0} → 409")
+    @CsvSource({"CONFIRMED", "FAILED", "CANCELLED", "COMPLETED"})
+    void 실패_처리_PENDING이_아니면_409_상태_그대로(OrderStatus status) {
+        Order order = order();
+        ReflectionTestUtils.setField(order, "status", status);
+
+        assertThatThrownBy(() -> order.fail(CompensationStatus.PENDING))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(OrderErrorCode.INVALID_STATUS_TRANSITION);
+        assertThat(order.getStatus()).isEqualTo(status);
+        assertThat(order.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
+    }
+
+    @Test
     void 완료_처리_CONFIRMED면_COMPLETED() {
         Order order = order();
         order.confirm(UUID.randomUUID());
