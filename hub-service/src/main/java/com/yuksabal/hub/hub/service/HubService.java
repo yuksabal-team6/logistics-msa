@@ -3,6 +3,7 @@ package com.yuksabal.hub.hub.service;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.PageResponse;
+import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.hub.entity.Hub;
 import com.yuksabal.hub.hub.repository.HubRepository;
 import com.yuksabal.hub.hub.dto.request.HubSearchRequest;
@@ -57,11 +58,7 @@ public class HubService {
     public HubInternalResponse getInternalHub(UUID hubId) {
         return hubRepository.findById(hubId)
                 .map(HubInternalResponse::from)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "존재하지 않는 허브입니다.",
-                        "hubId"
-                ));
+                .orElseThrow(HubExceptions::hubNotFound);
     }
 
     // 초기 허브는 created_at이 모두 같아서 정렬 값이 같으면 ID 순으로 고정해 페이지 간 중복·누락을 막는다.
