@@ -17,6 +17,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // 같은 주문의 차감·복원이 한 번만 반영되는지(멱등성) 실제 재고 수량과 로그로 확인한다
 class StockInternalIntegrationTest extends IntegrationTestSupport {
 
+    // 주문한 사용자 (order가 Feign으로 X-User-Id를 전달한다)
+    private static final UUID ORDER_USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000002");
+
     @Nested
     class 주문_차감 {
 
@@ -99,6 +102,67 @@ class StockInternalIntegrationTest extends IntegrationTestSupport {
 
             assertThat(currentQuantity(inventoryId)).isEqualTo(10);
             assertThat(countOrderLogs(orderId)).isEqualTo(1);
+        }
+
+        // 차감·복원 로그를 한 번에 조회해도 판단 순서(차감 로그 → 복원 로그)가 그대로인지 확인한다 (#273)
+        @Test
+        void 차감과_복원이_모두_끝난_주문의_차감은_다시_차감하지_않는다() throws Exception {
+            UUID productId = UUID.randomUUID();
+            UUID inventoryId = inbound(productId, 10);
+            UUID orderId = UUID.randomUUID();
+            decrease(productId, 3, orderId);
+            restore(productId, 3, orderId);
+
+            decrease(productId, 3, orderId)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.remainingQuantity").value(10));
+
+            assertThat(currentQuantity(inventoryId)).isEqualTo(10);
+            assertThat(countOrderLogs(orderId)).isEqualTo(2);
+        }
+
+        // 차감한 수량은 변경 감지로 UPDATE 되고, updatedBy는 JPA Auditing이 X-User-Id 헤더로 채운다 (#273)
+        @Test
+        void 차감하면_요청자가_수정자로_남는다() throws Exception {
+            UUID productId = UUID.randomUUID();
+            UUID inventoryId = inbound(productId, 10);
+
+            mockMvc.perform(postJson("/internal/stocks/decrease", stockBody(productId, 3, UUID.randomUUID()))
+                            .header("X-User-Id", ORDER_USER_ID.toString()))
+                    .andExpect(status().isOk());
+
+            assertThat(updatedBy(inventoryId)).isEqualTo(ORDER_USER_ID);
+            assertThat(logCreatedBy(inventoryId, "DECREASE")).isEqualTo(ORDER_USER_ID);
+        }
+
+        @Test
+        void 복원하면_요청자가_수정자로_남는다() throws Exception {
+            UUID productId = UUID.randomUUID();
+            UUID inventoryId = inbound(productId, 10);
+            UUID orderId = UUID.randomUUID();
+            decrease(productId, 3, orderId);
+
+            mockMvc.perform(postJson("/internal/stocks/restore", stockBody(productId, 3, orderId))
+                            .header("X-User-Id", ORDER_USER_ID.toString()))
+                    .andExpect(status().isOk());
+
+            assertThat(updatedBy(inventoryId)).isEqualTo(ORDER_USER_ID);
+            assertThat(logCreatedBy(inventoryId, "RESTORE")).isEqualTo(ORDER_USER_ID);
+        }
+
+        // AuditorAware가 사용자를 반환하지 않으면 JPA Auditing은 기존 updatedBy 값을 null로 덮어쓰지 않는다
+        // (벌크 UPDATE를 쓰던 #273 이전에는 null로 갱신했다)
+        // 현재 주문 재고 차감·복원 호출 경로에서는 Feign 인터셉터가 X-User-Id를 전달하므로 정상 요청의 updatedBy에는 영향이 없다
+        // 시스템 작업의 감사 주체 정책은 별도 과제로 다룬다
+        @Test
+        void 사용자_헤더가_없으면_Auditing이_기존_updatedBy를_유지한다() throws Exception {
+            UUID productId = UUID.randomUUID();
+            UUID inventoryId = inbound(productId, 10);
+
+            decrease(productId, 3, UUID.randomUUID())
+                    .andExpect(status().isOk());
+
+            assertThat(updatedBy(inventoryId)).isEqualTo(MASTER_ID);
         }
     }
 
@@ -223,6 +287,15 @@ class StockInternalIntegrationTest extends IntegrationTestSupport {
 
     private int currentQuantity(UUID inventoryId) {
         return queryForObject("SELECT quantity FROM hub_service.p_inventories WHERE inventory_id = ?", Integer.class, inventoryId);
+    }
+
+    private UUID updatedBy(UUID inventoryId) {
+        return queryForObject("SELECT updated_by FROM hub_service.p_inventories WHERE inventory_id = ?", UUID.class, inventoryId);
+    }
+
+    private UUID logCreatedBy(UUID inventoryId, String changeType) {
+        return queryForObject("SELECT created_by FROM hub_service.p_inventory_logs WHERE inventory_id = ? AND change_type = ?",
+                UUID.class, inventoryId, changeType);
     }
 
     private int logQuantity(UUID orderId, String changeType) {
