@@ -1,22 +1,22 @@
-package com.yuksabal.hub.inventory.service;
+package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.global.exception.HubExceptions;
-import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
-import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
-import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
-import com.yuksabal.hub.inventory.dto.response.InventoryLogResponse;
-import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
-import com.yuksabal.hub.inventory.dto.response.InventoryStockResponse;
-import com.yuksabal.hub.inventory.entity.Inventory;
-import com.yuksabal.hub.inventory.entity.InventoryLog;
-import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
-import com.yuksabal.hub.inventory.repository.InventoryLogSpecification;
-import com.yuksabal.hub.inventory.repository.InventoryRepository;
+import com.yuksabal.hub.hub.domain.HubRepository;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryLogSearchRequest;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventorySearchRequest;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryStockRequest;
+import com.yuksabal.hub.inventory.presentation.dto.response.InventoryLogResponse;
+import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.presentation.dto.response.InventoryStockResponse;
+import com.yuksabal.hub.inventory.domain.Inventory;
+import com.yuksabal.hub.inventory.domain.InventoryLog;
+import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
+import com.yuksabal.hub.inventory.domain.InventoryLogSpecification;
+import com.yuksabal.hub.inventory.domain.InventoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,8 +30,8 @@ import java.util.Set;
 import java.util.UUID;
 
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
-import static com.yuksabal.hub.inventory.repository.InventorySpecification.hubIdEquals;
-import static com.yuksabal.hub.inventory.repository.InventorySpecification.search;
+import static com.yuksabal.hub.inventory.domain.InventorySpecification.hubIdEquals;
+import static com.yuksabal.hub.inventory.domain.InventorySpecification.search;
 
 // 재고 조회 (목록·상세·허브별·상품별·변경 이력, 내부 API 재고 보유 여부). 변경은 InventoryCommandService
 // 권한 검사는 InventoryAccessPolicy가 맡는다 (Gateway와 함께 검사하는 다층 방어)

@@ -1,4 +1,4 @@
-package com.yuksabal.hub.inventory.service;
+package com.yuksabal.hub.inventory.application;
 
 import java.util.Optional;
 import java.util.UUID;
