@@ -12,9 +12,9 @@ import com.yuksabal.company.company.dto.response.CompanyInternalResponse;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
-import com.yuksabal.company.global.auth.OwnerPermission;
 import com.yuksabal.company.global.activework.ActiveWorkGuard;
 import com.yuksabal.company.global.activework.ActiveWorkTarget;
+import com.yuksabal.company.global.auth.CompanyAccessPolicy;
 import com.yuksabal.company.global.client.HubClient;
 import com.yuksabal.company.global.client.UserClient;
 import com.yuksabal.company.global.client.dto.response.UserResponse;
@@ -35,7 +35,6 @@ import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLATION;
 import static com.yuksabal.common.exception.CommonErrorCode.DUPLICATE_RESOURCE;
-import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
 import static com.yuksabal.company.company.repository.CompanySpecification.activeEquals;
@@ -62,7 +61,7 @@ public class CompanyService {
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
         // 1. 권한: MASTER는 누구든 관리자로 지정, COMPANY는 본인만 (403)
-        OwnerPermission.validateOwner(request.ownerId(), userId, role);
+        CompanyAccessPolicy.checkOwner(request.ownerId(), userId, role);
 
         // 2. 로컬 검사: 사업자 등록번호 중복, 관리자가 이미 다른 업체를 관리 중 (409)
         validateDuplicateBusinessNumber(request.businessNumber());
@@ -117,7 +116,7 @@ public class CompanyService {
     public CompanyResponse updateCompany(UUID companyId, CompanyUpdateRequest request, UUID userId, UserRole role) {
         // 1-1. 권한: 업체 조회(404) 후 MASTER 또는 이 업체의 관리자 본인 (403)
         Company company = findCompany(companyId);
-        OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
+        CompanyAccessPolicy.checkOwner(company.getOwnerId(), userId, role);
 
         // 변경 여부는 값을 바꾸기 전에 한 번만 판단해 검증과 반영에 같이 쓴다
         boolean businessNumberChanged = isChanged(request.businessNumber(), company.getBusinessNumber());
@@ -125,9 +124,7 @@ public class CompanyService {
         boolean ownerChanged = isChanged(request.ownerId(), company.getOwnerId());
 
         // 1-2. 권한: 관리 허브·관리자 변경은 MASTER만 가능 (403)
-        if (role != UserRole.MASTER && (hubChanged || ownerChanged)) {
-            throw new BusinessException(FORBIDDEN);
-        }
+        CompanyAccessPolicy.checkHubOrOwnerChangeable(hubChanged, ownerChanged, role);
 
         // 2. 로컬 검사: 바뀌는 값만 중복 확인 (409)
         if (businessNumberChanged) {
@@ -168,9 +165,7 @@ public class CompanyService {
     // 새 주문·입고 차단은 order·hub가 #1·#2의 active로 판단하고, 진행 중인 주문·배송은 그대로 진행된다
     @Transactional
     public CompanyResponse changeCompanyStatus(UUID companyId, CompanyStatusRequest request, UserRole role) {
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(FORBIDDEN);
-        }
+        CompanyAccessPolicy.checkMaster(role);
 
         // 상품 등록·활성화와 겹치지 않도록 업체 행을 잠근 뒤 상태를 확인한다 (#147)
         Company company = findCompanyForUpdate(companyId);
@@ -193,9 +188,7 @@ public class CompanyService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deleteCompany(UUID companyId, UUID userId, UserRole role) {
         // 1. 권한(403) → 업체 조회(404) → 비활성 업체만 삭제 가능(422)
-        if (role != UserRole.MASTER) {
-            throw new BusinessException(FORBIDDEN);
-        }
+        CompanyAccessPolicy.checkMaster(role);
         transactionTemplate.executeWithoutResult(status -> validateInactive(findCompany(companyId)));
 
         // 2. 남은 업무: 이 업체 상품들의 허브 재고·이 업체가 공급·요청한 진행 중 주문 (409, 확인 실패 502)
