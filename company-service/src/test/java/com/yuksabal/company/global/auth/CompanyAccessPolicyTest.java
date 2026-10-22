@@ -7,6 +7,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.UUID;
@@ -111,19 +112,9 @@ class CompanyAccessPolicyTest {
                     .doesNotThrowAnyException();
         }
 
-        @Test
-        void 허브가_바뀌면_COMPANY는_FORBIDDEN() {
-            boolean hubChanged = true;
-            boolean ownerChanged = false;
-
-            assertDenied(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY), FORBIDDEN);
-        }
-
-        @Test
-        void 관리자가_바뀌면_COMPANY는_FORBIDDEN() {
-            boolean hubChanged = false;
-            boolean ownerChanged = true;
-
+        @ParameterizedTest(name = "허브 변경={0}, 관리자 변경={1}")
+        @CsvSource({"true, false", "false, true"})
+        void 허브나_관리자가_바뀌면_COMPANY는_FORBIDDEN(boolean hubChanged, boolean ownerChanged) {
             assertDenied(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY), FORBIDDEN);
         }
 
