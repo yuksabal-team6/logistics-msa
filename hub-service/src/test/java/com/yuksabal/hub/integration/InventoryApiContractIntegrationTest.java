@@ -74,6 +74,18 @@ class InventoryApiContractIntegrationTest extends IntegrationTestSupport {
             mockMvc.perform(postJson("/internal/stocks/decrease", body))
                     .andExpect(status().isOk());
         }
+
+        // 컨트롤러는 헤더 값을 쓰지 않지만 형식 검증을 위해 받는다 (#273). 파라미터를 지우면 이 테스트가 실패한다
+        @Test
+        void 주문_차감은_회원_ID_헤더가_UUID가_아니면_400() throws Exception {
+            UUID productId = UUID.randomUUID();
+            inbound(productId, 10);
+            Map<String, Object> body = Map.of("hubId", HUB_ID, "productId", productId, "quantity", 1, "orderId", UUID.randomUUID());
+
+            mockMvc.perform(postJson("/internal/stocks/decrease", body).header("X-User-Id", "not-a-uuid"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+        }
     }
 
     @Nested
