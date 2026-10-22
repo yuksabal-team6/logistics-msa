@@ -33,7 +33,7 @@ public interface InventoryRepository extends
     // 주문 차감·복원이 로그를 확인하기 전에 재고 행을 잠근다 (SELECT ... FOR UPDATE, 비관적 락)
     // 같은 재고의 차감·복원은 여기서 줄을 서서, 뒤에 온 요청은 앞 요청이 커밋한 로그를 보고 판단한다
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT i FROM Inventory i WHERE i.hub.id = :hubId AND i.productId = :productId")
+    @Query("SELECT i FROM Inventory i WHERE i.hubId = :hubId AND i.productId = :productId")
     Optional<Inventory> findByHubIdAndProductIdForUpdate(@Param("hubId") UUID hubId,
                                                          @Param("productId") UUID productId);
 
@@ -60,7 +60,7 @@ public interface InventoryRepository extends
     @Query("""
             UPDATE Inventory i
             SET i.quantity = i.quantity - :quantity, i.updatedAt = :now, i.updatedBy = :userId
-            WHERE i.hub.id = :hubId
+            WHERE i.hubId = :hubId
               AND i.productId = :productId
               AND i.quantity >= :quantity
               AND i.deletedAt IS NULL

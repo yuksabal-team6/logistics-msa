@@ -24,7 +24,7 @@ public record StockDecreaseResponse(
     // hub는 LAZY 프록시지만 id만 꺼내므로 허브 조회 쿼리가 나가지 않는다
     public static StockDecreaseResponse of(Inventory inventory, UUID orderId) {
         return new StockDecreaseResponse(
-                inventory.getHub().getId(),
+                inventory.getHubId(),
                 inventory.getProductId(),
                 inventory.getQuantity(),
                 orderId);

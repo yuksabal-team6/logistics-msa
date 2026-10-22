@@ -22,7 +22,7 @@ public class InventorySpecification {
         return (root, query, cb) ->
                 hubId == null
                         ? null
-                        : cb.equal(root.get("hub").get("id"), hubId);
+                        : cb.equal(root.get("hubId"), hubId);
     }
 
     public static Specification<Inventory> productIdEquals(UUID productId) {

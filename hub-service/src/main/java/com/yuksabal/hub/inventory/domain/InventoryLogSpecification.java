@@ -7,7 +7,7 @@ import org.springframework.data.jpa.domain.Specification;
 import java.util.UUID;
 
 // 재고 로그 검색 조건. 값이 없으면 null을 반환해 조건에서 빠진다.
-// inventory.id는 FK 컬럼이라 조인하지 않고, 허브 조건만 재고 테이블과 조인한다 (inventory.hub.id는 재고의 FK 컬럼)
+// inventory.id는 FK 컬럼이라 조인하지 않고, 허브 조건만 재고 테이블과 조인한다 (허브는 재고의 hub_id 컬럼)
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class InventoryLogSpecification {
 
@@ -31,7 +31,7 @@ public class InventoryLogSpecification {
         return (root, query, cb) ->
                 hubId == null
                         ? null
-                        : cb.equal(root.get("inventory").get("hub").get("id"), hubId);
+                        : cb.equal(root.get("inventory").get("hubId"), hubId);
     }
 
     public static Specification<InventoryLog> orderIdEquals(UUID orderId) {
