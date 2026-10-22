@@ -17,6 +17,9 @@ spring:
   kafka:
     listener:
       auto-startup: false
+    # 브로커가 없어서 앱 시작 때 토픽 생성(KafkaAdmin) 시도도 끔 (켜 두면 연결 대기로 테스트가 느려짐)
+    admin:
+      auto-create: false
 
 eureka:
   client:
