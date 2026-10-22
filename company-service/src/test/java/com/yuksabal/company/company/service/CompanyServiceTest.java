@@ -9,11 +9,11 @@ import com.yuksabal.company.company.dto.request.CompanyStatusRequest;
 import com.yuksabal.company.company.dto.request.CompanyUpdateRequest;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
+import com.yuksabal.company.global.activework.ActiveWorkGuard;
+import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.global.client.HubClient;
 import com.yuksabal.company.global.client.UserClient;
 import com.yuksabal.company.global.client.dto.response.UserResponse;
-import com.yuksabal.company.global.activework.ActiveWorkGuard;
-import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.product.service.ProductService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -50,6 +50,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 // Repository·Feign·다른 서비스는 가짜로 두고, 검증 순서와 분기만 확인한다
 // DB 제약(부분 유니크 인덱스)과 잠금(#147)은 여기서 확인하지 않는다
+@SuppressWarnings("NonAsciiCharacters")
 @ExtendWith(MockitoExtension.class)
 class CompanyServiceTest {
 

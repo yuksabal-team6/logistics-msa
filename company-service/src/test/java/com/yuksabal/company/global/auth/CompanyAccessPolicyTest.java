@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 // 정적 메서드라 Mock·스프링 없이 값만 넣어 권한 판단을 확인한다
+@SuppressWarnings("NonAsciiCharacters")
 class CompanyAccessPolicyTest {
 
     private static final UUID OWNER_ID = UUID.randomUUID();

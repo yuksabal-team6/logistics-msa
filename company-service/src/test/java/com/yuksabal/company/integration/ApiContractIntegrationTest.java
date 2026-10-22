@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // 요청·응답 계약: 헤더, 요청 검증, 목록 공통 규칙, 응답·감사 필드, 내부 API
 // 서비스 로직 분기는 단위 테스트(CompanyServiceTest·ProductServiceTest)에서 확인한다
+@SuppressWarnings("NonAsciiCharacters")
 class ApiContractIntegrationTest extends IntegrationTestSupport {
 
     @Nested

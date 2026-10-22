@@ -20,6 +20,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 // hub(#146)·order(#143) 내부 API 응답을 해석하는 부분만 확인한다. 실제 호출은 통합 확인으로 검증한다
+@SuppressWarnings("NonAsciiCharacters")
 class ActiveWorkCheckerTest {
 
     private static final UUID ID = UUID.randomUUID();

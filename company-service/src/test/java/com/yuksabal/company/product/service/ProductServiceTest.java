@@ -44,6 +44,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 // Repository·삭제 확인은 가짜로 두고, 검증 순서와 분기만 확인한다
 // 실제 잠금이 동시 요청을 순서대로 처리하는지(#147)는 여기서 확인하지 않는다
+@SuppressWarnings("NonAsciiCharacters")
 @ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
 
