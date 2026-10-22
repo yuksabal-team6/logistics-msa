@@ -1,9 +1,9 @@
-package com.yuksabal.hub.route.controller;
+package com.yuksabal.hub.route.presentation;
 
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
-import com.yuksabal.hub.route.dto.response.HubRouteResponse;
-import com.yuksabal.hub.route.service.HubRouteService;
+import com.yuksabal.hub.route.presentation.dto.response.HubRouteResponse;
+import com.yuksabal.hub.route.application.HubRouteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;

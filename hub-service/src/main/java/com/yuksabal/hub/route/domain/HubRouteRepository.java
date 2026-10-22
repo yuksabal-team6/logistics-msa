@@ -1,6 +1,5 @@
-package com.yuksabal.hub.route.repository;
+package com.yuksabal.hub.route.domain;
 
-import com.yuksabal.hub.route.entity.HubRoute;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 

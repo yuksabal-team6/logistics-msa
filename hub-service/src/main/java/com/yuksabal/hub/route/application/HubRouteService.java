@@ -1,11 +1,11 @@
-package com.yuksabal.hub.route.service;
+package com.yuksabal.hub.route.application;
 
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubExceptions;
-import com.yuksabal.hub.route.entity.HubRoute;
-import com.yuksabal.hub.route.repository.HubRouteRepository;
-import com.yuksabal.hub.route.dto.request.HubRouteSearchRequest;
-import com.yuksabal.hub.route.dto.response.HubRouteResponse;
+import com.yuksabal.hub.route.domain.HubRoute;
+import com.yuksabal.hub.route.domain.HubRouteRepository;
+import com.yuksabal.hub.route.presentation.dto.request.HubRouteSearchRequest;
+import com.yuksabal.hub.route.presentation.dto.response.HubRouteResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,7 +16,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static com.yuksabal.common.util.PageableUtils.toStablePageable;
-import static com.yuksabal.hub.route.repository.HubRouteSpecification.search;
+import static com.yuksabal.hub.route.domain.HubRouteSpecification.search;
 
 @Service
 @RequiredArgsConstructor

@@ -1,6 +1,5 @@
-package com.yuksabal.hub.route.repository;
+package com.yuksabal.hub.route.domain;
 
-import com.yuksabal.hub.route.entity.HubRoute;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;

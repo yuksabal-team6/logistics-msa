@@ -1,4 +1,4 @@
-package com.yuksabal.hub.route.dto.request;
+package com.yuksabal.hub.route.presentation.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
