@@ -7,10 +7,13 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static com.yuksabal.common.auth.UserRole.COMPANY;
 import static com.yuksabal.common.auth.UserRole.MASTER;
@@ -55,26 +58,17 @@ class CompanyAccessPolicyTest {
                     .doesNotThrowAnyException();
         }
 
-        @Test
-        void ownerId가_null이면_COMPANY_ACCESS_DENIED() {
-            UUID ownerId = null;
-
-            assertDenied(() -> checkOwner(ownerId, OTHER_ID, COMPANY), COMPANY_ACCESS_DENIED);
-        }
-
-        @Test
-        void userId가_null이면_COMPANY_ACCESS_DENIED() {
-            UUID userId = null;
-
-            assertDenied(() -> checkOwner(OWNER_ID, userId, COMPANY), COMPANY_ACCESS_DENIED);
-        }
-
-        @Test
-        void 둘_다_null이면_COMPANY_ACCESS_DENIED() {
-            UUID ownerId = null;
-            UUID userId = null;
-
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("소유자를_확인할_수_없는_경우")
+        void 소유자를_확인할_수_없으면_COMPANY_ACCESS_DENIED(String 경우, UUID ownerId, UUID userId) {
             assertDenied(() -> checkOwner(ownerId, userId, COMPANY), COMPANY_ACCESS_DENIED);
+        }
+
+        static Stream<Arguments> 소유자를_확인할_수_없는_경우() {
+            return Stream.of(
+                    Arguments.of("ownerId만 null", null, OTHER_ID),
+                    Arguments.of("userId만 null", OWNER_ID, null),
+                    Arguments.of("둘 다 null", null, null));
         }
 
         @ParameterizedTest
