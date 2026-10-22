@@ -93,6 +93,15 @@ class InventoryAccessPolicyTest {
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
         }
 
+        // 컨트롤러는 X-User-Id가 필수라 null이 오지 않지만, 정책은 다른 호출자에도 같은 계약(403)을 지킨다
+        @Test
+        void 사용자_ID가_없으면_NPE가_아니라_403() {
+            given(companyReader.findOwnerId(COMPANY_ID)).willReturn(Optional.of(USER_ID));
+
+            assertThatThrownBy(() -> accessPolicy.checkProductOwner(COMPANY_ID, null, UserRole.COMPANY))
+                    .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+        }
+
         @Test
         void 업체가_없으면_소유권을_확인할_수_없어_403() {
             given(companyReader.findOwnerId(COMPANY_ID)).willReturn(Optional.empty());
