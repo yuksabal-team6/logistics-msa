@@ -78,12 +78,7 @@ public class StockService {
         // 5. 차감 후 수량으로 다시 조회한다 (UPDATE가 영속성 컨텍스트를 비워 차감 전 엔티티는 남지 않는다)
         Inventory inventory = findInventory(request);
         // 유니크 위반이 이 트랜잭션 안에서 나도록 바로 flush 한다 (커밋 시점 flush면 위반 원인 파악이 어렵다)
-        inventoryLogRepository.saveAndFlush(InventoryLog.builder()
-                .inventory(inventory)
-                .orderId(orderId)
-                .changeType(InventoryChangeType.DECREASE)
-                .quantity(request.quantity())
-                .build());
+        inventoryLogRepository.saveAndFlush(InventoryLog.decrease(inventory, orderId, request.quantity()));
         return StockDecreaseResponse.of(inventory, orderId);
     }
 
@@ -128,8 +123,8 @@ public class StockService {
         // 같은 orderId는 허브·상품이 같다는 전제(주문 = 단일 상품, 수정 불가)라 order 버그나 잘못된 직접 호출일 때만 생긴다
         // 로그에 적힌 재고를 대신 복원하지 않는 이유: 잠근 건 요청한 재고 행이라, 로그의 재고 행을 건드리는
         // 다른 요청과는 줄을 서지 않는다. 그 행까지 잠그면 행 두 개를 잠가 데드락 위험이 생기고, order 버그도 묻힌다
-        Inventory decreasedInventory = decreased.get().getInventory();
-        if (!decreasedInventory.getId().equals(locked.getId())) {
+        if (!decreased.get().isFor(locked)) {
+            Inventory decreasedInventory = decreased.get().getInventory();
             throw new BusinessException(
                     CommonErrorCode.BUSINESS_RULE_VIOLATION,
                     "차감한 재고와 복원 요청의 허브·상품이 다릅니다.",
@@ -149,12 +144,7 @@ public class StockService {
 
     // 유니크 위반이 이 트랜잭션 안에서 나도록 바로 flush 한다
     private void saveRestoreLog(Inventory inventory, UUID orderId, int quantity) {
-        inventoryLogRepository.saveAndFlush(InventoryLog.builder()
-                .inventory(inventory)
-                .orderId(orderId)
-                .changeType(InventoryChangeType.RESTORE)
-                .quantity(quantity)
-                .build());
+        inventoryLogRepository.saveAndFlush(InventoryLog.restore(inventory, orderId, quantity));
     }
 
     // 재고 잠금 조회 (SELECT ... FOR UPDATE)
