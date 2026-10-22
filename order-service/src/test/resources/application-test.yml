@@ -17,12 +17,17 @@ spring:
   kafka:
     listener:
       auto-startup: false
-    # 브로커가 없어서 앱 시작 때 토픽 생성(KafkaAdmin) 시도도 끔 (켜 두면 연결 대기로 테스트가 느려짐)
+    # 브로커가 없어서 앱 시작 때 토픽 생성(KafkaAdmin) 시도도 끔 (켜 두면 연결 대기로 테스트 느려짐)
     admin:
       auto-create: false
 
 eureka:
   client:
+    enabled: false
+
+# outbox 발행 스케줄러 끔 (Kafka 없음). Kafka 연동 테스트에서만 true
+order:
+  outbox:
     enabled: false
 
 # 주문 서비스 흐름 디버그 로그 (테스트 실행 시 확인용)
