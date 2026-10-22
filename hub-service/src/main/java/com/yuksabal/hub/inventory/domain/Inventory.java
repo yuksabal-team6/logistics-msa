@@ -1,6 +1,5 @@
 package com.yuksabal.hub.inventory.domain;
 
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -24,9 +23,9 @@ public class Inventory extends BaseEntity {
     @Column(name = "inventory_id")
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "hub_id", nullable = false)
-    private Hub hub;
+    // 허브 → p_hubs.hub_id. 허브는 별도 애그리거트라 객체가 아니라 ID로 참조한다 (외래 키는 schema.sql)
+    @Column(name = "hub_id", nullable = false)
+    private UUID hubId;
 
     // 상품 → company-service p_products.product_id
     @Column(nullable = false)
@@ -43,8 +42,8 @@ public class Inventory extends BaseEntity {
 
     // 엔티티 불변식. DTO 검증·DB 제약 뒤의 마지막 방어선이라 정상 요청으로는 걸리지 않는다 (걸리면 코드 버그 → 500)
     @Builder
-    public Inventory(Hub hub, UUID productId, UUID companyId, Integer quantity) {
-        this.hub = Objects.requireNonNull(hub, "재고의 허브는 필수입니다.");
+    public Inventory(UUID hubId, UUID productId, UUID companyId, Integer quantity) {
+        this.hubId = Objects.requireNonNull(hubId, "재고의 허브는 필수입니다.");
         this.productId = Objects.requireNonNull(productId, "재고의 상품은 필수입니다.");
         this.companyId = Objects.requireNonNull(companyId, "재고의 업체는 필수입니다.");
         this.quantity = quantity != null ? quantity : 0;
@@ -55,9 +54,9 @@ public class Inventory extends BaseEntity {
 
     // 입고로 처음 생기는 재고. 상품의 업체도 함께 저장한다 (업체는 바뀌지 않아, COMPANY 소유권 확인에 쓴다)
     // 입고 규칙(활성, 관리 허브)은 ProductInfo.checkInboundTo로 먼저 확인한다
-    public static Inventory create(Hub hub, ProductInfo product, int quantity) {
+    public static Inventory create(UUID hubId, ProductInfo product, int quantity) {
         return builder()
-                .hub(hub)
+                .hubId(hubId)
                 .productId(product.productId())
                 .companyId(product.companyId())
                 .quantity(quantity)
