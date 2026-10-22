@@ -22,7 +22,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,8 +32,6 @@ import static com.yuksabal.hub.global.exception.HubErrorCode.INSUFFICIENT_STOCK;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
@@ -41,7 +39,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 // 주문 재고 차감·복원 (내부 API #3, #4). Repository·TransactionTemplate은 가짜로 두고, 검증 순서와 예외 코드만 확인한다
-// 행 잠금·조건부 UPDATE·(order_id, change_type) 부분 유니크 인덱스의 실제 동작은 여기서 확인하지 않는다
+// 행 잠금·변경 감지 UPDATE·(order_id, change_type) 부분 유니크 인덱스의 실제 동작은 여기서 확인하지 않는다
+// 차감·복원은 잠금 조회한 재고 엔티티의 수량을 바꾸므로, 그 엔티티의 수량으로 결과를 확인한다
 @ExtendWith(MockitoExtension.class)
 class StockServiceTest {
 
@@ -52,7 +51,6 @@ class StockServiceTest {
     private static final UUID INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000001");
     private static final UUID BUSAN_INVENTORY_ID = UUID.fromString("50000000-0000-4000-8000-000000000004");
     private static final UUID ORDER_ID = UUID.fromString("60000000-0000-4000-8000-000000000001");
-    private static final UUID USER_ID = UUID.fromString("10000000-0000-4000-8000-000000000001");
 
     @Mock
     private InventoryRepository inventoryRepository;
@@ -72,14 +70,13 @@ class StockServiceTest {
             givenTransactionRuns();
             given(inventoryRepository.findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.decreaseStock(request(3), USER_ID))
+            assertThatThrownBy(() -> stockService.decreaseStock(request(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
                         assertThat(e.getDetails()).extracting("field").containsExactly("productId");
                     });
 
             verifyNoInteractions(inventoryLogRepository);
-            then(inventoryRepository).should(never()).decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any());
         }
 
         // 로그 확인 뒤에 잠그면 그 사이에 복원이 끼어들 수 있다
@@ -87,32 +84,29 @@ class StockServiceTest {
         void 로그를_확인하기_전에_재고_행을_잠근다() {
             givenTransactionRuns();
             givenLocked(seoul(100));
-            givenNoLog(InventoryChangeType.DECREASE);
-            givenNoLog(InventoryChangeType.RESTORE);
-            givenDecreased(1);
-            given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoul(97)));
+            givenOrderLogs();
 
-            stockService.decreaseStock(request(3), USER_ID);
+            stockService.decreaseStock(request(3));
 
             InOrder order = inOrder(inventoryRepository, inventoryLogRepository);
             order.verify(inventoryRepository).findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID);
-            order.verify(inventoryLogRepository).findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE);
-            order.verify(inventoryRepository).decreaseQuantityIfEnough(eq(SEOUL_ID), eq(PRODUCT_ID), eq(3), any(LocalDateTime.class), eq(USER_ID));
+            order.verify(inventoryLogRepository).findByOrderId(ORDER_ID);
+            order.verify(inventoryLogRepository).saveAndFlush(any(InventoryLog.class));
         }
 
         @Test
         void 차감하고_주문_ID와_차감_수량으로_DECREASE_로그를_남긴다() {
             givenTransactionRuns();
-            givenLocked(seoul(100));
-            givenNoLog(InventoryChangeType.DECREASE);
-            givenNoLog(InventoryChangeType.RESTORE);
-            givenDecreased(1);
-            given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoul(97)));
+            Inventory locked = seoul(100);
+            givenLocked(locked);
+            givenOrderLogs();
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3), USER_ID);
+            StockDecreaseResponse response = stockService.decreaseStock(request(3));
 
             assertThat(response.remainingQuantity()).isEqualTo(97);
+            assertThat(locked.getQuantity()).isEqualTo(97);
             InventoryLog log = savedLog();
+            assertThat(log.getInventory()).isSameAs(locked);
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.DECREASE);
             assertThat(log.getOrderId()).isEqualTo(ORDER_ID);
             assertThat(log.getQuantity()).isEqualTo(3);
@@ -121,14 +115,14 @@ class StockServiceTest {
         @Test
         void 이미_차감한_주문이면_차감하지_않고_현재_수량으로_성공한다() {
             givenTransactionRuns();
-            givenLocked(seoul(97));
-            given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
-                    .willReturn(Optional.of(log(seoul(97), InventoryChangeType.DECREASE, 3)));
+            Inventory locked = seoul(97);
+            givenLocked(locked);
+            givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3));
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3), USER_ID);
+            StockDecreaseResponse response = stockService.decreaseStock(request(3));
 
             assertThat(response.remainingQuantity()).isEqualTo(97);
-            then(inventoryRepository).should(never()).decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any());
+            assertThat(locked.getQuantity()).isEqualTo(97);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
 
@@ -136,32 +130,46 @@ class StockServiceTest {
         @Test
         void 이미_복원된_주문이면_차감하지_않는다() {
             givenTransactionRuns();
-            givenLocked(seoul(100));
-            givenNoLog(InventoryChangeType.DECREASE);
-            given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
-                    .willReturn(Optional.of(log(seoul(100), InventoryChangeType.RESTORE, 0)));
+            Inventory locked = seoul(100);
+            givenLocked(locked);
+            givenOrderLogs(log(locked, InventoryChangeType.RESTORE, 0));
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3), USER_ID);
+            StockDecreaseResponse response = stockService.decreaseStock(request(3));
 
             assertThat(response.remainingQuantity()).isEqualTo(100);
-            then(inventoryRepository).should(never()).decreaseQuantityIfEnough(any(), any(), anyInt(), any(), any());
+            assertThat(locked.getQuantity()).isEqualTo(100);
+            then(inventoryLogRepository).should(never()).saveAndFlush(any());
+        }
+
+        // 차감·복원이 모두 끝난 주문에 차감이 다시 와도 차감하지 않는다
+        @Test
+        void 차감과_복원이_모두_있는_주문이면_차감하지_않는다() {
+            givenTransactionRuns();
+            Inventory locked = seoul(100);
+            givenLocked(locked);
+            givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3), log(locked, InventoryChangeType.RESTORE, 3));
+
+            StockDecreaseResponse response = stockService.decreaseStock(request(3));
+
+            assertThat(response.remainingQuantity()).isEqualTo(100);
+            assertThat(locked.getQuantity()).isEqualTo(100);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
 
         @Test
         void 재고가_부족하면_409와_현재_수량이고_로그를_남기지_않는다() {
             givenTransactionRuns();
-            givenLocked(seoul(2));
-            givenNoLog(InventoryChangeType.DECREASE);
-            givenNoLog(InventoryChangeType.RESTORE);
-            givenDecreased(0);
+            Inventory locked = seoul(2);
+            givenLocked(locked);
+            givenOrderLogs();
 
-            assertThatThrownBy(() -> stockService.decreaseStock(request(3), USER_ID))
+            assertThatThrownBy(() -> stockService.decreaseStock(request(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(INSUFFICIENT_STOCK);
                         assertThat(e.getDetails()).extracting("reason").containsExactly("현재 재고는 2개입니다.");
                     });
 
+            assertThat(locked.getQuantity()).isEqualTo(2);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
 
@@ -172,7 +180,7 @@ class StockServiceTest {
             given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
                     .willReturn(Optional.of(log(seoul(97), InventoryChangeType.DECREASE, 3)));
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3), USER_ID);
+            StockDecreaseResponse response = stockService.decreaseStock(request(3));
 
             assertThat(response.remainingQuantity()).isEqualTo(97);
             assertThat(response.orderId()).isEqualTo(ORDER_ID);
@@ -182,9 +190,10 @@ class StockServiceTest {
         void 유니크_위반인데_차감_로그가_없으면_원래_예외를_던진다() {
             DataIntegrityViolationException otherViolation = new DataIntegrityViolationException("other constraint");
             given(transactionTemplate.execute(any())).willThrow(otherViolation);
-            givenNoLog(InventoryChangeType.DECREASE);
+            given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
+                    .willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.decreaseStock(request(3), USER_ID))
+            assertThatThrownBy(() -> stockService.decreaseStock(request(3)))
                     .isSameAs(otherViolation);
         }
     }
@@ -197,11 +206,10 @@ class StockServiceTest {
             givenTransactionRuns();
             given(inventoryRepository.findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.restoreStock(request(3), USER_ID))
+            assertThatThrownBy(() -> stockService.restoreStock(request(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND));
 
             verifyNoInteractions(inventoryLogRepository);
-            then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
         }
 
         // 요청 수량이 아니라 DECREASE 로그의 수량만큼 되돌린다
@@ -210,15 +218,12 @@ class StockServiceTest {
             givenTransactionRuns();
             Inventory locked = seoul(97);
             givenLocked(locked);
-            givenNoLog(InventoryChangeType.RESTORE);
-            given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
-                    .willReturn(Optional.of(log(locked, InventoryChangeType.DECREASE, 3)));
-            given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoul(100)));
+            givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3));
 
-            StockRestoreResponse response = stockService.restoreStock(request(5), USER_ID);
+            StockRestoreResponse response = stockService.restoreStock(request(5));
 
             assertThat(response.restoredQuantity()).isEqualTo(3);
-            then(inventoryRepository).should().increaseQuantity(eq(INVENTORY_ID), eq(3), any(LocalDateTime.class), eq(USER_ID));
+            assertThat(locked.getQuantity()).isEqualTo(100);
             InventoryLog log = savedLog();
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.RESTORE);
             assertThat(log.getOrderId()).isEqualTo(ORDER_ID);
@@ -228,14 +233,14 @@ class StockServiceTest {
         @Test
         void 이미_복원한_주문이면_변경_없이_처음_복원한_수량으로_성공한다() {
             givenTransactionRuns();
-            givenLocked(seoul(100));
-            given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
-                    .willReturn(Optional.of(log(seoul(100), InventoryChangeType.RESTORE, 3)));
+            Inventory locked = seoul(100);
+            givenLocked(locked);
+            givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3), log(locked, InventoryChangeType.RESTORE, 3));
 
-            StockRestoreResponse response = stockService.restoreStock(request(3), USER_ID);
+            StockRestoreResponse response = stockService.restoreStock(request(3));
 
             assertThat(response.restoredQuantity()).isEqualTo(3);
-            then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
+            assertThat(locked.getQuantity()).isEqualTo(100);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
 
@@ -243,14 +248,14 @@ class StockServiceTest {
         @Test
         void 차감_기록이_없으면_재고는_그대로_두고_수량_0인_RESTORE_로그를_남긴다() {
             givenTransactionRuns();
-            givenLocked(seoul(100));
-            givenNoLog(InventoryChangeType.RESTORE);
-            givenNoLog(InventoryChangeType.DECREASE);
+            Inventory locked = seoul(100);
+            givenLocked(locked);
+            givenOrderLogs();
 
-            StockRestoreResponse response = stockService.restoreStock(request(3), USER_ID);
+            StockRestoreResponse response = stockService.restoreStock(request(3));
 
             assertThat(response.restoredQuantity()).isZero();
-            then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
+            assertThat(locked.getQuantity()).isEqualTo(100);
             InventoryLog log = savedLog();
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.RESTORE);
             assertThat(log.getQuantity()).isZero();
@@ -260,18 +265,17 @@ class StockServiceTest {
         @Test
         void 차감한_재고와_복원_요청의_재고가_다르면_422이고_아무것도_쓰지_않는다() {
             givenTransactionRuns();
-            givenLocked(seoul(100));
-            givenNoLog(InventoryChangeType.RESTORE);
-            given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
-                    .willReturn(Optional.of(log(busan(17), InventoryChangeType.DECREASE, 3)));
+            Inventory locked = seoul(100);
+            givenLocked(locked);
+            givenOrderLogs(log(busan(17), InventoryChangeType.DECREASE, 3));
 
-            assertThatThrownBy(() -> stockService.restoreStock(request(3), USER_ID))
+            assertThatThrownBy(() -> stockService.restoreStock(request(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId", "productId");
                     });
 
-            then(inventoryRepository).should(never()).increaseQuantity(any(), anyInt(), any(), any());
+            assertThat(locked.getQuantity()).isEqualTo(100);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
 
@@ -281,7 +285,7 @@ class StockServiceTest {
             given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
                     .willReturn(Optional.of(log(seoul(100), InventoryChangeType.RESTORE, 3)));
 
-            StockRestoreResponse response = stockService.restoreStock(request(3), USER_ID);
+            StockRestoreResponse response = stockService.restoreStock(request(3));
 
             assertThat(response.restoredQuantity()).isEqualTo(3);
         }
@@ -290,9 +294,10 @@ class StockServiceTest {
         void 유니크_위반인데_복원_로그가_없으면_원래_예외를_던진다() {
             DataIntegrityViolationException otherViolation = new DataIntegrityViolationException("other constraint");
             given(transactionTemplate.execute(any())).willThrow(otherViolation);
-            givenNoLog(InventoryChangeType.RESTORE);
+            given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
+                    .willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.restoreStock(request(3), USER_ID))
+            assertThatThrownBy(() -> stockService.restoreStock(request(3)))
                     .isSameAs(otherViolation);
         }
     }
@@ -306,13 +311,8 @@ class StockServiceTest {
         given(inventoryRepository.findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(inventory));
     }
 
-    private void givenNoLog(InventoryChangeType changeType) {
-        given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, changeType)).willReturn(Optional.empty());
-    }
-
-    private void givenDecreased(int updatedRows) {
-        given(inventoryRepository.decreaseQuantityIfEnough(eq(SEOUL_ID), eq(PRODUCT_ID), eq(3), any(LocalDateTime.class), eq(USER_ID)))
-                .willReturn(updatedRows);
+    private void givenOrderLogs(InventoryLog... logs) {
+        given(inventoryLogRepository.findByOrderId(ORDER_ID)).willReturn(List.of(logs));
     }
 
     private InventoryLog savedLog() {
