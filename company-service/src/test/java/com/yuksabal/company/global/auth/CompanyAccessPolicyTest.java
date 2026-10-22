@@ -2,6 +2,8 @@ package com.yuksabal.company.global.auth;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.common.exception.ErrorCode;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -37,9 +39,7 @@ class CompanyAccessPolicyTest {
 
         @Test
         void COMPANY는_남의_업체면_COMPANY_ACCESS_DENIED() {
-            assertThatThrownBy(() -> checkOwner(OWNER_ID, OTHER_ID, COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertDenied(() -> checkOwner(OWNER_ID, OTHER_ID, COMPANY), COMPANY_ACCESS_DENIED);
         }
 
         @Test
@@ -58,18 +58,14 @@ class CompanyAccessPolicyTest {
         void ownerId가_null이면_COMPANY_ACCESS_DENIED() {
             UUID ownerId = null;
 
-            assertThatThrownBy(() -> checkOwner(ownerId, OTHER_ID, COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertDenied(() -> checkOwner(ownerId, OTHER_ID, COMPANY), COMPANY_ACCESS_DENIED);
         }
 
         @Test
         void userId가_null이면_COMPANY_ACCESS_DENIED() {
             UUID userId = null;
 
-            assertThatThrownBy(() -> checkOwner(OWNER_ID, userId, COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertDenied(() -> checkOwner(OWNER_ID, userId, COMPANY), COMPANY_ACCESS_DENIED);
         }
 
         @Test
@@ -77,17 +73,13 @@ class CompanyAccessPolicyTest {
             UUID ownerId = null;
             UUID userId = null;
 
-            assertThatThrownBy(() -> checkOwner(ownerId, userId, COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertDenied(() -> checkOwner(ownerId, userId, COMPANY), COMPANY_ACCESS_DENIED);
         }
 
         @ParameterizedTest
         @EnumSource(value = UserRole.class, names = {"USER", "DELIVERY"})
         void MASTER와_COMPANY가_아니면_FORBIDDEN(UserRole role) {
-            assertThatThrownBy(() -> checkOwner(OWNER_ID, OWNER_ID, role))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+            assertDenied(() -> checkOwner(OWNER_ID, OWNER_ID, role), FORBIDDEN);
         }
     }
 
@@ -103,9 +95,7 @@ class CompanyAccessPolicyTest {
         @ParameterizedTest
         @EnumSource(value = UserRole.class, names = "MASTER", mode = EnumSource.Mode.EXCLUDE)
         void MASTER가_아니면_FORBIDDEN(UserRole role) {
-            assertThatThrownBy(() -> checkMaster(role))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+            assertDenied(() -> checkMaster(role), FORBIDDEN);
         }
     }
 
@@ -126,9 +116,7 @@ class CompanyAccessPolicyTest {
             boolean hubChanged = true;
             boolean ownerChanged = false;
 
-            assertThatThrownBy(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+            assertDenied(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY), FORBIDDEN);
         }
 
         @Test
@@ -136,9 +124,7 @@ class CompanyAccessPolicyTest {
             boolean hubChanged = false;
             boolean ownerChanged = true;
 
-            assertThatThrownBy(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e ->
-                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+            assertDenied(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY), FORBIDDEN);
         }
 
         @Test
@@ -149,5 +135,11 @@ class CompanyAccessPolicyTest {
             assertThatCode(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, MASTER))
                     .doesNotThrowAnyException();
         }
+    }
+
+    private static void assertDenied(ThrowingCallable call, ErrorCode expected) {
+        assertThatThrownBy(call).
+                isInstanceOfSatisfying(BusinessException.class, e ->
+                        assertThat(e.getErrorCode()).isEqualTo(expected));
     }
 }
