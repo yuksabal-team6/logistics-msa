@@ -42,6 +42,19 @@ class InventoryTest {
     }
 
     @Test
+    void 입고로_만들면_상품과_업체를_상품_정보에서_가져온다() {
+        UUID productId = UUID.randomUUID();
+        UUID companyId = UUID.randomUUID();
+
+        Inventory inventory = Inventory.create(HUB, new ProductInfo(productId, companyId, UUID.randomUUID(), true), 7);
+
+        assertThat(inventory.getHub()).isSameAs(HUB);
+        assertThat(inventory.getProductId()).isEqualTo(productId);
+        assertThat(inventory.getCompanyId()).isEqualTo(companyId);
+        assertThat(inventory.getQuantity()).isEqualTo(7);
+    }
+
+    @Test
     void 업체가_없으면_만들_수_없다() {
         assertThatThrownBy(() -> Inventory.builder().hub(HUB).productId(UUID.randomUUID()).quantity(10).build())
                 .isInstanceOf(NullPointerException.class)
