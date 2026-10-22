@@ -1,7 +1,6 @@
 package com.yuksabal.hub.route.presentation;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.route.domain.HubRoute;
 import com.yuksabal.hub.route.domain.HubRouteRepository;
 import com.yuksabal.hub.route.application.HubRouteService;
@@ -120,8 +119,8 @@ class HubRouteControllerTest {
 
     private HubRoute seoulToBusan() {
         HubRoute route = HubRoute.builder()
-                .departureHub(hub(SEOUL_ID, "서울특별시 센터"))
-                .arrivalHub(hub(BUSAN_ID, "부산광역시 센터"))
+                .departureHubId(SEOUL_ID)
+                .arrivalHubId(BUSAN_ID)
                 .distanceKm(new BigDecimal("407.98"))
                 .durationMinutes(408)
                 .build();
@@ -129,11 +128,6 @@ class HubRouteControllerTest {
         return route;
     }
 
-    private Hub hub(UUID id, String name) {
-        Hub hub = Hub.builder().hubName(name).address("주소").build();
-        ReflectionTestUtils.setField(hub, "id", id);
-        return hub;
-    }
 
 
     @Test

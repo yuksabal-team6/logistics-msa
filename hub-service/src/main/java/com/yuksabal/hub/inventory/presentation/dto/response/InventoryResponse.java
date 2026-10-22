@@ -25,7 +25,7 @@ public record InventoryResponse(
     public static InventoryResponse from(Inventory inventory) {
         return new InventoryResponse(
                 inventory.getId(),
-                inventory.getHub().getId(),
+                inventory.getHubId(),
                 inventory.getProductId(),
                 inventory.getQuantity());
     }

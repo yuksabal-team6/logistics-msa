@@ -1,7 +1,6 @@
 package com.yuksabal.hub.inventory.presentation;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.inventory.domain.Inventory;
 import com.yuksabal.hub.inventory.domain.InventoryChangeType;
 import com.yuksabal.hub.inventory.domain.InventoryLog;
@@ -424,17 +423,13 @@ class StockInternalControllerTest {
 
     // 서울 재고와 같은 상품이지만 다른 허브(부산)의 재고 행
     private Inventory busanInventory(int quantity) {
-        Hub busan = Hub.builder().hubName("부산광역시 센터").address("주소").build();
-        ReflectionTestUtils.setField(busan, "id", BUSAN_ID);
-        Inventory inventory = Inventory.builder().hub(busan).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        Inventory inventory = Inventory.builder().hubId(BUSAN_ID).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", BUSAN_INVENTORY_ID);
         return inventory;
     }
 
     private Inventory seoulInventory(int quantity) {
-        Hub seoul = Hub.builder().hubName("서울특별시 센터").address("주소").build();
-        ReflectionTestUtils.setField(seoul, "id", SEOUL_ID);
-        Inventory inventory = Inventory.builder().hub(seoul).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        Inventory inventory = Inventory.builder().hubId(SEOUL_ID).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", INVENTORY_ID);
         return inventory;
     }

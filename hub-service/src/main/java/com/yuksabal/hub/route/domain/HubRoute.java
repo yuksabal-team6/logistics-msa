@@ -1,6 +1,5 @@
 package com.yuksabal.hub.route.domain;
 
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -25,13 +24,12 @@ public class HubRoute extends BaseEntity {
     @Column(name = "hub_route_id")
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "departure_hub_id", nullable = false)
-    private Hub departureHub;
+    // 출발·도착 허브 → p_hubs.hub_id. 허브는 별도 애그리거트라 객체가 아니라 ID로 참조한다 (외래 키는 schema.sql)
+    @Column(name = "departure_hub_id", nullable = false)
+    private UUID departureHubId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "arrival_hub_id", nullable = false)
-    private Hub arrivalHub;
+    @Column(name = "arrival_hub_id", nullable = false)
+    private UUID arrivalHubId;
 
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal distanceKm;
@@ -40,9 +38,9 @@ public class HubRoute extends BaseEntity {
     private Integer durationMinutes;
 
     @Builder
-    public HubRoute(Hub departureHub, Hub arrivalHub, BigDecimal distanceKm, Integer durationMinutes) {
-        this.departureHub = departureHub;
-        this.arrivalHub = arrivalHub;
+    public HubRoute(UUID departureHubId, UUID arrivalHubId, BigDecimal distanceKm, Integer durationMinutes) {
+        this.departureHubId = departureHubId;
+        this.arrivalHubId = arrivalHubId;
         this.distanceKm = distanceKm;
         this.durationMinutes = durationMinutes;
     }

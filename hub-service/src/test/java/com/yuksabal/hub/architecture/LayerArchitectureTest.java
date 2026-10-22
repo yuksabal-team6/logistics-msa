@@ -55,6 +55,15 @@ class LayerArchitectureTest {
             .should().dependOnClassesThat().resideInAPackage("..presentation..")
             .as("application must not depend on presentation"));
 
+    // ---- 애그리거트 경계 ----
+
+    // 허브·재고·경로는 별도 애그리거트다. 재고·경로 엔티티는 허브를 객체가 아니라 ID로만 참조한다 (#268)
+    @ArchTest
+    static final ArchRule 재고와_경로_domain은_허브_domain을_모른다 = noClasses()
+            .that().resideInAnyPackage("com.yuksabal.hub.inventory.domain..", "com.yuksabal.hub.route.domain..")
+            .should().dependOnClassesThat().resideInAPackage("com.yuksabal.hub.hub.domain..")
+            .as("inventory and route domains must not depend on hub domain");
+
     // ---- 위치 규칙 ----
 
     @ArchTest

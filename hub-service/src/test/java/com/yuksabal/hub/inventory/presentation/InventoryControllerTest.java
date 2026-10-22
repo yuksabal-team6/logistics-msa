@@ -3,7 +3,6 @@ package com.yuksabal.hub.inventory.presentation;
 import com.yuksabal.common.exception.GlobalExceptionHandler;
 import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.response.ApiResponse;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.hub.domain.HubRepository;
 import com.yuksabal.hub.inventory.infrastructure.CompanyClient;
 import com.yuksabal.hub.inventory.infrastructure.CompanyFeignAdapter;
@@ -660,7 +659,6 @@ class InventoryControllerTest {
     @Test
     void 재고가_있으면_상품_활성_확인_후_수량을_늘리고_INBOUND_로그를_남긴다() throws Exception {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
@@ -685,7 +683,6 @@ class InventoryControllerTest {
     @Test
     void 재고가_있어도_비활성_상품이면_422를_반환한다() throws Exception {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, false)));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(100)));
@@ -703,7 +700,6 @@ class InventoryControllerTest {
     @Test
     void 재고가_없고_비활성_상품이면_422를_반환한다() throws Exception {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, false)));
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
@@ -720,7 +716,6 @@ class InventoryControllerTest {
     @Test
     void 재고가_없으면_상품_업체를_담아_새로_만들고_INBOUND_로그를_남긴다() throws Exception {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
@@ -749,7 +744,6 @@ class InventoryControllerTest {
     void 재고가_있어도_상품_업체의_관리_허브가_아니면_422를_반환한다() throws Exception {
         UUID busanId = UUID.fromString("00000000-0000-0000-0000-000000000004");
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(seoulInventory(0)));
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, busanId, true)));
@@ -769,7 +763,6 @@ class InventoryControllerTest {
     void 상품_업체의_관리_허브가_아니면_422를_반환한다() throws Exception {
         UUID busanId = UUID.fromString("00000000-0000-0000-0000-000000000004");
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, busanId, true)));
@@ -787,7 +780,6 @@ class InventoryControllerTest {
     @Test
     void 입고할_상품이_없으면_404를_반환한다() throws Exception {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "요청한 리소스를 찾을 수 없습니다.", List.of()));
@@ -820,7 +812,6 @@ class InventoryControllerTest {
     @Test
     void 재고_생성이_유니크_인덱스에_걸리면_409를_반환한다() throws Exception {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(seoulHub());
         given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
         given(companyClient.getProduct(PRODUCT_ID))
                 .willReturn(ApiResponse.success(new ProductResponse(PRODUCT_ID, COMPANY_ID, SEOUL_ID, true)));
@@ -906,23 +897,15 @@ class InventoryControllerTest {
         return log;
     }
 
-    private Hub seoulHub() {
-        Hub seoul = Hub.builder().hubName("서울특별시 센터").address("주소").build();
-        ReflectionTestUtils.setField(seoul, "id", SEOUL_ID);
-        return seoul;
-    }
-
     private Inventory seoulInventory(int quantity) {
-        Inventory inventory = Inventory.builder().hub(seoulHub()).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        Inventory inventory = Inventory.builder().hubId(SEOUL_ID).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", INVENTORY_ID);
         return inventory;
     }
 
     // 같은 상품의 재고가 여러 허브에 있는 경우용 (createdAt은 JPA Auditing이 채우는 값이라 직접 넣는다)
     private Inventory inventoryAt(UUID hubId, UUID inventoryId, int quantity, LocalDateTime createdAt) {
-        Hub hub = Hub.builder().hubName("허브").address("주소").build();
-        ReflectionTestUtils.setField(hub, "id", hubId);
-        Inventory inventory = Inventory.builder().hub(hub).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        Inventory inventory = Inventory.builder().hubId(hubId).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", inventoryId);
         ReflectionTestUtils.setField(inventory, "createdAt", createdAt);
         return inventory;

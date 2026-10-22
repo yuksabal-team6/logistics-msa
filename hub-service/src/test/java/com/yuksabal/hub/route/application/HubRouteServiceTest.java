@@ -1,7 +1,6 @@
 package com.yuksabal.hub.route.application;
 
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.route.presentation.dto.request.HubRouteSearchRequest;
 import com.yuksabal.hub.route.presentation.dto.response.HubRouteResponse;
 import com.yuksabal.hub.route.domain.HubRoute;
@@ -47,7 +46,7 @@ class HubRouteServiceTest {
 
         @Test
         void 경로가_있으면_출발_도착_거리_시간을_응답한다() {
-            given(hubRouteRepository.findByDepartureHub_IdAndArrivalHub_Id(SEOUL_ID, BUSAN_ID)).willReturn(Optional.of(seoulToBusan()));
+            given(hubRouteRepository.findByDepartureHubIdAndArrivalHubId(SEOUL_ID, BUSAN_ID)).willReturn(Optional.of(seoulToBusan()));
 
             HubRouteResponse response = hubRouteService.getHubRoute(SEOUL_ID, BUSAN_ID);
 
@@ -60,7 +59,7 @@ class HubRouteServiceTest {
         // 같은 허브끼리는 경로가 없고(결정 #16), 없는 허브 ID도 경로가 없어 모두 404
         @Test
         void 경로가_없으면_404() {
-            given(hubRouteRepository.findByDepartureHub_IdAndArrivalHub_Id(SEOUL_ID, SEOUL_ID)).willReturn(Optional.empty());
+            given(hubRouteRepository.findByDepartureHubIdAndArrivalHubId(SEOUL_ID, SEOUL_ID)).willReturn(Optional.empty());
 
             assertThatThrownBy(() -> hubRouteService.getHubRoute(SEOUL_ID, SEOUL_ID))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND));
@@ -108,8 +107,8 @@ class HubRouteServiceTest {
 
     private static HubRoute seoulToBusan() {
         HubRoute route = HubRoute.builder()
-                .departureHub(hub(SEOUL_ID))
-                .arrivalHub(hub(BUSAN_ID))
+                .departureHubId(SEOUL_ID)
+                .arrivalHubId(BUSAN_ID)
                 .distanceKm(new BigDecimal("421.50"))
                 .durationMinutes(422)
                 .build();
@@ -117,9 +116,4 @@ class HubRouteServiceTest {
         return route;
     }
 
-    private static Hub hub(UUID hubId) {
-        Hub hub = Hub.builder().hubName("허브").address("주소").build();
-        ReflectionTestUtils.setField(hub, "id", hubId);
-        return hub;
-    }
 }

@@ -1,7 +1,6 @@
 package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.inventory.presentation.dto.request.StockRequest;
 import com.yuksabal.hub.inventory.presentation.dto.response.StockDecreaseResponse;
 import com.yuksabal.hub.inventory.presentation.dto.response.StockRestoreResponse;
@@ -341,9 +340,7 @@ class StockServiceTest {
     }
 
     private static Inventory inventory(UUID inventoryId, UUID hubId, int quantity) {
-        Hub hub = Hub.builder().hubName("허브").address("주소").build();
-        ReflectionTestUtils.setField(hub, "id", hubId);
-        Inventory inventory = Inventory.builder().hub(hub).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        Inventory inventory = Inventory.builder().hubId(hubId).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", inventoryId);
         return inventory;
     }

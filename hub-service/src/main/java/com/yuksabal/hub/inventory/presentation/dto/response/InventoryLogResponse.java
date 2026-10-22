@@ -45,7 +45,7 @@ public record InventoryLogResponse(
         return new InventoryLogResponse(
                 log.getId(),
                 inventory.getId(),
-                inventory.getHub().getId(),
+                inventory.getHubId(),
                 inventory.getProductId(),
                 log.getChangeType(),
                 log.getQuantity(),

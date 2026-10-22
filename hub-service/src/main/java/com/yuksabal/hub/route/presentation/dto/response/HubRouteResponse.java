@@ -30,8 +30,8 @@ public record HubRouteResponse(
     public static HubRouteResponse from(HubRoute hubRoute) {
         return HubRouteResponse.builder()
                 .hubRouteId(hubRoute.getId())
-                .departureHubId(hubRoute.getDepartureHub().getId())
-                .arrivalHubId(hubRoute.getArrivalHub().getId())
+                .departureHubId(hubRoute.getDepartureHubId())
+                .arrivalHubId(hubRoute.getArrivalHubId())
                 .distanceKm(hubRoute.getDistanceKm())
                 .durationMinutes(hubRoute.getDurationMinutes())
                 .build();

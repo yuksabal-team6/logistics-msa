@@ -4,7 +4,6 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.global.exception.HubExceptions;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.hub.domain.HubRepository;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryQuantityUpdateRequest;
@@ -89,13 +88,13 @@ public class InventoryCommandService {
 
     // 입고의 DB 작업 (transactionTemplate 안에서 실행). 예외가 나면 재고 변경·로그가 함께 롤백된다
     private InventoryResponse saveInbound(InventoryInboundRequest request, ProductInfo product, UUID userId) {
-        // 허브는 고정 데이터라 삭제되지 않아, 앞에서 확인한 허브를 다시 조회하지 않고 참조만 쓴다
-        Hub hub = hubRepository.getReferenceById(request.hubId());
-        Inventory inventory = inventoryRepository.findByHubIdAndProductId(request.hubId(), request.productId())
-                .map(existing -> increaseInventory(existing, request.quantity(), userId))
-                .orElseGet(() -> createInventory(hub, product, request));
+        UUID hubId = request.hubId();
+        int quantity = request.quantity();
+        Inventory inventory = inventoryRepository.findByHubIdAndProductId(hubId, request.productId())
+                .map(existing -> increaseInventory(existing, quantity, userId))
+                .orElseGet(() -> createInventory(hubId, product, quantity));
 
-        inventoryLogRepository.save(InventoryLog.inbound(inventory, request.quantity()));
+        inventoryLogRepository.save(InventoryLog.inbound(inventory, quantity));
         return InventoryResponse.from(inventory);
     }
 
@@ -105,12 +104,12 @@ public class InventoryCommandService {
         return findInventory(inventory.getId());
     }
 
-    // 관리 허브 확인은 inbound에서 끝났다
+    // 허브 존재·관리 허브 확인은 inbound에서 끝났다. 재고는 허브를 ID로만 참조한다
     // 같은 허브·상품을 동시에 처음 입고하면 늦은 쪽이 (hub_id, product_id) 유니크 인덱스 위반으로 실패해 409로 응답한다
-    private Inventory createInventory(Hub hub, ProductInfo product, InventoryInboundRequest request) {
+    private Inventory createInventory(UUID hubId, ProductInfo product, int quantity) {
         try {
             // 유니크 위반이 여기서 나도록 바로 flush 한다
-            return inventoryRepository.saveAndFlush(Inventory.create(hub, product, request.quantity()));
+            return inventoryRepository.saveAndFlush(Inventory.create(hubId, product, quantity));
         } catch (DataIntegrityViolationException e) {
             // 다른 무결성 위반이면 원래 예외를 그대로 던진다
             if (e.getCause() instanceof ConstraintViolationException cause

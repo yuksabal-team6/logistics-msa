@@ -1,6 +1,5 @@
 package com.yuksabal.hub.inventory.domain;
 
-import com.yuksabal.hub.hub.domain.Hub;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -142,7 +141,7 @@ class InventoryLogTest {
 
     private static Inventory inventory(UUID inventoryId) {
         Inventory inventory = Inventory.builder()
-                .hub(Hub.builder().hubName("서울특별시 센터").address("서울특별시 송파구 송파대로 55").build())
+                .hubId(UUID.randomUUID())
                 .productId(UUID.randomUUID())
                 .companyId(UUID.randomUUID())
                 .quantity(10)
