@@ -1,9 +1,6 @@
 package com.yuksabal.company.global.auth;
 
 import com.yuksabal.common.auth.UserRole;
-import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.common.exception.ErrorCode;
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -22,9 +19,9 @@ import static com.yuksabal.company.global.auth.CompanyAccessPolicy.checkHubOrOwn
 import static com.yuksabal.company.global.auth.CompanyAccessPolicy.checkMaster;
 import static com.yuksabal.company.global.auth.CompanyAccessPolicy.checkOwner;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
+import static com.yuksabal.company.support.BusinessErrorAssertions.assertBusinessError;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // 정적 메서드라 Mock·스프링 없이 값만 넣어 권한 판단을 확인한다
 class CompanyAccessPolicyTest {
@@ -43,7 +40,7 @@ class CompanyAccessPolicyTest {
 
         @Test
         void COMPANY는_남의_업체면_COMPANY_ACCESS_DENIED() {
-            assertDenied(() -> checkOwner(OWNER_ID, OTHER_ID, COMPANY), COMPANY_ACCESS_DENIED);
+            assertBusinessError(() -> checkOwner(OWNER_ID, OTHER_ID, COMPANY), COMPANY_ACCESS_DENIED);
         }
 
         @Test
@@ -61,7 +58,7 @@ class CompanyAccessPolicyTest {
         @ParameterizedTest(name = "{0}")
         @MethodSource("소유자를_확인할_수_없는_경우")
         void 소유자를_확인할_수_없으면_COMPANY_ACCESS_DENIED(String 경우, UUID ownerId, UUID userId) {
-            assertDenied(() -> checkOwner(ownerId, userId, COMPANY), COMPANY_ACCESS_DENIED);
+            assertBusinessError(() -> checkOwner(ownerId, userId, COMPANY), COMPANY_ACCESS_DENIED);
         }
 
         static Stream<Arguments> 소유자를_확인할_수_없는_경우() {
@@ -74,7 +71,7 @@ class CompanyAccessPolicyTest {
         @ParameterizedTest
         @EnumSource(value = UserRole.class, names = {"USER", "DELIVERY"})
         void MASTER와_COMPANY가_아니면_FORBIDDEN(UserRole role) {
-            assertDenied(() -> checkOwner(OWNER_ID, OWNER_ID, role), FORBIDDEN);
+            assertBusinessError(() -> checkOwner(OWNER_ID, OWNER_ID, role), FORBIDDEN);
         }
     }
 
@@ -90,7 +87,7 @@ class CompanyAccessPolicyTest {
         @ParameterizedTest
         @EnumSource(value = UserRole.class, names = "MASTER", mode = EnumSource.Mode.EXCLUDE)
         void MASTER가_아니면_FORBIDDEN(UserRole role) {
-            assertDenied(() -> checkMaster(role), FORBIDDEN);
+            assertBusinessError(() -> checkMaster(role), FORBIDDEN);
         }
     }
 
@@ -109,7 +106,7 @@ class CompanyAccessPolicyTest {
         @ParameterizedTest(name = "허브 변경={0}, 관리자 변경={1}")
         @CsvSource({"true, false", "false, true"})
         void 허브나_관리자가_바뀌면_COMPANY는_FORBIDDEN(boolean hubChanged, boolean ownerChanged) {
-            assertDenied(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY), FORBIDDEN);
+            assertBusinessError(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY), FORBIDDEN);
         }
 
         @Test
@@ -120,11 +117,5 @@ class CompanyAccessPolicyTest {
             assertThatCode(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, MASTER))
                     .doesNotThrowAnyException();
         }
-    }
-
-    private static void assertDenied(ThrowingCallable call, ErrorCode expected) {
-        assertThatThrownBy(call).
-                isInstanceOfSatisfying(BusinessException.class, e ->
-                        assertThat(e.getErrorCode()).isEqualTo(expected));
     }
 }
