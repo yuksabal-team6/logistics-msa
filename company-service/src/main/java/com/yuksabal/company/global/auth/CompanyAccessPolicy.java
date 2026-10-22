@@ -24,7 +24,8 @@ public class CompanyAccessPolicy {
                 // 모든 업체를 관리할 수 있다
             }
             case COMPANY -> {
-                if (!ownerId.equals(userId)) {
+                // 소유자를 확인할 수 없으면(ownerId·userId null) 거절한다. 지금은 둘 다 null이 될 수 없지만 NPE(500) 대신 403이 되도록 막는다
+                if (ownerId == null || !ownerId.equals(userId)) {
                     throw new BusinessException(COMPANY_ACCESS_DENIED);
                 }
             }
