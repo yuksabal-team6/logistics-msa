@@ -1,7 +1,6 @@
 package com.yuksabal.hub.route.presentation;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.route.domain.HubRoute;
 import com.yuksabal.hub.route.domain.HubRouteRepository;
 import com.yuksabal.hub.route.application.HubRouteService;
@@ -44,7 +43,7 @@ class HubRouteInternalControllerTest {
 
     @Test
     void 경로가_있으면_200과_경로를_반환한다() throws Exception {
-        given(hubRouteRepository.findByDepartureHub_IdAndArrivalHub_Id(SEOUL_ID, BUSAN_ID))
+        given(hubRouteRepository.findByDepartureHubIdAndArrivalHubId(SEOUL_ID, BUSAN_ID))
                 .willReturn(Optional.of(seoulToBusan()));
 
         mockMvc.perform(get("/internal/hub-routes").param("from", SEOUL_ID.toString()).param("to", BUSAN_ID.toString()))
@@ -59,7 +58,7 @@ class HubRouteInternalControllerTest {
 
     @Test
     void 경로가_없으면_404를_반환한다() throws Exception {
-        given(hubRouteRepository.findByDepartureHub_IdAndArrivalHub_Id(any(), any())).willReturn(Optional.empty());
+        given(hubRouteRepository.findByDepartureHubIdAndArrivalHubId(any(), any())).willReturn(Optional.empty());
 
         // 같은 허브끼리는 경로가 없다 (결정 #16)
         mockMvc.perform(get("/internal/hub-routes").param("from", SEOUL_ID.toString()).param("to", SEOUL_ID.toString()))
@@ -86,11 +85,9 @@ class HubRouteInternalControllerTest {
     }
 
     private HubRoute seoulToBusan() {
-        Hub seoul = hub(SEOUL_ID, "서울특별시 센터");
-        Hub busan = hub(BUSAN_ID, "부산광역시 센터");
         HubRoute route = HubRoute.builder()
-                .departureHub(seoul)
-                .arrivalHub(busan)
+                .departureHubId(SEOUL_ID)
+                .arrivalHubId(BUSAN_ID)
                 .distanceKm(new BigDecimal("407.98"))
                 .durationMinutes(408)
                 .build();
@@ -98,9 +95,4 @@ class HubRouteInternalControllerTest {
         return route;
     }
 
-    private Hub hub(UUID id, String name) {
-        Hub hub = Hub.builder().hubName(name).address("주소").build();
-        ReflectionTestUtils.setField(hub, "id", id);
-        return hub;
-    }
 }
