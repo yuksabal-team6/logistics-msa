@@ -186,7 +186,7 @@ public class OrderCancelService {
      *  <li>주문자 본인, MASTER는 company 호출 없이 통과,
      * COMPANY 만 요청 업체 관리자(ownerId)인지 확인한다.</li>
      *  <li>USER, DELIVERY 는 company 호출 없이 403 응답이다.</li>
-     * <li>company OwnerPermission과 동일하게 업체 소유권 검증 (결정 19 역할 + 소유권)</li>
+     * <li>company CompanyAccessPolicy와 동일하게 업체 소유권 검증 (결정 19 역할 + 소유권)</li>
      * </ul>
      *
      * @param order  확인 대상 주문 엔티티

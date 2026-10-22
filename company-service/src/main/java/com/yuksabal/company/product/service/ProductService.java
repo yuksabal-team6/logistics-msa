@@ -5,7 +5,7 @@ import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
-import com.yuksabal.company.global.auth.OwnerPermission;
+import com.yuksabal.company.global.auth.CompanyAccessPolicy;
 import com.yuksabal.company.global.activework.ActiveWorkGuard;
 import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.product.dto.request.ProductCreateRequest;
@@ -54,7 +54,7 @@ public class ProductService {
     public ProductResponse createProduct(UUID companyId, ProductCreateRequest request, UUID userId, UserRole role) {
         // 업체 비활성화와 겹치지 않도록 업체 행을 잠근 뒤 상태를 확인한다 (#147)
         Company company = findCompanyForUpdate(companyId);
-        OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
+        CompanyAccessPolicy.checkOwner(company.getOwnerId(), userId, role);
         validateCompanyActive(company, "비활성 업체에는 상품을 등록할 수 없습니다.");
 
         Product product = Product.builder()
@@ -93,7 +93,7 @@ public class ProductService {
     @Transactional
     public ProductResponse updateProduct(UUID productId, ProductUpdateRequest request, UUID userId, UserRole role) {
         Product product = findProduct(productId);
-        OwnerPermission.validateOwner(product.getCompany().getOwnerId(), userId, role);
+        CompanyAccessPolicy.checkOwner(product.getCompany().getOwnerId(), userId, role);
 
         product.updateInfo(request.productName(), request.description(), request.unitPrice());
 
@@ -112,7 +112,7 @@ public class ProductService {
         UUID companyId = productRepository.findCompanyIdById(productId)
                 .orElseThrow(ProductService::productNotFound);
         Company company = findCompanyForUpdate(companyId);
-        OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
+        CompanyAccessPolicy.checkOwner(company.getOwnerId(), userId, role);
         Product product = findProduct(productId);
 
         if (product.isActive() == request.active()) {
@@ -135,7 +135,7 @@ public class ProductService {
         // 1. 상품 조회(404) → 소유권(403) → 비활성 상품만 삭제 가능(422)
         transactionTemplate.executeWithoutResult(status -> {
             Product product = findProduct(productId);
-            OwnerPermission.validateOwner(product.getCompany().getOwnerId(), userId, role);
+            CompanyAccessPolicy.checkOwner(product.getCompany().getOwnerId(), userId, role);
             validateInactive(product);
         });
 

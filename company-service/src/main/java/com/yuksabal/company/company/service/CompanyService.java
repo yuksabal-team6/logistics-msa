@@ -12,7 +12,7 @@ import com.yuksabal.company.company.dto.response.CompanyInternalResponse;
 import com.yuksabal.company.company.dto.response.CompanyResponse;
 import com.yuksabal.company.company.entity.Company;
 import com.yuksabal.company.company.repository.CompanyRepository;
-import com.yuksabal.company.global.auth.OwnerPermission;
+import com.yuksabal.company.global.auth.CompanyAccessPolicy;
 import com.yuksabal.company.global.activework.ActiveWorkGuard;
 import com.yuksabal.company.global.activework.ActiveWorkTarget;
 import com.yuksabal.company.global.client.HubClient;
@@ -62,7 +62,7 @@ public class CompanyService {
     @Transactional
     public CompanyResponse createCompany(CompanyCreateRequest request, UUID userId, UserRole role) {
         // 1. 권한: MASTER는 누구든 관리자로 지정, COMPANY는 본인만 (403)
-        OwnerPermission.validateOwner(request.ownerId(), userId, role);
+        CompanyAccessPolicy.checkOwner(request.ownerId(), userId, role);
 
         // 2. 로컬 검사: 사업자 등록번호 중복, 관리자가 이미 다른 업체를 관리 중 (409)
         validateDuplicateBusinessNumber(request.businessNumber());
@@ -117,7 +117,7 @@ public class CompanyService {
     public CompanyResponse updateCompany(UUID companyId, CompanyUpdateRequest request, UUID userId, UserRole role) {
         // 1-1. 권한: 업체 조회(404) 후 MASTER 또는 이 업체의 관리자 본인 (403)
         Company company = findCompany(companyId);
-        OwnerPermission.validateOwner(company.getOwnerId(), userId, role);
+        CompanyAccessPolicy.checkOwner(company.getOwnerId(), userId, role);
 
         // 변경 여부는 값을 바꾸기 전에 한 번만 판단해 검증과 반영에 같이 쓴다
         boolean businessNumberChanged = isChanged(request.businessNumber(), company.getBusinessNumber());
