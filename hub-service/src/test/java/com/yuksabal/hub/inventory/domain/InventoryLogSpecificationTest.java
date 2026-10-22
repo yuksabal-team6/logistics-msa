@@ -64,7 +64,7 @@ class InventoryLogSpecificationTest {
     @Test
     void 허브로_검색하면_그_허브의_모든_재고_로그를_찾는다() {
         assertThat(find(null, hubA.getId(), null, null)).hasSize(3)
-                .allMatch(log -> log.getInventory().getHub().getId().equals(hubA.getId()));
+                .allMatch(log -> log.getInventory().getHubId().equals(hubA.getId()));
     }
 
     @Test
@@ -91,7 +91,7 @@ class InventoryLogSpecificationTest {
     }
 
     private Inventory inventory(Hub hub) {
-        return Inventory.builder().hub(hub).productId(UUID.randomUUID()).companyId(UUID.randomUUID()).quantity(10).build();
+        return Inventory.builder().hubId(hub.getId()).productId(UUID.randomUUID()).companyId(UUID.randomUUID()).quantity(10).build();
     }
 
     private InventoryLog log(Inventory inventory, InventoryChangeType changeType, UUID orderId) {

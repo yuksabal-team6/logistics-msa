@@ -3,7 +3,6 @@ package com.yuksabal.hub.inventory.application;
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.feign.FeignServerException;
-import com.yuksabal.hub.hub.domain.Hub;
 import com.yuksabal.hub.hub.domain.HubRepository;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryQuantityUpdateRequest;
@@ -300,7 +299,6 @@ class InventoryCommandServiceTest {
 
     private void givenActiveProduct(UUID productHubId) {
         given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
-        given(hubRepository.getReferenceById(SEOUL_ID)).willReturn(hub(SEOUL_ID));
         given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.of(product(productHubId, true)));
     }
 
@@ -327,19 +325,13 @@ class InventoryCommandServiceTest {
                 new ConstraintViolationException("constraint violation", new SQLException(), constraintName));
     }
 
-    private static Hub hub(UUID hubId) {
-        Hub hub = Hub.builder().hubName("허브").address("주소").build();
-        ReflectionTestUtils.setField(hub, "id", hubId);
-        return hub;
-    }
-
     private static Inventory inventory(UUID inventoryId, UUID hubId, int quantity) {
         return inventory(inventoryId, hubId, quantity, LocalDateTime.of(2026, 10, 1, 9, 0));
     }
 
     // createdAt은 JPA Auditing이 채우는 값이라 직접 넣는다
     private static Inventory inventory(UUID inventoryId, UUID hubId, int quantity, LocalDateTime createdAt) {
-        Inventory inventory = Inventory.builder().hub(hub(hubId)).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
+        Inventory inventory = Inventory.builder().hubId(hubId).productId(PRODUCT_ID).companyId(COMPANY_ID).quantity(quantity).build();
         ReflectionTestUtils.setField(inventory, "id", inventoryId);
         ReflectionTestUtils.setField(inventory, "createdAt", createdAt);
         return inventory;
