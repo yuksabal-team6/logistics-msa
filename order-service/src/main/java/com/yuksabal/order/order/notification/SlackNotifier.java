@@ -1,6 +1,5 @@
 package com.yuksabal.order.order.notification;
 
-import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.event.OrderEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,6 +34,7 @@ import java.util.regex.Pattern;
 @Component
 public class SlackNotifier {
 
+
     // ===== 1. 상수 및 의존성 =====
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -58,27 +58,8 @@ public class SlackNotifier {
                 : adminWebhookUrl;
     }
 
-    // ===== 2. 기존 Order 엔티티 기반 알림 (전환 후 삭제 예정) =====
 
-    // 주문 생성 알림 (주문 확정 커밋 후 호출)
-    // 주문자 slackId가 멤버 ID 형식이면 <@slackId>로 멘션 (주문자에게 알림 푸시), 없거나 형식이 아니면 멘션 없이 전송
-    // TODO #198 4단계: 호출부를 Outbox 이벤트로 바꾸면 Order를 받는 이 메서드 3개 삭제
-    public void notifyOrderCreated(Order order, String productName, String supplierName, String requesterName,
-                                   String ordererSlackId) {
-        notifyOrderCreated(OrderEvent.orderConfirmed(order, productName, supplierName, requesterName, ordererSlackId));
-    }
-
-    // 수동 처리 필요 알림 (보상 실패 등)
-    public void notifyManualAction(Order order, String reason) {
-        notifyManualAction(OrderEvent.manualActionRequired(order, reason));
-    }
-
-    // 확인 필요 알림 (예상하지 못한 오류. 보상은 끝났지만 원인 확인이 필요)
-    public void notifyCheckNeeded(Order order, String reason) {
-        notifyCheckNeeded(OrderEvent.checkNeeded(order, reason));
-    }
-
-    // ===== 3. Kafka 이벤트 기반 Slack 알림 =====
+    // ===== 2. Kafka 이벤트 기반 Slack 알림 =====
 
     // 주문 접수 알림을 이벤트 값만으로 만든다 (#198, Kafka 리스너에서 호출. order DB를 읽지 않음)
     public void notifyOrderCreated(OrderEvent event) {
@@ -142,7 +123,9 @@ public class SlackNotifier {
         send(adminWebhookUrl, summary, blocks, event.orderId());
     }
 
-    // ===== 4. Slack 전송 및 메시지 생성 유틸리티 =====
+
+    // ===== 3. Slack 전송 및 메시지 생성 유틸리티 =====
+
     private void send(String url, String summary, List<Map<String, Object>> blocks, UUID orderId) {
         if (url == null || url.isBlank()) {
             log.debug("[Slack] Webhook URL 미설정이라 전송 생략 orderId={}", orderId);
