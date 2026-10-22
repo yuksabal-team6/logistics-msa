@@ -1,5 +1,7 @@
 package com.yuksabal.hub.inventory.application;
 
+import com.yuksabal.hub.inventory.domain.ProductInfo;
+
 import java.util.Optional;
 import java.util.UUID;
 
