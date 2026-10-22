@@ -12,6 +12,8 @@ import java.util.UUID;
 import static com.yuksabal.common.auth.UserRole.COMPANY;
 import static com.yuksabal.common.auth.UserRole.MASTER;
 import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
+import static com.yuksabal.company.global.auth.CompanyAccessPolicy.checkHubOrOwnerChangeable;
+import static com.yuksabal.company.global.auth.CompanyAccessPolicy.checkMaster;
 import static com.yuksabal.company.global.auth.CompanyAccessPolicy.checkOwner;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -86,6 +88,66 @@ class CompanyAccessPolicyTest {
             assertThatThrownBy(() -> checkOwner(OWNER_ID, OWNER_ID, role))
                     .isInstanceOfSatisfying(BusinessException.class, e ->
                             assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+        }
+    }
+
+    @Nested
+    class MASTER_전용 {
+
+        @Test
+        void MASTER는_통과한다() {
+            assertThatCode(() -> checkMaster(MASTER))
+                    .doesNotThrowAnyException();
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = UserRole.class, names = "MASTER", mode = EnumSource.Mode.EXCLUDE)
+        void MASTER가_아니면_FORBIDDEN(UserRole role) {
+            assertThatThrownBy(() -> checkMaster(role))
+                    .isInstanceOfSatisfying(BusinessException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+        }
+    }
+
+    @Nested
+    class 관리_허브와_관리자_변경 {
+
+        @Test
+        void 바뀌는_것이_없으면_COMPANY도_통과한다() {
+            boolean hubChanged = false;
+            boolean ownerChanged = false;
+
+            assertThatCode(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        void 허브가_바뀌면_COMPANY는_FORBIDDEN() {
+            boolean hubChanged = true;
+            boolean ownerChanged = false;
+
+            assertThatThrownBy(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY))
+                    .isInstanceOfSatisfying(BusinessException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+        }
+
+        @Test
+        void 관리자가_바뀌면_COMPANY는_FORBIDDEN() {
+            boolean hubChanged = false;
+            boolean ownerChanged = true;
+
+            assertThatThrownBy(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, COMPANY))
+                    .isInstanceOfSatisfying(BusinessException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+        }
+
+        @Test
+        void MASTER는_둘_다_바뀌어도_통과한다() {
+            boolean hubChanged = true;
+            boolean ownerChanged = true;
+
+            assertThatCode(() -> checkHubOrOwnerChangeable(hubChanged, ownerChanged, MASTER))
+                    .doesNotThrowAnyException();
         }
     }
 }
