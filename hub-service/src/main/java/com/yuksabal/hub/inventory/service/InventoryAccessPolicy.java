@@ -40,8 +40,9 @@ public class InventoryAccessPolicy {
         if (role != UserRole.COMPANY) {
             return;
         }
+        // ownerId 쪽에서 비교해 userId가 null이어도 NPE 없이 403이 된다 (userId::equals는 null이면 바로 NPE)
         boolean owner = companyReader.findOwnerId(companyId)
-                .map(userId::equals)
+                .map(ownerId -> ownerId.equals(userId))
                 .orElse(false);
         if (!owner) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN);
