@@ -5,8 +5,10 @@ import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.OrderStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.JacksonUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
@@ -46,6 +48,7 @@ class OrderOutboxPublisherTest {
             return null;
         }).given(transactionTemplate).executeWithoutResult(any());
         publisher = new OrderOutboxPublisher(outboxRepository, kafkaTemplate, objectMapper, transactionTemplate);
+        ReflectionTestUtils.setField(publisher, "batchSize", 100);
     }
 
     @Test
@@ -90,8 +93,18 @@ class OrderOutboxPublisherTest {
     }
 
     @Test
+    void 설정한_배치_크기만큼만_조회() {
+        ReflectionTestUtils.setField(publisher, "batchSize", 10);
+        given(outboxRepository.findByPublishedAtIsNullOrderByCreatedAtAsc(any())).willReturn(List.of());
+
+        publisher.publishPending();
+
+        verify(outboxRepository).findByPublishedAtIsNullOrderByCreatedAtAsc(PageRequest.of(0, 10));
+    }
+
+    @Test
     void 미발행_이벤트가_없으면_아무것도_안_함() {
-        given(outboxRepository.findTop100ByPublishedAtIsNullOrderByCreatedAtAsc()).willReturn(List.of());
+        given(outboxRepository.findByPublishedAtIsNullOrderByCreatedAtAsc(any())).willReturn(List.of());
 
         publisher.publishPending();
 
@@ -99,7 +112,7 @@ class OrderOutboxPublisherTest {
     }
 
     private void givenPending(OrderOutbox... rows) {
-        given(outboxRepository.findTop100ByPublishedAtIsNullOrderByCreatedAtAsc()).willReturn(List.of(rows));
+        given(outboxRepository.findByPublishedAtIsNullOrderByCreatedAtAsc(any())).willReturn(List.of(rows));
         for (OrderOutbox row : rows) {
             given(outboxRepository.findById(row.getId())).willReturn(Optional.of(row));
         }

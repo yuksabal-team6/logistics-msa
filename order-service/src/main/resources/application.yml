@@ -38,6 +38,12 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       acks: all
+      # producer가 OrderOutboxPublisher의 발행 대기(10초)보다 먼저 포기하게 함
+      #  기본값(전송 제한 2분)이면 우리가 "실패"로 보고 다시 보낸 뒤에도 producer가 버퍼에 남은 메시지를 늦게 보내 중복 발행됨
+      properties:
+        max.block.ms: 5000
+        request.timeout.ms: 4000
+        delivery.timeout.ms: 5000
     consumer:
       group-id: order-slack-notifier
       auto-offset-reset: earliest
@@ -72,6 +78,8 @@ order:
   outbox:
     enabled: ${ORDER_OUTBOX_ENABLED:true}
     poll-interval-ms: ${ORDER_OUTBOX_POLL_INTERVAL_MS:1000}
+    # 한 회차에 보낼 최대 건수
+    batch-size: ${ORDER_OUTBOX_BATCH_SIZE:100}
 
 # order 로그 레벨. 기본 INFO(주문 결과만), 단계별 로그를 보려면 ORDER_LOG_LEVEL=DEBUG
 logging:

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -36,12 +38,18 @@ import java.util.concurrent.TimeUnit;
 public class OrderOutboxPublisher {
 
     // Kafka 응답 대기 상한. 넘으면 이번 회차 중단, 다음 회차에 다시 시도
-    private static final long SEND_TIMEOUT_SECONDS = 5;
+    // producer의 delivery.timeout.ms(5초)보다 길게 둬서, producer가 먼저 성공 또는 실패를 확정한 결과를 받음
+    //  (짧으면 우리가 포기한 메시지를 producer가 나중에 보내 중복 발행됨)
+    private static final long SEND_TIMEOUT_SECONDS = 10;
 
     private final OrderOutboxRepository outboxRepository;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+
+    // 한 회차에 읽어 보낼 최대 건수. 너무 크면 장애 복구 직후 한 회차가 길어지고, 너무 작으면 밀린 걸 다 보내는 데 오래 걸림
+    @Value("${order.outbox.batch-size:100}")
+    private int batchSize;
 
     // 이전 회차가 끝난 뒤 poll-interval-ms 만큼 쉬고 다시 실행 (회차끼리 겹치지 않음)
 
@@ -51,8 +59,8 @@ public class OrderOutboxPublisher {
      */
     @Scheduled(fixedDelayString = "${order.outbox.poll-interval-ms:1000}")
     public void publishPending() {
-        // published가 null인 미발행 아벤트를 오래된 순서로 최대 100개 가져온다.
-        List<OrderOutbox> pending = outboxRepository.findTop100ByPublishedAtIsNullOrderByCreatedAtAsc();
+        // published가 null인 미발행 아벤트를 오래된 순서로 최대 batch-size개 가져온다.
+        List<OrderOutbox> pending = outboxRepository.findByPublishedAtIsNullOrderByCreatedAtAsc(PageRequest.of(0, batchSize));
 
         // 미발행 이벤트가 없으면 종료
         if (pending.isEmpty()) {
