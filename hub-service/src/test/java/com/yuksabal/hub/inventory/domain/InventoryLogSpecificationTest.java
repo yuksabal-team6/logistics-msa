@@ -1,11 +1,8 @@
-package com.yuksabal.hub.inventory.repository;
+package com.yuksabal.hub.inventory.domain;
 
 import com.yuksabal.hub.global.config.JpaAuditingConfig;
-import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.inventory.entity.Inventory;
-import com.yuksabal.hub.inventory.entity.InventoryChangeType;
-import com.yuksabal.hub.inventory.entity.InventoryLog;
+import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.domain.HubRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +14,7 @@ import org.springframework.data.domain.PageRequest;
 import java.util.List;
 import java.util.UUID;
 
-import static com.yuksabal.hub.inventory.repository.InventoryLogSpecification.search;
+import static com.yuksabal.hub.inventory.domain.InventoryLogSpecification.search;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // 허브 조건은 재고와 조인해야 해서 실제 DB가 해석해야 확인할 수 있다. 로컬 Postgres로 실행한다 (HubSpecificationTest와 같은 DB)

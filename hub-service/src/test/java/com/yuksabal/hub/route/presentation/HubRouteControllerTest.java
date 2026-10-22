@@ -1,10 +1,10 @@
-package com.yuksabal.hub.route.controller;
+package com.yuksabal.hub.route.presentation;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
-import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.route.entity.HubRoute;
-import com.yuksabal.hub.route.repository.HubRouteRepository;
-import com.yuksabal.hub.route.service.HubRouteService;
+import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.route.domain.HubRoute;
+import com.yuksabal.hub.route.domain.HubRouteRepository;
+import com.yuksabal.hub.route.application.HubRouteService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;

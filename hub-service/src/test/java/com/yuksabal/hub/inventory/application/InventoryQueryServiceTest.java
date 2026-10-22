@@ -1,17 +1,17 @@
-package com.yuksabal.hub.inventory.service;
+package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.feign.FeignServerException;
-import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
-import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
-import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
-import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
-import com.yuksabal.hub.inventory.entity.Inventory;
-import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
-import com.yuksabal.hub.inventory.repository.InventoryRepository;
+import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.domain.HubRepository;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryLogSearchRequest;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventorySearchRequest;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryStockRequest;
+import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.domain.Inventory;
+import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
+import com.yuksabal.hub.inventory.domain.InventoryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

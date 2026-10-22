@@ -1,11 +1,11 @@
-package com.yuksabal.hub.route.service;
+package com.yuksabal.hub.route.application;
 
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.route.dto.request.HubRouteSearchRequest;
-import com.yuksabal.hub.route.dto.response.HubRouteResponse;
-import com.yuksabal.hub.route.entity.HubRoute;
-import com.yuksabal.hub.route.repository.HubRouteRepository;
+import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.route.presentation.dto.request.HubRouteSearchRequest;
+import com.yuksabal.hub.route.presentation.dto.response.HubRouteResponse;
+import com.yuksabal.hub.route.domain.HubRoute;
+import com.yuksabal.hub.route.domain.HubRouteRepository;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

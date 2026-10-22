@@ -1,15 +1,15 @@
-package com.yuksabal.hub.inventory.service;
+package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.inventory.dto.request.StockRequest;
-import com.yuksabal.hub.inventory.dto.response.StockDecreaseResponse;
-import com.yuksabal.hub.inventory.dto.response.StockRestoreResponse;
-import com.yuksabal.hub.inventory.entity.Inventory;
-import com.yuksabal.hub.inventory.entity.InventoryChangeType;
-import com.yuksabal.hub.inventory.entity.InventoryLog;
-import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
-import com.yuksabal.hub.inventory.repository.InventoryRepository;
+import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.inventory.presentation.dto.request.StockRequest;
+import com.yuksabal.hub.inventory.presentation.dto.response.StockDecreaseResponse;
+import com.yuksabal.hub.inventory.presentation.dto.response.StockRestoreResponse;
+import com.yuksabal.hub.inventory.domain.Inventory;
+import com.yuksabal.hub.inventory.domain.InventoryChangeType;
+import com.yuksabal.hub.inventory.domain.InventoryLog;
+import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
+import com.yuksabal.hub.inventory.domain.InventoryRepository;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

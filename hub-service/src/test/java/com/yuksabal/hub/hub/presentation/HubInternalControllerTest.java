@@ -1,9 +1,9 @@
-package com.yuksabal.hub.hub.controller;
+package com.yuksabal.hub.hub.presentation;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
-import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.hub.service.HubService;
+import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.domain.HubRepository;
+import com.yuksabal.hub.hub.application.HubService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;

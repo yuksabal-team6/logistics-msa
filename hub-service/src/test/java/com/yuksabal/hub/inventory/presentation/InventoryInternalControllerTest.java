@@ -1,13 +1,13 @@
-package com.yuksabal.hub.inventory.controller;
+package com.yuksabal.hub.inventory.presentation;
 
 import com.yuksabal.common.exception.GlobalExceptionHandler;
-import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.inventory.client.CompanyClient;
-import com.yuksabal.hub.inventory.client.CompanyFeignAdapter;
-import com.yuksabal.hub.inventory.repository.InventoryLogRepository;
-import com.yuksabal.hub.inventory.repository.InventoryRepository;
-import com.yuksabal.hub.inventory.service.InventoryAccessPolicy;
-import com.yuksabal.hub.inventory.service.InventoryQueryService;
+import com.yuksabal.hub.hub.domain.HubRepository;
+import com.yuksabal.hub.inventory.infrastructure.CompanyClient;
+import com.yuksabal.hub.inventory.infrastructure.CompanyFeignAdapter;
+import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
+import com.yuksabal.hub.inventory.domain.InventoryRepository;
+import com.yuksabal.hub.inventory.application.InventoryAccessPolicy;
+import com.yuksabal.hub.inventory.application.InventoryQueryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;

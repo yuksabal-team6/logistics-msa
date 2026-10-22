@@ -1,11 +1,11 @@
-package com.yuksabal.hub.inventory.client;
+package com.yuksabal.hub.inventory.infrastructure;
 
 import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.common.response.ApiResponse;
-import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
-import com.yuksabal.hub.inventory.client.dto.ProductResponse;
-import com.yuksabal.hub.inventory.service.ProductInfo;
+import com.yuksabal.hub.inventory.infrastructure.dto.CompanyResponse;
+import com.yuksabal.hub.inventory.infrastructure.dto.ProductResponse;
+import com.yuksabal.hub.inventory.application.ProductInfo;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

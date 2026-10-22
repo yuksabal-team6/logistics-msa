@@ -1,4 +1,4 @@
-package com.yuksabal.hub.inventory.service;
+package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;

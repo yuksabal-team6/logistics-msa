@@ -1,7 +1,6 @@
-package com.yuksabal.hub.hub.repository;
+package com.yuksabal.hub.hub.domain;
 
 import com.yuksabal.hub.global.config.JpaAuditingConfig;
-import com.yuksabal.hub.hub.entity.Hub;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,7 +11,7 @@ import org.springframework.data.domain.PageRequest;
 
 import java.util.List;
 
-import static com.yuksabal.hub.hub.repository.HubSpecification.keywordContains;
+import static com.yuksabal.hub.hub.domain.HubSpecification.keywordContains;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // LIKE 이스케이프는 DB가 실제로 해석해야 확인할 수 있어 로컬 Postgres로 실행한다 (HubServiceApplicationTests와 같은 DB)
