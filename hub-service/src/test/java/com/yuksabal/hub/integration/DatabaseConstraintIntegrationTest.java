@@ -57,6 +57,14 @@ class DatabaseConstraintIntegrationTest extends IntegrationTestSupport {
                     Integer.class, productId)).isEqualTo(2);
         }
 
+        // 재고는 허브를 ID로만 참조해 Hibernate가 외래 키를 만들지 않으므로 schema.sql의 외래 키가 막는다 (#268)
+        @Test
+        void 없는_허브의_재고는_만들_수_없다() {
+            assertThatThrownBy(() -> insertInventory(UUID.randomUUID(), UUID.randomUUID(), 10))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("fk_inventories_hub_id");
+        }
+
         @Test
         void 다른_허브에는_같은_상품의_재고를_만들_수_있다() {
             UUID productId = UUID.randomUUID();
@@ -122,6 +130,21 @@ class DatabaseConstraintIntegrationTest extends IntegrationTestSupport {
             assertThatThrownBy(() -> insertRoute(HUB_ID, OTHER_HUB_ID))
                     .isInstanceOf(DataIntegrityViolationException.class)
                     .hasMessageContaining("uk_hub_routes_departure_hub_id_arrival_hub_id");
+        }
+
+        // 경로도 허브를 ID로만 참조하므로 schema.sql의 외래 키가 막는다 (#268)
+        @Test
+        void 출발_허브가_없는_경로는_만들_수_없다() {
+            assertThatThrownBy(() -> insertRoute(UUID.randomUUID(), OTHER_HUB_ID))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("fk_hub_routes_departure_hub_id");
+        }
+
+        @Test
+        void 도착_허브가_없는_경로는_만들_수_없다() {
+            assertThatThrownBy(() -> insertRoute(HUB_ID, UUID.randomUUID()))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("fk_hub_routes_arrival_hub_id");
         }
 
         @Test
