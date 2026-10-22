@@ -128,7 +128,7 @@ public class StockService {
             throw new BusinessException(
                     CommonErrorCode.BUSINESS_RULE_VIOLATION,
                     "차감한 재고와 복원 요청의 허브·상품이 다릅니다.",
-                    List.of(new ApiErrorDetail("hubId", "차감한 허브는 " + decreasedInventory.getHub().getId() + "입니다."),
+                    List.of(new ApiErrorDetail("hubId", "차감한 허브는 " + decreasedInventory.getHubId() + "입니다."),
                             new ApiErrorDetail("productId", "차감한 상품은 " + decreasedInventory.getProductId() + "입니다.")));
         }
 
