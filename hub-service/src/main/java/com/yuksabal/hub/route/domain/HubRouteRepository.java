@@ -11,5 +11,5 @@ public interface HubRouteRepository extends
         JpaSpecificationExecutor<HubRoute> {
 
     // 출발·도착 허브 ID로 경로 한 건 (삭제된 경로는 @SQLRestriction으로 제외)
-    Optional<HubRoute> findByDepartureHub_IdAndArrivalHub_Id(UUID departureHubId, UUID arrivalHubId);
+    Optional<HubRoute> findByDepartureHubIdAndArrivalHubId(UUID departureHubId, UUID arrivalHubId);
 }

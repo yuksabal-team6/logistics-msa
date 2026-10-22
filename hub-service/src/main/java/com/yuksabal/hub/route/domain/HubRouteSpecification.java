@@ -7,7 +7,7 @@ import org.springframework.data.jpa.domain.Specification;
 import java.util.UUID;
 
 // 허브 경로 목록 검색 조건. 값이 없으면 null을 반환해 조건에서 빠진다.
-// 이미 departureHub.id는 FK 컬럼이라 허브 테이블과 조인하지 않는다.
+// 출발·도착 허브는 ID 컬럼이라 허브 테이블과 조인하지 않는다.
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class HubRouteSpecification {
 
@@ -22,13 +22,13 @@ public class HubRouteSpecification {
         return (root, query, cb) ->
                 departureHubId == null
                         ? null
-                        : cb.equal(root.get("departureHub").get("id"), departureHubId);
+                        : cb.equal(root.get("departureHubId"), departureHubId);
     }
 
     public static Specification<HubRoute> arrivalHubIdEquals(UUID arrivalHubId) {
         return (root, query, cb) ->
                 arrivalHubId == null
                         ? null
-                        : cb.equal(root.get("arrivalHub").get("id"), arrivalHubId);
+                        : cb.equal(root.get("arrivalHubId"), arrivalHubId);
     }
 }

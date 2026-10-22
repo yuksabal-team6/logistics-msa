@@ -30,7 +30,7 @@ public class HubRouteService {
 
     // 같은 허브끼리는 경로가 없고(결정 #16), 없는 허브 ID도 경로가 없으므로 모두 404로 응답한다.
     public HubRouteResponse getHubRoute(UUID from, UUID to) {
-        HubRoute hubRoute = hubRouteRepository.findByDepartureHub_IdAndArrivalHub_Id(from, to)
+        HubRoute hubRoute = hubRouteRepository.findByDepartureHubIdAndArrivalHubId(from, to)
                 .orElseThrow(HubExceptions::hubRouteNotFound);
         return HubRouteResponse.from(hubRoute);
     }
