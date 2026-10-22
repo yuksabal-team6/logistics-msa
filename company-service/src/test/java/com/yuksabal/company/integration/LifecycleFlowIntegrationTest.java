@@ -21,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // 데이터 흐름: 여러 요청이 이어질 때 업체·상품 상태가 서로 맞게 유지되는지
 // 비활성화 → 새 거래 차단 → 재활성화, 삭제 전 확인 → 삭제 → 조회·재사용, 관리자 교체 → 권한 이동
+@SuppressWarnings("NonAsciiCharacters")
 class LifecycleFlowIntegrationTest extends IntegrationTestSupport {
 
     @Nested

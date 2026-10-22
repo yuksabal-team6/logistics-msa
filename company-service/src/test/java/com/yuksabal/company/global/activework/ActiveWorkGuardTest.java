@@ -8,10 +8,12 @@ import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.HAS_ACTIVE_WORK;
+import static com.yuksabal.company.support.BusinessErrorAssertions.catchBusinessError;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@SuppressWarnings("NonAsciiCharacters")
 class ActiveWorkGuardTest {
 
     private static final UUID ID = UUID.randomUUID();
@@ -29,12 +31,9 @@ class ActiveWorkGuardTest {
                 new FakeChecker("inventory", "허브에 재고가 남아 있습니다."),
                 new FakeChecker("order")));
 
-        assertThatThrownBy(() -> guard.validateDeletable(ActiveWorkTarget.PRODUCT, ID))
-                .isInstanceOfSatisfying(BusinessException.class, e -> {
-                    assertThat(e.getErrorCode()).isEqualTo(HAS_ACTIVE_WORK);
-                    assertThat(e.getMessage()).isEqualTo("재고나 진행 중인 주문이 있어 상품을 삭제할 수 없습니다.");
-                    assertThat(e.getDetails()).extracting("field").containsExactly("inventory");
-                });
+        BusinessException e = catchBusinessError(() -> guard.validateDeletable(ActiveWorkTarget.PRODUCT, ID), HAS_ACTIVE_WORK);
+        assertThat(e.getMessage()).isEqualTo("재고나 진행 중인 주문이 있어 상품을 삭제할 수 없습니다.");
+        assertThat(e.getDetails()).extracting("field").containsExactly("inventory");
     }
 
     @Test
@@ -56,11 +55,8 @@ class ActiveWorkGuardTest {
                 new FakeChecker("inventory"),
                 new FailingChecker("order", new IllegalStateException("타임아웃"))));
 
-        assertThatThrownBy(() -> guard.validateDeletable(ActiveWorkTarget.PRODUCT, ID))
-                .isInstanceOfSatisfying(BusinessException.class, e -> {
-                    assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE);
-                    assertThat(e.getMessage()).isEqualTo("남은 업무를 확인하지 못해 상품을 삭제할 수 없습니다.");
-                });
+        BusinessException e = catchBusinessError(() -> guard.validateDeletable(ActiveWorkTarget.PRODUCT, ID), DEPENDENCY_FAILURE);
+        assertThat(e.getMessage()).isEqualTo("남은 업무를 확인하지 못해 상품을 삭제할 수 없습니다.");
     }
 
     @Test
@@ -76,12 +72,9 @@ class ActiveWorkGuardTest {
         RecordingChecker checker = new RecordingChecker("inventory", "허브에 재고가 남아 있습니다.");
         ActiveWorkGuard guard = new ActiveWorkGuard(List.of(checker));
 
-        assertThatThrownBy(() -> guard.validateHubChangeable(ID))
-                .isInstanceOfSatisfying(BusinessException.class, e -> {
-                    assertThat(e.getErrorCode()).isEqualTo(HAS_ACTIVE_WORK);
-                    assertThat(e.getMessage()).isEqualTo("재고나 진행 중인 주문이 있어 업체의 관리 허브를 바꿀 수 없습니다.");
-                    assertThat(e.getDetails()).extracting("field").containsExactly("inventory");
-                });
+        BusinessException e = catchBusinessError(() -> guard.validateHubChangeable(ID), HAS_ACTIVE_WORK);
+        assertThat(e.getMessage()).isEqualTo("재고나 진행 중인 주문이 있어 업체의 관리 허브를 바꿀 수 없습니다.");
+        assertThat(e.getDetails()).extracting("field").containsExactly("inventory");
         assertThat(checker.target).isEqualTo(ActiveWorkTarget.COMPANY);
     }
 
@@ -89,11 +82,8 @@ class ActiveWorkGuardTest {
     void 허브_변경_전_확인을_하지_못하면_502() {
         ActiveWorkGuard guard = new ActiveWorkGuard(List.of(new FailingChecker("order", new IllegalStateException("타임아웃"))));
 
-        assertThatThrownBy(() -> guard.validateHubChangeable(ID))
-                .isInstanceOfSatisfying(BusinessException.class, e -> {
-                    assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE);
-                    assertThat(e.getMessage()).isEqualTo("남은 업무를 확인하지 못해 업체의 관리 허브를 바꿀 수 없습니다.");
-                });
+        BusinessException e = catchBusinessError(() -> guard.validateHubChangeable(ID), DEPENDENCY_FAILURE);
+        assertThat(e.getMessage()).isEqualTo("남은 업무를 확인하지 못해 업체의 관리 허브를 바꿀 수 없습니다.");
     }
 
     // 테스트용 구현체. record의 type() 접근자가 인터페이스의 type()을 구현한다
