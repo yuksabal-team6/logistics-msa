@@ -77,39 +77,38 @@ public class DeliveryRouteLog extends BaseEntity {
         this.routeStatus = RouteStatus.READY;
     }
 
+    // 아래 변경 메서드는 package-private이다. 경로 기록 변경은 애그리거트 루트인 Delivery를 통해서만 한다
+    // Delivery가 경로 기록 확인 → 배송 전이 → 경로 기록 변경 순서로 불러, 실패하면 둘 다 바뀌지 않는다
+
     // 허브 출발 전(READY)에만 취소할 수 있다 (결정 #19)
-    public void cancel() {
+    void checkCancelable() {
         if (routeStatus != RouteStatus.READY) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "허브 출발 후에는 배송 경로 기록을 취소할 수 없습니다.");
         }
+    }
+
+    void cancel() {
+        checkCancelable();
         this.routeStatus = RouteStatus.CANCELLED;
     }
 
-    // 경로 기록(허브→허브) 상태 변경. 배송 상태도 같이 바꾼다. CANCELLED는 cancel()에서만 바꾼다
-    public void changeStatus(RouteStatus target, BigDecimal actualDistanceKm) {
-        switch (target) {
-            case IN_TRANSIT -> depart();
-            case ARRIVED -> arrive(actualDistanceKm);
-            default -> throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
-                    "이 API로 변경할 수 없는 상태입니다.");
-        }
-    }
-
-    // READY → IN_TRANSIT, 배송은 READY → IN_TRANSIT
-    private void depart() {
+    void checkDepartable() {
         if (routeStatus != RouteStatus.READY) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "READY 상태에서만 허브를 출발할 수 있습니다.");
         }
-        delivery.departHub();
+    }
+
+    // READY → IN_TRANSIT. 배송 상태는 Delivery가 바꾼다
+    void depart() {
+        checkDepartable();
         this.routeStatus = RouteStatus.IN_TRANSIT;
         this.departedAt = LocalDateTime.now();
     }
 
-    // IN_TRANSIT → ARRIVED, 배송은 IN_TRANSIT → ARRIVED_AT_HUB
-    // 409(전이 불가)를 400(거리 누락)보다 먼저 확인한다. 거리는 배송 상태를 바꾸기 전에 검증한다
-    private void arrive(BigDecimal actualDistanceKm) {
+    // 409(전이 불가)를 400(거리 누락)보다 먼저 확인한다
+    void checkArrivable(BigDecimal actualDistanceKm) {
         if (routeStatus != RouteStatus.IN_TRANSIT) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "이동 중(IN_TRANSIT)인 경로 기록만 도착 처리할 수 있습니다.");
@@ -118,7 +117,11 @@ public class DeliveryRouteLog extends BaseEntity {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR,
                     "도착 시 실제 거리(km)는 0보다 커야 합니다.", "actualDistanceKm");
         }
-        delivery.arriveAtHub();
+    }
+
+    // IN_TRANSIT → ARRIVED. 배송 상태는 Delivery가 바꾼다
+    void arrive(BigDecimal actualDistanceKm) {
+        checkArrivable(actualDistanceKm);
         this.routeStatus = RouteStatus.ARRIVED;
         this.arrivedAt = LocalDateTime.now();
         this.actualDistanceKm = actualDistanceKm;
@@ -136,12 +139,18 @@ public class DeliveryRouteLog extends BaseEntity {
     }
 
     // 허브 간 이동 담당자 지정. 회원 검증(활성 DELIVERY)은 서비스가 user 호출로 먼저 한다
-    public void assignManager(UUID deliveryManagerId) {
+    void assignManager(UUID deliveryManagerId) {
         checkManagerAssignable();
         this.deliveryManagerId = deliveryManagerId;
     }
 
-    public void delete(UUID deletedBy) {
+    // 삭제 가능 여부는 배송 상태로만 정한다 (Delivery.delete). 어긋난 데이터도 배송 삭제로 정리할 수 있도록 경로 기록 상태는 보지 않는다
+    void delete(UUID deletedBy) {
         markDeleted(deletedBy);
+    }
+
+    // 다른 배송의 경로 기록인지 확인한다. 서비스의 findRouteLog 필터와 같은 id 비교 (프록시의 getId()는 추가 조회를 하지 않는다)
+    boolean belongsTo(UUID deliveryId) {
+        return deliveryId != null && deliveryId.equals(delivery.getId());
     }
 }

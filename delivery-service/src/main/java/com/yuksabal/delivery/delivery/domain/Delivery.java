@@ -2,6 +2,7 @@ package com.yuksabal.delivery.delivery.domain;
 
 import com.yuksabal.common.entity.BaseEntity;
 import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.delivery.global.exception.DeliveryErrorCode;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -10,9 +11,14 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.UUID;
 
+// 애그리거트 루트. 경로 기록(DeliveryRouteLog)의 변경은 이 클래스의 메서드로만 한다
+// 연관관계는 경로 기록 → 배송 단방향이라, 서비스가 경로 기록을 조회해 넘긴다 (배송당 0~1건)
+// 권한 확인은 서비스, 상태 규칙은 여기서 맡는다
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @SQLRestriction("deleted_at IS NULL")
@@ -101,16 +107,31 @@ public class Delivery extends BaseEntity {
         return deliveryStatus == DeliveryStatus.COMPLETED;
     }
 
-    // 허브 출발 전(READY)에만 취소할 수 있다 (결정 #19)
-    public void cancel() {
+    // 주문 취소·보상(결정 #17, #19). 같은 배송으로 여러 번 불려도 결과가 같다
+    // 확인 순서: 이미 취소 → 완료 → 경로 기록 → 배송. 완료를 경로 기록보다 먼저 확인해야 order가 주문을 COMPLETED로 맞춘다 (ORD-22)
+    // 배송이 READY여도 경로 기록이 이미 출발했을 수 있어 경로 기록을 배송보다 먼저 확인한다
+    public void cancel(Optional<DeliveryRouteLog> routeLog) {
+        if (isCancelled()) {
+            return;   // 이미 취소됨: 재시도 → 아무것도 바꾸지 않고 성공
+        }
+        if (isCompleted()) {
+            // 출발 후 취소 불가(INVALID_STATUS_TRANSITION)와 구분해, order가 주문을 COMPLETED로 처리한다
+            throw new BusinessException(DeliveryErrorCode.DELIVERY_ALREADY_COMPLETED);
+        }
+        routeLog.ifPresent(found -> {
+            checkOwnRouteLog(found);
+            found.checkCancelable();
+        });
+        // 허브 출발 전(READY)에만 취소할 수 있다 (결정 #19)
         if (deliveryStatus != DeliveryStatus.READY) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "허브 출발 후에는 배송을 취소할 수 없습니다.");
         }
+        routeLog.ifPresent(DeliveryRouteLog::cancel);
         this.deliveryStatus = DeliveryStatus.CANCELLED;
     }
 
-    // 배송(허브→업체) 구간 상태 변경. IN_TRANSIT·ARRIVED_AT_HUB는 경로 기록 연동, CANCELLED는 cancel()에서만 바꾼다
+    // 배송(허브→업체) 구간 상태 변경. IN_TRANSIT·ARRIVED_AT_HUB는 changeRouteStatus(), CANCELLED는 cancel()에서만 바꾼다
     public void changeStatus(DeliveryStatus target) {
         switch (target) {
             case DELIVERING -> startDelivery();
@@ -120,8 +141,34 @@ public class Delivery extends BaseEntity {
         }
     }
 
-    // 경로 기록 READY → IN_TRANSIT 연동. DeliveryRouteLog 상태 변경에서만 호출한다 (외부 API로는 바꿀 수 없음)
-    public void departHub() {
+    // 경로 기록(허브→허브) 상태 변경. 배송 상태도 같이 바꾼다. CANCELLED는 cancel()에서만 바꾼다
+    public void changeRouteStatus(DeliveryRouteLog routeLog, RouteStatus target, BigDecimal actualDistanceKm) {
+        checkOwnRouteLog(routeLog);
+        switch (target) {
+            case IN_TRANSIT -> departRoute(routeLog);
+            case ARRIVED -> arriveRoute(routeLog, actualDistanceKm);
+            default -> throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "이 API로 변경할 수 없는 상태입니다.");
+        }
+    }
+
+    // 경로 기록 READY → IN_TRANSIT, 배송 READY → IN_TRANSIT. 경로 기록을 먼저 확인한다
+    private void departRoute(DeliveryRouteLog routeLog) {
+        routeLog.checkDepartable();
+        departHub();
+        routeLog.depart();
+    }
+
+    // 경로 기록 IN_TRANSIT → ARRIVED, 배송 IN_TRANSIT → ARRIVED_AT_HUB
+    // 경로 기록 409 → 거리 400 → 배송 409 순서. 거리는 배송 상태를 바꾸기 전에 검증한다
+    private void arriveRoute(DeliveryRouteLog routeLog, BigDecimal actualDistanceKm) {
+        routeLog.checkArrivable(actualDistanceKm);
+        arriveAtHub();
+        routeLog.arrive(actualDistanceKm);
+    }
+
+    // 경로 기록 출발 연동 (외부 API로는 바꿀 수 없음)
+    private void departHub() {
         if (deliveryStatus != DeliveryStatus.READY) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "READY 상태의 배송만 허브에서 출발할 수 있습니다.");
@@ -129,8 +176,8 @@ public class Delivery extends BaseEntity {
         this.deliveryStatus = DeliveryStatus.IN_TRANSIT;
     }
 
-    // 경로 기록 IN_TRANSIT → ARRIVED 연동. DeliveryRouteLog 상태 변경에서만 호출한다 (외부 API로는 바꿀 수 없음)
-    public void arriveAtHub() {
+    // 경로 기록 도착 연동 (외부 API로는 바꿀 수 없음)
+    private void arriveAtHub() {
         if (deliveryStatus != DeliveryStatus.IN_TRANSIT) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "이동 중(IN_TRANSIT)인 배송만 허브에 도착할 수 있습니다.");
@@ -178,16 +225,35 @@ public class Delivery extends BaseEntity {
         this.deliveryManagerId = deliveryManagerId;
     }
 
+    // 경로 기록(허브→허브) 담당자 지정. 지정 가능 상태는 경로 기록이 정한다. 회원 검증은 서비스가 user 호출로 먼저 한다
+    public void assignRouteManager(DeliveryRouteLog routeLog, UUID deliveryManagerId) {
+        checkOwnRouteLog(routeLog);
+        routeLog.assignManager(deliveryManagerId);
+    }
+
     private boolean isSameHub() {
         return departureHubId.equals(destinationHubId);
     }
 
     // 끝난 배송(COMPLETED·CANCELLED)만 삭제할 수 있다. 진행 중 기준은 DeliveryStatus가 정한다
-    public void delete(UUID deletedBy) {
+    // 배송이 끝났으면 경로 기록은 상태와 상관없이 함께 Soft Delete한다 (어긋난 데이터를 MASTER가 정리하는 수단)
+    public void delete(Optional<DeliveryRouteLog> routeLog, UUID deletedBy) {
         if (deliveryStatus.isInProgress()) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "진행 중인 배송은 삭제할 수 없습니다.");
         }
+        routeLog.ifPresent(found -> {
+            checkOwnRouteLog(found);
+            found.delete(deletedBy);
+        });
         markDeleted(deletedBy);
+    }
+
+    // 서비스가 다른 배송의 경로 기록을 404로 막지만, 그걸 지나 들어온 경우를 막는 안전장치. 응답은 서비스 404와 같다
+    private void checkOwnRouteLog(DeliveryRouteLog routeLog) {
+        if (!routeLog.belongsTo(id)) {
+            throw new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND,
+                    "존재하지 않거나 삭제된 배송 경로 기록입니다.", "routeLogId");
+        }
     }
 }

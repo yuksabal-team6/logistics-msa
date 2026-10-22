@@ -54,7 +54,7 @@ public class DeliveryRouteLogService {
     }
 
     // 경로 기록(허브→허브) 상태 변경. 404 → 403 → 409 → 400 순서로 확인하고,
-    // 전이 규칙과 배송 상태 연동은 DeliveryRouteLog.changeStatus()가 맡는다.
+    // 전이 규칙과 배송 상태 연동은 Delivery.changeRouteStatus()가 맡는다.
     // 동시 수정은 @Version 충돌로 커밋 시 409 (DeliveryExceptionHandler)
     @Transactional
     public DeliveryRouteLogResponse changeRouteStatus(UUID deliveryId, UUID routeLogId,
@@ -66,7 +66,7 @@ public class DeliveryRouteLogService {
         if (!canChangeStatus(routeLog, userId, role)) {
             throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED, "허브 간 이동 담당자만 변경할 수 있습니다.");
         }
-        routeLog.changeStatus(request.routeStatus(), request.actualDistanceKm());
+        delivery.changeRouteStatus(routeLog, request.routeStatus(), request.actualDistanceKm());
         return DeliveryRouteLogResponse.from(routeLog);
     }
 
@@ -83,8 +83,9 @@ public class DeliveryRouteLogService {
         deliveryManagerValidator.validate(deliveryManagerId);
 
         return transactionTemplate.execute(status -> {
-            DeliveryRouteLog routeLog = findRouteLog(findDelivery(deliveryId), routeLogId);
-            routeLog.assignManager(deliveryManagerId);
+            Delivery delivery = findDelivery(deliveryId);
+            DeliveryRouteLog routeLog = findRouteLog(delivery, routeLogId);
+            delivery.assignRouteManager(routeLog, deliveryManagerId);
             return DeliveryRouteLogResponse.from(routeLog);
         });
     }

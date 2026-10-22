@@ -99,7 +99,7 @@ public class DeliveryService {
     }
 
     // 내부 API #9. 주문 취소(결정 #19)와 보상(결정 #17)에서 호출된다.
-    // 같은 orderId로 여러 번 불려도 결과가 같다.
+    // 같은 orderId로 여러 번 불려도 결과가 같다. 확인 순서는 Delivery.cancel()이 맡는다
     @Transactional
     public void cancelDelivery(UUID orderId) {
         Optional<Delivery> found = deliveryRepository.findByOrderId(orderId);
@@ -107,19 +107,7 @@ public class DeliveryService {
             return;   // 배송이 없음: 배송 생성 전에 실패한 보상 → 성공
         }
         Delivery delivery = found.get();
-        if (delivery.isCancelled()) {
-            return;   // 이미 취소됨: 재시도 → 성공
-        }
-        if (delivery.isCompleted()) {
-            // 출발 후 취소 불가(INVALID_STATUS_TRANSITION)와 구분해, order가 주문을 COMPLETED로 처리한다
-            throw new BusinessException(DeliveryErrorCode.DELIVERY_ALREADY_COMPLETED);
-        }
-
-        // 경로 기록을 먼저 확인한다.
-        // 배송이 READY여도 경로 기록이 이미 출발했을 수 있다
-        deliveryRouteLogRepository.findByDeliveryId(delivery.getId())
-                .ifPresent(DeliveryRouteLog::cancel);
-        delivery.cancel();
+        delivery.cancel(deliveryRouteLogRepository.findByDeliveryId(delivery.getId()));
     }
 
     // 삭제된 배송은 @SQLRestriction으로 조회되지 않아 없는 배송과 같이 404.
@@ -210,10 +198,7 @@ public class DeliveryService {
         requireMaster(role, "MASTER만 배송을 삭제할 수 있습니다.");
         Delivery delivery = findDelivery(deliveryId);
 
-        delivery.delete(userId);
-        // 배송이 끝났으면 경로 기록도 끝나 있다 (COMPLETED는 ARRIVED를 거치고, CANCELLED는 경로 기록도 함께 취소)
-        deliveryRouteLogRepository.findByDeliveryId(delivery.getId())
-                .ifPresent(routeLog -> routeLog.delete(userId));
+        delivery.delete(deliveryRouteLogRepository.findByDeliveryId(delivery.getId()), userId);
     }
 
     // 내부 API. 배송(허브→업체) 담당 또는 경로 기록(허브→허브) 담당으로 진행 중인 건이 있으면 true. user가 회원 탈퇴 전 호출

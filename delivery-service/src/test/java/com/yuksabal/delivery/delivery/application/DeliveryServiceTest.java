@@ -246,7 +246,7 @@ class DeliveryServiceTest {
     class 배송_취소 {
 
         @Test
-        void 완료된_배송이면_DELIVERY_ALREADY_COMPLETED이고_경로_기록을_조회하지_않는다() {
+        void 완료된_배송이면_DELIVERY_ALREADY_COMPLETED이고_상태가_그대로다() {
             Delivery delivery = deliveryIn(DeliveryStatus.COMPLETED);
             given(deliveryRepository.findByOrderId(ORDER_ID)).willReturn(Optional.of(delivery));
 
@@ -254,7 +254,6 @@ class DeliveryServiceTest {
                     .isInstanceOfSatisfying(BusinessException.class,
                             e -> assertThat(e.getErrorCode()).isEqualTo(DELIVERY_ALREADY_COMPLETED));
 
-            verifyNoInteractions(deliveryRouteLogRepository);
             assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.COMPLETED);
         }
 
@@ -501,16 +500,18 @@ class DeliveryServiceTest {
 
         @ParameterizedTest
         @EnumSource(value = DeliveryStatus.class, names = {"READY", "IN_TRANSIT", "ARRIVED_AT_HUB", "DELIVERING"})
-        void 진행_중인_배송은_409이고_경로_기록을_건드리지_않는다(DeliveryStatus status) {
+        void 진행_중인_배송은_409이고_배송과_경로_기록을_삭제하지_않는다(DeliveryStatus status) {
             Delivery delivery = deliveryIn(status);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, matchingRouteStatus(status));
             given(deliveryRepository.findById(DELIVERY_ID)).willReturn(Optional.of(delivery));
+            given(deliveryRouteLogRepository.findByDeliveryId(DELIVERY_ID)).willReturn(Optional.of(routeLog));
 
             assertThatThrownBy(() -> deliveryService.deleteDelivery(DELIVERY_ID, MASTER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class,
                             e -> assertThat(e.getErrorCode()).isEqualTo(INVALID_STATUS_TRANSITION));
 
-            verifyNoInteractions(deliveryRouteLogRepository);
             assertThat(delivery.getDeletedAt()).isNull();
+            assertThat(routeLog.getDeletedAt()).isNull();
         }
 
         @Test
@@ -649,7 +650,8 @@ class DeliveryServiceTest {
                         e -> assertThat(e.getErrorCode()).isEqualTo(DELIVERY_ACCESS_DENIED));
     }
 
-    // 다른 허브 배송: READY → IN_TRANSIT → ARRIVED_AT_HUB → DELIVERING → COMPLETED, READY → CANCELLED
+    // 다른 허브 배송. IN_TRANSIT·ARRIVED_AT_HUB·CANCELLED는 경로 기록 없이 만들 수 없어 reflection으로 정하고,
+    // DELIVERING·COMPLETED는 ARRIVED_AT_HUB에서 실제 전이로 만든다 (startedAt·completedAt 기록)
     private static Delivery deliveryIn(DeliveryStatus status) {
         Delivery delivery = Delivery.builder()
                 .orderId(ORDER_ID)
@@ -664,15 +666,14 @@ class DeliveryServiceTest {
         ReflectionTestUtils.setField(delivery, "id", DELIVERY_ID);
         switch (status) {
             case READY -> { }
-            case CANCELLED -> delivery.cancel();
-            default -> {
-                delivery.departHub();
-                if (status == DeliveryStatus.IN_TRANSIT) break;
-                delivery.arriveAtHub();
-                if (status == DeliveryStatus.ARRIVED_AT_HUB) break;
+            case IN_TRANSIT, ARRIVED_AT_HUB, CANCELLED ->
+                    ReflectionTestUtils.setField(delivery, "deliveryStatus", status);
+            case DELIVERING, COMPLETED -> {
+                ReflectionTestUtils.setField(delivery, "deliveryStatus", DeliveryStatus.ARRIVED_AT_HUB);
                 delivery.changeStatus(DeliveryStatus.DELIVERING);
-                if (status == DeliveryStatus.DELIVERING) break;
-                delivery.changeStatus(DeliveryStatus.COMPLETED);
+                if (status == DeliveryStatus.COMPLETED) {
+                    delivery.changeStatus(DeliveryStatus.COMPLETED);
+                }
             }
         }
         return delivery;
