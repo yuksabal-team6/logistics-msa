@@ -53,26 +53,9 @@ public interface InventoryRepository extends
                                 @Param("now") LocalDateTime now,
                                 @Param("userId") UUID userId);
 
-    // 남은 수량이 차감할 수량 이상일 때만 차감한다 (결정 #14). 수정한 행 수를 반환하고, 0이면 재고가 없거나 부족한 것
+    // 입고: 수량만큼 늘린다. 현재 수량에 더하는 원자 UPDATE라 잠그지 않아도 동시 입고·주문 차감과 덮어쓰지 않는다
     // 벌크 UPDATE는 JPA Auditing을 거치지 않아 updatedAt·updatedBy를 직접 넣고, 삭제된 재고 제외 조건도 명시한다
-    // 잠금 조회로 불러온 엔티티에 차감 전 수량이 남지 않도록 실행 후 영속성 컨텍스트를 비운다
-    @Modifying(clearAutomatically = true)
-    @Query("""
-            UPDATE Inventory i
-            SET i.quantity = i.quantity - :quantity, i.updatedAt = :now, i.updatedBy = :userId
-            WHERE i.hubId = :hubId
-              AND i.productId = :productId
-              AND i.quantity >= :quantity
-              AND i.deletedAt IS NULL
-            """)
-    int decreaseQuantityIfEnough(@Param("hubId") UUID hubId,
-                                 @Param("productId") UUID productId,
-                                 @Param("quantity") int quantity,
-                                 @Param("now") LocalDateTime now,
-                                 @Param("userId") UUID userId);
-
-    // 주문 복원·입고: 수량만큼 늘린다. 현재 수량에 더하는 원자 UPDATE라 동시 요청끼리 덮어쓰지 않는다
-    // 차감과 같이 updatedAt·updatedBy를 직접 넣고, 먼저 불러온 엔티티에 이전 수량이 남지 않도록 영속성 컨텍스트를 비운다
+    // 먼저 불러온 엔티티에 이전 수량이 남지 않도록 영속성 컨텍스트를 비운다
     @Modifying(clearAutomatically = true)
     @Query("""
             UPDATE Inventory i
