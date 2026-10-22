@@ -53,6 +53,17 @@ public class Inventory extends BaseEntity {
         }
     }
 
+    // 입고로 처음 생기는 재고. 상품의 업체도 함께 저장한다 (업체는 바뀌지 않아, COMPANY 소유권 확인에 쓴다)
+    // 입고 규칙(활성, 관리 허브)은 ProductInfo.checkInboundTo로 먼저 확인한다
+    public static Inventory create(Hub hub, ProductInfo product, int quantity) {
+        return builder()
+                .hub(hub)
+                .productId(product.productId())
+                .companyId(product.companyId())
+                .quantity(quantity)
+                .build();
+    }
+
     public void delete(UUID deletedBy) {
         markDeleted(deletedBy);
     }
