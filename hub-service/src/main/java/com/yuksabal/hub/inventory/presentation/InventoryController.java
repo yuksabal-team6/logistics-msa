@@ -1,17 +1,17 @@
-package com.yuksabal.hub.inventory.controller;
+package com.yuksabal.hub.inventory.presentation;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
-import com.yuksabal.hub.inventory.dto.request.InventoryInboundRequest;
-import com.yuksabal.hub.inventory.dto.request.InventoryLogSearchRequest;
-import com.yuksabal.hub.inventory.dto.request.InventoryQuantityUpdateRequest;
-import com.yuksabal.hub.inventory.dto.request.InventorySearchRequest;
-import com.yuksabal.hub.inventory.dto.response.InventoryLogResponse;
-import com.yuksabal.hub.inventory.dto.response.InventoryResponse;
-import com.yuksabal.hub.inventory.service.InventoryCommandService;
-import com.yuksabal.hub.inventory.service.InventoryQueryService;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryInboundRequest;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryLogSearchRequest;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryQuantityUpdateRequest;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventorySearchRequest;
+import com.yuksabal.hub.inventory.presentation.dto.response.InventoryLogResponse;
+import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.application.InventoryCommandService;
+import com.yuksabal.hub.inventory.application.InventoryQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;

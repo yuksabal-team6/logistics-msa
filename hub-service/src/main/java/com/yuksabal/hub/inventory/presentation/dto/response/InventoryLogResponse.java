@@ -1,8 +1,8 @@
-package com.yuksabal.hub.inventory.dto.response;
+package com.yuksabal.hub.inventory.presentation.dto.response;
 
-import com.yuksabal.hub.inventory.entity.Inventory;
-import com.yuksabal.hub.inventory.entity.InventoryChangeType;
-import com.yuksabal.hub.inventory.entity.InventoryLog;
+import com.yuksabal.hub.inventory.domain.Inventory;
+import com.yuksabal.hub.inventory.domain.InventoryChangeType;
+import com.yuksabal.hub.inventory.domain.InventoryLog;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;

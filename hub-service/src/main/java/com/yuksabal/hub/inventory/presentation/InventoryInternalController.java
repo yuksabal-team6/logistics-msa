@@ -1,10 +1,10 @@
-package com.yuksabal.hub.inventory.controller;
+package com.yuksabal.hub.inventory.presentation;
 
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
-import com.yuksabal.hub.inventory.dto.request.InventoryStockRequest;
-import com.yuksabal.hub.inventory.dto.response.InventoryStockResponse;
-import com.yuksabal.hub.inventory.service.InventoryQueryService;
+import com.yuksabal.hub.inventory.presentation.dto.request.InventoryStockRequest;
+import com.yuksabal.hub.inventory.presentation.dto.response.InventoryStockResponse;
+import com.yuksabal.hub.inventory.application.InventoryQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

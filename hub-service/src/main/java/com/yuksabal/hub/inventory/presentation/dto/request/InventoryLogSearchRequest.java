@@ -1,6 +1,6 @@
-package com.yuksabal.hub.inventory.dto.request;
+package com.yuksabal.hub.inventory.presentation.dto.request;
 
-import com.yuksabal.hub.inventory.entity.InventoryChangeType;
+import com.yuksabal.hub.inventory.domain.InventoryChangeType;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.UUID;

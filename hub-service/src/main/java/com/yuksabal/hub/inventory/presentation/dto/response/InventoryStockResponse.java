@@ -1,4 +1,4 @@
-package com.yuksabal.hub.inventory.dto.response;
+package com.yuksabal.hub.inventory.presentation.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

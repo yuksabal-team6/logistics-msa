@@ -1,11 +1,11 @@
-package com.yuksabal.hub.inventory.controller;
+package com.yuksabal.hub.inventory.presentation;
 
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
-import com.yuksabal.hub.inventory.dto.request.StockRequest;
-import com.yuksabal.hub.inventory.dto.response.StockDecreaseResponse;
-import com.yuksabal.hub.inventory.dto.response.StockRestoreResponse;
-import com.yuksabal.hub.inventory.service.StockService;
+import com.yuksabal.hub.inventory.presentation.dto.request.StockRequest;
+import com.yuksabal.hub.inventory.presentation.dto.response.StockDecreaseResponse;
+import com.yuksabal.hub.inventory.presentation.dto.response.StockRestoreResponse;
+import com.yuksabal.hub.inventory.application.StockService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;

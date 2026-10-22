@@ -1,4 +1,4 @@
-package com.yuksabal.hub.inventory.dto.request;
+package com.yuksabal.hub.inventory.presentation.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
