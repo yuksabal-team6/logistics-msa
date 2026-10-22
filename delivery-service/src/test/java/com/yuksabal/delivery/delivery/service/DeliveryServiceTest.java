@@ -11,6 +11,7 @@ import com.yuksabal.delivery.delivery.entity.Delivery;
 import com.yuksabal.delivery.delivery.entity.DeliveryStatus;
 import com.yuksabal.delivery.delivery.repository.DeliveryRepository;
 import com.yuksabal.delivery.routelog.entity.DeliveryRouteLog;
+import com.yuksabal.delivery.routelog.entity.RouteStatus;
 import com.yuksabal.delivery.routelog.repository.DeliveryRouteLogRepository;
 import feign.Request;
 import feign.RetryableException;
@@ -46,6 +47,7 @@ import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.DELIVERY_
 import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.DELIVERY_ALREADY_COMPLETED;
 import static com.yuksabal.delivery.global.exception.DeliveryErrorCode.INVALID_STATUS_TRANSITION;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -68,6 +70,8 @@ class DeliveryServiceTest {
     private static final UUID MANAGER_ID = UUID.randomUUID();
     private static final UUID NEW_MANAGER_ID = UUID.randomUUID();
     private static final UUID OTHER_ID = UUID.randomUUID();
+    private static final String ROUTE_LOG_CANCEL_MESSAGE = "허브 출발 후에는 배송 경로 기록을 취소할 수 없습니다.";
+    private static final String DELIVERY_CANCEL_MESSAGE = "허브 출발 후에는 배송을 취소할 수 없습니다.";
 
     @Mock
     private DeliveryRepository deliveryRepository;
@@ -267,6 +271,128 @@ class DeliveryServiceTest {
         }
     }
 
+    // 아래 두 묶음과 배송_삭제_상태_확인은 응답과 결과 상태만 확인한다 (호출 여부는 검증하지 않음)
+    // 애그리거트 전환 후 경로 기록 조회 시점이 바뀌어도 그대로 통과해야 해서 경로 기록 조회 stub은 lenient
+    @Nested
+    class 배송_취소_경로_기록_있음 {
+
+        @Test
+        void 배송과_경로_기록이_READY면_둘_다_취소한다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.READY);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, RouteStatus.READY);
+            stubByOrderId(delivery, Optional.of(routeLog));
+
+            deliveryService.cancelDelivery(ORDER_ID);
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.CANCELLED);
+            assertThat(routeLog.getRouteStatus()).isEqualTo(RouteStatus.CANCELLED);
+        }
+
+        // 배송이 READY여도 경로 기록이 이미 출발했을 수 있다 (DeliveryService.cancelDelivery)
+        @Test
+        void 배송이_READY여도_경로_기록이_출발했으면_경로_기록_에러이고_배송은_READY로_남는다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.READY);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, RouteStatus.IN_TRANSIT);
+            stubByOrderId(delivery, Optional.of(routeLog));
+
+            assertInvalidTransition(() -> deliveryService.cancelDelivery(ORDER_ID), ROUTE_LOG_CANCEL_MESSAGE);
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.READY);
+            assertThat(routeLog.getRouteStatus()).isEqualTo(RouteStatus.IN_TRANSIT);
+        }
+
+        // 지금은 경로 기록을 배송보다 먼저 확인해 경로 기록 에러가 나간다
+        @Test
+        void 허브_간_이동_중이면_경로_기록_에러이고_둘_다_그대로다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.IN_TRANSIT);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, RouteStatus.IN_TRANSIT);
+            stubByOrderId(delivery, Optional.of(routeLog));
+
+            assertInvalidTransition(() -> deliveryService.cancelDelivery(ORDER_ID), ROUTE_LOG_CANCEL_MESSAGE);
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.IN_TRANSIT);
+            assertThat(routeLog.getRouteStatus()).isEqualTo(RouteStatus.IN_TRANSIT);
+        }
+
+        // ORD-22: 완료 검사가 경로 기록 검사보다 먼저여야 order가 주문을 COMPLETED로 맞출 수 있다
+        @Test
+        void 완료된_배송이면_경로_기록_에러가_아니라_DELIVERY_ALREADY_COMPLETED이고_둘_다_그대로다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.COMPLETED);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, RouteStatus.ARRIVED);
+            stubByOrderId(delivery, Optional.of(routeLog));
+
+            assertAlreadyCompleted(() -> deliveryService.cancelDelivery(ORDER_ID));
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.COMPLETED);
+            assertThat(routeLog.getRouteStatus()).isEqualTo(RouteStatus.ARRIVED);
+        }
+
+        // 주문 취소·보상 재시도: 이미 취소된 배송이면 예외 없이 성공하고 아무것도 바꾸지 않는다
+        @Test
+        void 이미_취소된_배송을_다시_취소하면_예외_없이_성공하고_둘_다_CANCELLED로_남는다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.CANCELLED);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, RouteStatus.CANCELLED);
+            stubByOrderId(delivery, Optional.of(routeLog));
+
+            assertThatCode(() -> deliveryService.cancelDelivery(ORDER_ID)).doesNotThrowAnyException();
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.CANCELLED);
+            assertThat(routeLog.getRouteStatus()).isEqualTo(RouteStatus.CANCELLED);
+        }
+    }
+
+    // 같은 허브 배송은 경로 기록이 없다 (결정 #16)
+    @Nested
+    class 배송_취소_경로_기록_없음 {
+
+        @Test
+        void 배송이_없으면_예외_없이_성공한다() {
+            given(deliveryRepository.findByOrderId(ORDER_ID)).willReturn(Optional.empty());
+
+            assertThatCode(() -> deliveryService.cancelDelivery(ORDER_ID)).doesNotThrowAnyException();
+        }
+
+        @Test
+        void READY면_취소한다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.READY);
+            stubByOrderId(delivery, Optional.empty());
+
+            deliveryService.cancelDelivery(ORDER_ID);
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.CANCELLED);
+        }
+
+        @Test
+        void 이미_취소된_배송을_다시_취소하면_예외_없이_성공하고_CANCELLED로_남는다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.CANCELLED);
+            stubByOrderId(delivery, Optional.empty());
+
+            assertThatCode(() -> deliveryService.cancelDelivery(ORDER_ID)).doesNotThrowAnyException();
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.CANCELLED);
+        }
+
+        @Test
+        void 완료된_배송이면_DELIVERY_ALREADY_COMPLETED이고_그대로다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.COMPLETED);
+            stubByOrderId(delivery, Optional.empty());
+
+            assertAlreadyCompleted(() -> deliveryService.cancelDelivery(ORDER_ID));
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.COMPLETED);
+        }
+
+        @Test
+        void 배송_중이면_배송_에러이고_그대로다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.DELIVERING);
+            stubByOrderId(delivery, Optional.empty());
+
+            assertInvalidTransition(() -> deliveryService.cancelDelivery(ORDER_ID), DELIVERY_CANCEL_MESSAGE);
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.DELIVERING);
+        }
+    }
+
     @Nested
     class 담당자_지정 {
 
@@ -413,6 +539,97 @@ class DeliveryServiceTest {
             assertThat(delivery.getDeletedAt()).isNotNull();
             assertThat(delivery.getDeletedBy()).isEqualTo(MASTER_ID);
         }
+    }
+
+    @Nested
+    class 배송_삭제_상태_확인 {
+
+        @ParameterizedTest
+        @EnumSource(value = DeliveryStatus.class, names = {"READY", "IN_TRANSIT", "ARRIVED_AT_HUB", "DELIVERING"})
+        void 진행_중인_배송은_409이고_배송과_경로_기록_모두_삭제되지_않는다(DeliveryStatus status) {
+            Delivery delivery = deliveryWithStatus(status);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, matchingRouteStatus(status));
+            stubById(delivery, Optional.of(routeLog));
+
+            assertInvalidTransition(() -> deliveryService.deleteDelivery(DELIVERY_ID, MASTER_ID, UserRole.MASTER),
+                    "진행 중인 배송은 삭제할 수 없습니다.");
+
+            assertThat(delivery.getDeletedAt()).isNull();
+            assertThat(routeLog.getDeletedAt()).isNull();
+        }
+
+        @Test
+        void 취소된_배송은_취소된_경로_기록과_함께_요청자_기준으로_삭제한다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.CANCELLED);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, RouteStatus.CANCELLED);
+            stubById(delivery, Optional.of(routeLog));
+
+            deliveryService.deleteDelivery(DELIVERY_ID, MASTER_ID, UserRole.MASTER);
+
+            assertThat(delivery.getDeletedAt()).isNotNull();
+            assertThat(delivery.getDeletedBy()).isEqualTo(MASTER_ID);
+            assertThat(routeLog.getDeletedAt()).isNotNull();
+            assertThat(routeLog.getDeletedBy()).isEqualTo(MASTER_ID);
+        }
+
+        @Test
+        void 완료된_배송은_도착한_경로_기록과_함께_요청자_기준으로_삭제한다() {
+            Delivery delivery = deliveryWithStatus(DeliveryStatus.COMPLETED);
+            DeliveryRouteLog routeLog = routeLogWithStatus(delivery, RouteStatus.ARRIVED);
+            stubById(delivery, Optional.of(routeLog));
+
+            deliveryService.deleteDelivery(DELIVERY_ID, MASTER_ID, UserRole.MASTER);
+
+            assertThat(delivery.getDeletedBy()).isEqualTo(MASTER_ID);
+            assertThat(routeLog.getDeletedBy()).isEqualTo(MASTER_ID);
+        }
+    }
+
+    private void stubByOrderId(Delivery delivery, Optional<DeliveryRouteLog> routeLog) {
+        given(deliveryRepository.findByOrderId(ORDER_ID)).willReturn(Optional.of(delivery));
+        lenient().when(deliveryRouteLogRepository.findByDeliveryId(DELIVERY_ID)).thenReturn(routeLog);
+    }
+
+    private void stubById(Delivery delivery, Optional<DeliveryRouteLog> routeLog) {
+        given(deliveryRepository.findById(DELIVERY_ID)).willReturn(Optional.of(delivery));
+        lenient().when(deliveryRouteLogRepository.findByDeliveryId(DELIVERY_ID)).thenReturn(routeLog);
+    }
+
+    private static void assertInvalidTransition(Runnable action, String message) {
+        assertThatThrownBy(action::run)
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getErrorCode()).isEqualTo(INVALID_STATUS_TRANSITION);
+                    assertThat(e.getMessage()).isEqualTo(message);
+                });
+    }
+
+    private static void assertAlreadyCompleted(Runnable action) {
+        assertThatThrownBy(action::run)
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(DELIVERY_ALREADY_COMPLETED));
+    }
+
+    // 배송 상태와 짝이 맞는 경로 기록 상태. DELIVERING은 허브 도착 후라 ARRIVED
+    private static RouteStatus matchingRouteStatus(DeliveryStatus status) {
+        return switch (status) {
+            case READY -> RouteStatus.READY;
+            case IN_TRANSIT -> RouteStatus.IN_TRANSIT;
+            case ARRIVED_AT_HUB, DELIVERING, COMPLETED -> RouteStatus.ARRIVED;
+            case CANCELLED -> RouteStatus.CANCELLED;
+        };
+    }
+
+    // 상태 전이 메서드 대신 reflection으로 상태를 정한다. 애그리거트 전환 후에도 픽스처가 그대로 쓰이도록
+    private static Delivery deliveryWithStatus(DeliveryStatus status) {
+        Delivery delivery = deliveryIn(DeliveryStatus.READY);
+        ReflectionTestUtils.setField(delivery, "deliveryStatus", status);
+        return delivery;
+    }
+
+    private static DeliveryRouteLog routeLogWithStatus(Delivery delivery, RouteStatus status) {
+        DeliveryRouteLog routeLog = routeLog(delivery);
+        ReflectionTestUtils.setField(routeLog, "routeStatus", status);
+        return routeLog;
     }
 
     // notifyOrderCompleted가 잡는 예외 종류마다 하나씩
