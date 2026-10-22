@@ -1,4 +1,4 @@
-package com.yuksabal.hub.inventory.entity;
+package com.yuksabal.hub.inventory.domain;
 
 // inventory_change_type. DECREASE = 주문 차감, RESTORE = 주문 실패 복원, INBOUND = 입고,
 // ADJUST_INCREASE·ADJUST_DECREASE = 관리자 수량 조정 (타입이 방향을 나타내고 수량은 항상 양수)

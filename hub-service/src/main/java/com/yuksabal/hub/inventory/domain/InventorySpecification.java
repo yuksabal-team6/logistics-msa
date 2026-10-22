@@ -1,6 +1,5 @@
-package com.yuksabal.hub.inventory.repository;
+package com.yuksabal.hub.inventory.domain;
 
-import com.yuksabal.hub.inventory.entity.Inventory;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;

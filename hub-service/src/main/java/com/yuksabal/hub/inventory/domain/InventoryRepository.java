@@ -1,6 +1,5 @@
-package com.yuksabal.hub.inventory.repository;
+package com.yuksabal.hub.inventory.domain;
 
-import com.yuksabal.hub.inventory.entity.Inventory;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;

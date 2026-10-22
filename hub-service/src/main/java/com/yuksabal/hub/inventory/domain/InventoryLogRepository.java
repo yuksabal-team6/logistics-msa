@@ -1,7 +1,5 @@
-package com.yuksabal.hub.inventory.repository;
+package com.yuksabal.hub.inventory.domain;
 
-import com.yuksabal.hub.inventory.entity.InventoryChangeType;
-import com.yuksabal.hub.inventory.entity.InventoryLog;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
