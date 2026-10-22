@@ -2,18 +2,22 @@ package com.yuksabal.gateway.global.filter;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.yuksabal.gateway.global.client.UserStatus;
+import com.yuksabal.gateway.global.client.UserStatusClient;
 import com.yuksabal.gateway.support.TestJwt;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -25,6 +29,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 
 // application.yml의 실제 역할 규칙(auth.role-rules)을 그대로 쓴다 (테스트 전용 규칙으로 덮어쓰지 않음)
 // 모든 하위 서비스 → 같은 stub. 규칙에 막히면 stub이 호출되지 않아야 한다
@@ -40,6 +45,9 @@ class GatewayRoleRulesIntegrationTest {
 
     @Autowired
     private WebTestClient webTestClient;
+
+    @MockBean
+    private UserStatusClient userStatusClient;
 
     private final String userId = UUID.randomUUID().toString();
     private final String targetId = UUID.randomUUID().toString();
@@ -212,7 +220,9 @@ class GatewayRoleRulesIntegrationTest {
                 .jsonPath("$.error.code").isEqualTo("FORBIDDEN");
     }
 
+    // 회원 상태 조회는 토큰과 같은 역할의 활성 회원으로 응답한다 (상태 확인 자체는 GatewayUserStatusIntegrationTest)
     private WebTestClient.ResponseSpec request(HttpMethod method, String uri, String role) {
+        given(userStatusClient.fetch(UUID.fromString(userId))).willReturn(Mono.just(new UserStatus(true, role)));
         return webTestClient.method(method).uri(uri)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestJwt.token(SECRET, userId, role))
                 .exchange();
