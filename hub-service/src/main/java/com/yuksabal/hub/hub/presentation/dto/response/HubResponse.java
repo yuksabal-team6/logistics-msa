@@ -1,6 +1,6 @@
-package com.yuksabal.hub.hub.dto.response;
+package com.yuksabal.hub.hub.presentation.dto.response;
 
-import com.yuksabal.hub.hub.entity.Hub;
+import com.yuksabal.hub.hub.domain.Hub;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;

@@ -1,4 +1,4 @@
-package com.yuksabal.hub.hub.dto.request;
+package com.yuksabal.hub.hub.presentation.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;

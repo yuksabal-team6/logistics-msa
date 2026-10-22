@@ -1,14 +1,14 @@
-package com.yuksabal.hub.hub.service;
+package com.yuksabal.hub.hub.application;
 
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.exception.CommonErrorCode;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubExceptions;
-import com.yuksabal.hub.hub.entity.Hub;
-import com.yuksabal.hub.hub.repository.HubRepository;
-import com.yuksabal.hub.hub.dto.request.HubSearchRequest;
-import com.yuksabal.hub.hub.dto.response.HubInternalResponse;
-import com.yuksabal.hub.hub.dto.response.HubResponse;
+import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.domain.HubRepository;
+import com.yuksabal.hub.hub.presentation.dto.request.HubSearchRequest;
+import com.yuksabal.hub.hub.presentation.dto.response.HubInternalResponse;
+import com.yuksabal.hub.hub.presentation.dto.response.HubResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -19,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
-import static com.yuksabal.hub.hub.repository.HubSpecification.keywordContains;
+import static com.yuksabal.hub.hub.domain.HubSpecification.keywordContains;
 
 @Service
 @RequiredArgsConstructor

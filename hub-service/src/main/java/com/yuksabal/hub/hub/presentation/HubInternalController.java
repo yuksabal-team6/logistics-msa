@@ -1,9 +1,9 @@
-package com.yuksabal.hub.hub.controller;
+package com.yuksabal.hub.hub.presentation;
 
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
-import com.yuksabal.hub.hub.dto.response.HubInternalResponse;
-import com.yuksabal.hub.hub.service.HubService;
+import com.yuksabal.hub.hub.presentation.dto.response.HubInternalResponse;
+import com.yuksabal.hub.hub.application.HubService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;

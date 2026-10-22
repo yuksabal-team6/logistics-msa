@@ -1,4 +1,4 @@
-package com.yuksabal.hub.hub.entity;
+package com.yuksabal.hub.hub.domain;
 
 import com.yuksabal.common.entity.BaseEntity;
 import jakarta.persistence.*;

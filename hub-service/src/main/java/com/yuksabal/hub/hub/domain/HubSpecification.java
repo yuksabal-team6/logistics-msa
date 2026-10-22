@@ -1,7 +1,6 @@
-package com.yuksabal.hub.hub.repository;
+package com.yuksabal.hub.hub.domain;
 
 import com.yuksabal.common.util.LikeUtils;
-import com.yuksabal.hub.hub.entity.Hub;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
