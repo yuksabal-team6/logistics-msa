@@ -1,13 +1,17 @@
 package com.yuksabal.company.global.auth;
 
+import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.UUID;
 
 import static com.yuksabal.common.auth.UserRole.COMPANY;
 import static com.yuksabal.common.auth.UserRole.MASTER;
+import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.company.global.auth.CompanyAccessPolicy.checkOwner;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,6 +78,14 @@ class CompanyAccessPolicyTest {
             assertThatThrownBy(() -> checkOwner(ownerId, userId, COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e ->
                             assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = UserRole.class, names = {"USER", "DELIVERY"})
+        void MASTER와_COMPANY가_아니면_FORBIDDEN(UserRole role) {
+            assertThatThrownBy(() -> checkOwner(OWNER_ID, OWNER_ID, role))
+                    .isInstanceOfSatisfying(BusinessException.class, e ->
+                            assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
         }
     }
 }
