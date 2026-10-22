@@ -2,8 +2,6 @@ package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.common.exception.CommonErrorCode;
-import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.hub.domain.Hub;
@@ -12,10 +10,10 @@ import com.yuksabal.hub.inventory.presentation.dto.request.InventoryInboundReque
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryQuantityUpdateRequest;
 import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
 import com.yuksabal.hub.inventory.domain.Inventory;
-import com.yuksabal.hub.inventory.domain.InventoryChangeType;
 import com.yuksabal.hub.inventory.domain.InventoryLog;
 import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
 import com.yuksabal.hub.inventory.domain.InventoryRepository;
+import com.yuksabal.hub.inventory.domain.ProductInfo;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 
 // 관리자 재고 변경 (수량 조정, 입고). 조회는 InventoryQueryService, 주문 재고 차감·복원은 StockService
@@ -64,14 +61,7 @@ public class InventoryCommandService {
         }
 
         Inventory inventory = findInventory(inventoryId);
-        InventoryChangeType changeType = quantity > expectedQuantity
-                ? InventoryChangeType.ADJUST_INCREASE
-                : InventoryChangeType.ADJUST_DECREASE;
-        inventoryLogRepository.save(InventoryLog.builder()
-                .inventory(inventory)
-                .changeType(changeType)
-                .quantity(Math.abs(quantity - expectedQuantity))
-                .build());
+        inventoryLogRepository.save(InventoryLog.adjust(inventory, expectedQuantity, quantity));
         return InventoryResponse.from(inventory);
     }
 
@@ -91,19 +81,8 @@ public class InventoryCommandService {
         // 없거나 삭제된 상품이면 company-service가 404로 응답한다
         ProductInfo product = productReader.findProduct(request.productId())
                 .orElseThrow(HubExceptions::productNotFound);
-        if (!product.active()) {
-            throw new BusinessException(
-                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
-                    "비활성 상품은 입고할 수 없습니다.",
-                    "productId");
-        }
-        // 상품 재고는 업체 관리 허브 한 곳에만 둔다
-        if (!request.hubId().equals(product.hubId())) {
-            throw new BusinessException(
-                    CommonErrorCode.BUSINESS_RULE_VIOLATION,
-                    "상품 업체의 관리 허브에만 입고할 수 있습니다.",
-                    List.of(new ApiErrorDetail("hubId", "상품 업체의 관리 허브는 " + product.hubId() + "입니다.")));
-        }
+        // 비활성 상품·관리 허브가 아닌 허브면 422. 기존 재고 입고와 새 재고 생성 모두에 적용되도록 DB 작업 전에 확인한다
+        product.checkInboundTo(request.hubId());
 
         return transactionTemplate.execute(status -> saveInbound(request, product, userId));
     }
@@ -116,11 +95,7 @@ public class InventoryCommandService {
                 .map(existing -> increaseInventory(existing, request.quantity(), userId))
                 .orElseGet(() -> createInventory(hub, product, request));
 
-        inventoryLogRepository.save(InventoryLog.builder()
-                .inventory(inventory)
-                .changeType(InventoryChangeType.INBOUND)
-                .quantity(request.quantity())
-                .build());
+        inventoryLogRepository.save(InventoryLog.inbound(inventory, request.quantity()));
         return InventoryResponse.from(inventory);
     }
 
@@ -135,12 +110,7 @@ public class InventoryCommandService {
     private Inventory createInventory(Hub hub, ProductInfo product, InventoryInboundRequest request) {
         try {
             // 유니크 위반이 여기서 나도록 바로 flush 한다
-            return inventoryRepository.saveAndFlush(Inventory.builder()
-                    .hub(hub)
-                    .productId(request.productId())
-                    .companyId(product.companyId())
-                    .quantity(request.quantity())
-                    .build());
+            return inventoryRepository.saveAndFlush(Inventory.create(hub, product, request.quantity()));
         } catch (DataIntegrityViolationException e) {
             // 다른 무결성 위반이면 원래 예외를 그대로 던진다
             if (e.getCause() instanceof ConstraintViolationException cause

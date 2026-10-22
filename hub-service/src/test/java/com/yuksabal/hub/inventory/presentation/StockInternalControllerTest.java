@@ -417,7 +417,9 @@ class StockInternalControllerTest {
     }
 
     private InventoryLog orderLog(InventoryChangeType changeType, Inventory inventory, int quantity) {
-        return InventoryLog.builder().inventory(inventory).orderId(ORDER_ID).changeType(changeType).quantity(quantity).build();
+        return changeType == InventoryChangeType.DECREASE
+                ? InventoryLog.decrease(inventory, ORDER_ID, quantity)
+                : InventoryLog.restore(inventory, ORDER_ID, quantity);
     }
 
     // 서울 재고와 같은 상품이지만 다른 허브(부산)의 재고 행

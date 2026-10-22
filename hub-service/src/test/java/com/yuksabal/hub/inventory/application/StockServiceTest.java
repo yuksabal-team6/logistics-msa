@@ -327,7 +327,9 @@ class StockServiceTest {
     }
 
     private static InventoryLog log(Inventory inventory, InventoryChangeType changeType, int quantity) {
-        return InventoryLog.builder().inventory(inventory).orderId(ORDER_ID).changeType(changeType).quantity(quantity).build();
+        return changeType == InventoryChangeType.DECREASE
+                ? InventoryLog.decrease(inventory, ORDER_ID, quantity)
+                : InventoryLog.restore(inventory, ORDER_ID, quantity);
     }
 
     private static Inventory seoul(int quantity) {

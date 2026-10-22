@@ -95,6 +95,8 @@ class InventoryLogSpecificationTest {
     }
 
     private InventoryLog log(Inventory inventory, InventoryChangeType changeType, UUID orderId) {
-        return InventoryLog.builder().inventory(inventory).changeType(changeType).orderId(orderId).quantity(1).build();
+        return changeType == InventoryChangeType.DECREASE
+                ? InventoryLog.decrease(inventory, orderId, 1)
+                : InventoryLog.inbound(inventory, 1);
     }
 }

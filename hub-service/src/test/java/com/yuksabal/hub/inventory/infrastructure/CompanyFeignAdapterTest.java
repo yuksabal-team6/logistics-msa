@@ -5,7 +5,7 @@ import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.inventory.infrastructure.dto.CompanyResponse;
 import com.yuksabal.hub.inventory.infrastructure.dto.ProductResponse;
-import com.yuksabal.hub.inventory.application.ProductInfo;
+import com.yuksabal.hub.inventory.domain.ProductInfo;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

@@ -901,12 +901,7 @@ class InventoryControllerTest {
     }
 
     private InventoryLog decreaseLog() {
-        InventoryLog log = InventoryLog.builder()
-                .inventory(seoulInventory())
-                .orderId(ORDER_ID)
-                .changeType(InventoryChangeType.DECREASE)
-                .quantity(3)
-                .build();
+        InventoryLog log = InventoryLog.decrease(seoulInventory(), ORDER_ID, 3);
         ReflectionTestUtils.setField(log, "id", LOG_ID);
         return log;
     }

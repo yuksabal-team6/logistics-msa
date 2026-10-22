@@ -13,6 +13,7 @@ import com.yuksabal.hub.inventory.domain.InventoryChangeType;
 import com.yuksabal.hub.inventory.domain.InventoryLog;
 import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
 import com.yuksabal.hub.inventory.domain.InventoryRepository;
+import com.yuksabal.hub.inventory.domain.ProductInfo;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
