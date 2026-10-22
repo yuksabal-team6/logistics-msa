@@ -1,10 +1,10 @@
-package com.yuksabal.hub.inventory.client;
+package com.yuksabal.hub.inventory.infrastructure;
 
 import com.yuksabal.common.feign.FeignClientException;
-import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
-import com.yuksabal.hub.inventory.service.CompanyReader;
-import com.yuksabal.hub.inventory.service.ProductInfo;
-import com.yuksabal.hub.inventory.service.ProductReader;
+import com.yuksabal.hub.inventory.infrastructure.dto.CompanyResponse;
+import com.yuksabal.hub.inventory.application.CompanyReader;
+import com.yuksabal.hub.inventory.application.ProductInfo;
+import com.yuksabal.hub.inventory.application.ProductReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;

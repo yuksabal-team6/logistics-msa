@@ -1,4 +1,4 @@
-package com.yuksabal.hub.inventory.client.dto;
+package com.yuksabal.hub.inventory.infrastructure.dto;
 
 import java.util.UUID;
 

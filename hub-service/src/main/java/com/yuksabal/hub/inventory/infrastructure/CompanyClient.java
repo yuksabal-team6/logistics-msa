@@ -1,8 +1,8 @@
-package com.yuksabal.hub.inventory.client;
+package com.yuksabal.hub.inventory.infrastructure;
 
 import com.yuksabal.common.response.ApiResponse;
-import com.yuksabal.hub.inventory.client.dto.CompanyResponse;
-import com.yuksabal.hub.inventory.client.dto.ProductResponse;
+import com.yuksabal.hub.inventory.infrastructure.dto.CompanyResponse;
+import com.yuksabal.hub.inventory.infrastructure.dto.ProductResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
