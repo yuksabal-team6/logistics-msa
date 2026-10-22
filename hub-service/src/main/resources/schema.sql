@@ -37,3 +37,20 @@ ALTER TABLE hub_service.p_inventories ADD CONSTRAINT ck_inventories_quantity_non
 CREATE UNIQUE INDEX IF NOT EXISTS uk_hub_routes_departure_hub_id_arrival_hub_id
     ON hub_service.p_hub_routes (departure_hub_id, arrival_hub_id)
     WHERE deleted_at IS NULL;
+
+-- 재고·경로 → 허브 외래 키 (#268)
+-- 재고·경로는 허브를 객체(@ManyToOne)가 아니라 ID(hub_id)로 참조한다 (DDD 애그리거트 경계). 그래서 Hibernate가 외래 키를 만들지 않아,
+-- 없는 허브 ID가 들어가지 않도록 여기서 만든다. 코드의 참조 방식과 DB 무결성은 별개라 같은 DB 안에서는 외래 키를 유지한다
+-- 예전에 @ManyToOne으로 Hibernate가 만든 외래 키(FK로 시작하는 이름)가 기존 DB에 남아 있을 수 있다 (중복이지만 무해, Flyway 도입 때 정리)
+-- PostgreSQL은 ADD CONSTRAINT IF NOT EXISTS가 없어 지우고 다시 만든다 (change_type 제약과 같은 TODO 대상)
+ALTER TABLE hub_service.p_inventories DROP CONSTRAINT IF EXISTS fk_inventories_hub_id;
+ALTER TABLE hub_service.p_inventories ADD CONSTRAINT fk_inventories_hub_id
+    FOREIGN KEY (hub_id) REFERENCES hub_service.p_hubs (hub_id);
+
+ALTER TABLE hub_service.p_hub_routes DROP CONSTRAINT IF EXISTS fk_hub_routes_departure_hub_id;
+ALTER TABLE hub_service.p_hub_routes ADD CONSTRAINT fk_hub_routes_departure_hub_id
+    FOREIGN KEY (departure_hub_id) REFERENCES hub_service.p_hubs (hub_id);
+
+ALTER TABLE hub_service.p_hub_routes DROP CONSTRAINT IF EXISTS fk_hub_routes_arrival_hub_id;
+ALTER TABLE hub_service.p_hub_routes ADD CONSTRAINT fk_hub_routes_arrival_hub_id
+    FOREIGN KEY (arrival_hub_id) REFERENCES hub_service.p_hubs (hub_id);

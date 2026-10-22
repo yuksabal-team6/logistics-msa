@@ -17,10 +17,12 @@ import com.yuksabal.user.user.entity.User;
 import com.yuksabal.user.user.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -46,7 +48,8 @@ public class UserService {
 
     // 역할은 항상 USER. 아이디·이메일 중복(409)을 먼저 보고, 허브·업체 존재는 내부 API(#7, #2)로 확인한다
     // (없으면 400, 확인 실패면 502)
-    @Transactional
+    // 내부 API 호출(최대 수 초)이 DB 연결을 잡고 있지 않도록 트랜잭션 밖에서 확인하고, 저장만 saveAndFlush의 트랜잭션으로 한다
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RegisterResponse register(RegisterRequest request) {
         validateNotDuplicated(request);
         affiliationValidator.validate(request.hubId(), request.companyId());
@@ -95,7 +98,7 @@ public class UserService {
         if (request.hasNoChanges()) {
             throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, "수정할 항목이 없습니다.");
         }
-        User user = findActiveUser(userId);
+        User user = findActiveUserForUpdate(userId);
         validateNotDuplicatedForUpdate(userId, request);
 
         user.updateProfile(request.username(), request.email(), request.slackId(), request.isPublic());
@@ -107,7 +110,7 @@ public class UserService {
     // 현재 비밀번호 불일치 401, 새 비밀번호 정책 위반(형식은 DTO, 기존과 동일 여부는 여기서) 400
     @Transactional
     public void changePassword(UUID userId, ChangePasswordRequest request) {
-        User user = findActiveUser(userId);
+        User user = findActiveUserForUpdate(userId);
         if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
             throw new BusinessException(UserErrorCode.INVALID_PASSWORD);
         }
@@ -121,7 +124,17 @@ public class UserService {
     // 토큰은 유효하지만 탈퇴(소프트 삭제)한 회원이면 404 — 토큰 무효화가 없어 생길 수 있다
     // 비활성 계정은 토큰이 아직 유효해도 403 ACCOUNT_DISABLED (#67)
     private User findActiveUser(UUID userId) {
-        User user = userRepository.findById(userId)
+        return checkActive(userRepository.findById(userId));
+    }
+
+    // 쓰기용: 행을 잠그고 읽는다. 잠그지 않으면 엔티티의 모든 컬럼을 다시 쓰므로,
+    // 읽은 뒤 커밋된 MASTER의 비활성화·역할 변경을 이 요청이 옛 값으로 덮어쓴다 (UserStateTransition도 같은 잠금)
+    private User findActiveUserForUpdate(UUID userId) {
+        return checkActive(userRepository.findByIdForUpdate(userId));
+    }
+
+    private User checkActive(Optional<User> found) {
+        User user = found
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND, "존재하지 않거나 탈퇴한 회원입니다."));
         if (!user.isActive()) {
             throw new BusinessException(UserErrorCode.ACCOUNT_DISABLED);

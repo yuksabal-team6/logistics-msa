@@ -3,7 +3,6 @@ package com.yuksabal.company.global.activework;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.company.global.client.HubClient;
 import com.yuksabal.company.global.client.OrderClient;
@@ -14,12 +13,13 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static com.yuksabal.common.exception.CommonErrorCode.DEPENDENCY_FAILURE;
+import static com.yuksabal.company.support.BusinessErrorAssertions.assertBusinessError;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 // hub(#146)·order(#143) 내부 API 응답을 해석하는 부분만 확인한다. 실제 호출은 통합 확인으로 검증한다
+@SuppressWarnings("NonAsciiCharacters")
 class ActiveWorkCheckerTest {
 
     private static final UUID ID = UUID.randomUUID();
@@ -55,12 +55,8 @@ class ActiveWorkCheckerTest {
         given(hubClient.getStockByProduct(ID)).willReturn(ApiResponse.success(null));
         given(orderClient.getInProgressByCompany(ID)).willReturn(null);
 
-        assertThatThrownBy(() -> inventoryChecker.findBlockers(ActiveWorkTarget.PRODUCT, ID))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
-        assertThatThrownBy(() -> orderChecker.findBlockers(ActiveWorkTarget.COMPANY, ID))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
+        assertBusinessError(() -> inventoryChecker.findBlockers(ActiveWorkTarget.PRODUCT, ID), DEPENDENCY_FAILURE);
+        assertBusinessError(() -> orderChecker.findBlockers(ActiveWorkTarget.COMPANY, ID), DEPENDENCY_FAILURE);
     }
 
     @Test
@@ -74,11 +70,7 @@ class ActiveWorkCheckerTest {
         given(orderClient.getInProgressByCompany(ID)).willReturn(missing);
 
         assertThat(renamed.data().hasStock()).isNull();
-        assertThatThrownBy(() -> inventoryChecker.findBlockers(ActiveWorkTarget.COMPANY, ID))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
-        assertThatThrownBy(() -> orderChecker.findBlockers(ActiveWorkTarget.COMPANY, ID))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(DEPENDENCY_FAILURE));
+        assertBusinessError(() -> inventoryChecker.findBlockers(ActiveWorkTarget.COMPANY, ID), DEPENDENCY_FAILURE);
+        assertBusinessError(() -> orderChecker.findBlockers(ActiveWorkTarget.COMPANY, ID), DEPENDENCY_FAILURE);
     }
 }

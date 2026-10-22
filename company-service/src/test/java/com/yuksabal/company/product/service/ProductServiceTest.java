@@ -30,8 +30,9 @@ import static com.yuksabal.common.exception.CommonErrorCode.BUSINESS_RULE_VIOLAT
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.HAS_ACTIVE_WORK;
+import static com.yuksabal.company.support.BusinessErrorAssertions.assertBusinessError;
+import static com.yuksabal.company.support.BusinessErrorAssertions.catchBusinessError;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willAnswer;
@@ -44,6 +45,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 // Repository·삭제 확인은 가짜로 두고, 검증 순서와 분기만 확인한다
 // 실제 잠금이 동시 요청을 순서대로 처리하는지(#147)는 여기서 확인하지 않는다
+@SuppressWarnings("NonAsciiCharacters")
 @ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
 
@@ -86,20 +88,17 @@ class ProductServiceTest {
         void 없거나_삭제된_업체면_404() {
             given(companyRepository.findByIdForUpdate(COMPANY_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productService.createProduct(COMPANY_ID, request, MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("companyId");
-                    });
+            BusinessException e = catchBusinessError(() -> productService.createProduct(COMPANY_ID, request, MASTER_ID, UserRole.MASTER),
+                    RESOURCE_NOT_FOUND);
+            assertThat(e.getDetails()).extracting("field").containsExactly("companyId");
         }
 
         @Test
         void 다른_업체의_관리자는_등록할_수_없다() {
             given(companyRepository.findByIdForUpdate(COMPANY_ID)).willReturn(Optional.of(company(true)));
 
-            assertThatThrownBy(() -> productService.createProduct(COMPANY_ID, request, OTHER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertBusinessError(() -> productService.createProduct(COMPANY_ID, request, OTHER_ID, UserRole.COMPANY),
+                    COMPANY_ACCESS_DENIED);
 
             verify(productRepository, never()).save(any());
         }
@@ -108,11 +107,9 @@ class ProductServiceTest {
         void 비활성_업체에는_등록할_수_없다() {
             given(companyRepository.findByIdForUpdate(COMPANY_ID)).willReturn(Optional.of(company(false)));
 
-            assertThatThrownBy(() -> productService.createProduct(COMPANY_ID, request, MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
-                        assertThat(e.getMessage()).isEqualTo("비활성 업체에는 상품을 등록할 수 없습니다.");
-                    });
+            BusinessException e = catchBusinessError(() -> productService.createProduct(COMPANY_ID, request, MASTER_ID, UserRole.MASTER),
+                    BUSINESS_RULE_VIOLATION);
+            assertThat(e.getMessage()).isEqualTo("비활성 업체에는 상품을 등록할 수 없습니다.");
 
             verify(productRepository, never()).save(any());
         }
@@ -126,9 +123,8 @@ class ProductServiceTest {
             Product product = product(company(true), true);
             given(productRepository.findById(PRODUCT_ID)).willReturn(Optional.of(product));
 
-            assertThatThrownBy(() -> productService.updateProduct(PRODUCT_ID, new ProductUpdateRequest("갈치", null, null), OTHER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertBusinessError(() -> productService.updateProduct(PRODUCT_ID, new ProductUpdateRequest("갈치", null, null), OTHER_ID, UserRole.COMPANY),
+                    COMPANY_ACCESS_DENIED);
 
             assertThat(product.getProductName()).isEqualTo("고등어");
         }
@@ -166,11 +162,9 @@ class ProductServiceTest {
         void 없거나_삭제된_상품이면_404이고_업체를_잠그지_않는다() {
             given(productRepository.findCompanyIdById(PRODUCT_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> productService.changeProductStatus(PRODUCT_ID, new ProductStatusRequest(false), MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("productId");
-                    });
+            BusinessException e = catchBusinessError(() -> productService.changeProductStatus(PRODUCT_ID, new ProductStatusRequest(false), MASTER_ID, UserRole.MASTER),
+                    RESOURCE_NOT_FOUND);
+            assertThat(e.getDetails()).extracting("field").containsExactly("productId");
 
             verifyNoInteractions(companyRepository);
         }
@@ -180,9 +174,8 @@ class ProductServiceTest {
             given(productRepository.findCompanyIdById(PRODUCT_ID)).willReturn(Optional.of(COMPANY_ID));
             given(companyRepository.findByIdForUpdate(COMPANY_ID)).willReturn(Optional.of(company(true)));
 
-            assertThatThrownBy(() -> productService.changeProductStatus(PRODUCT_ID, new ProductStatusRequest(false), OTHER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertBusinessError(() -> productService.changeProductStatus(PRODUCT_ID, new ProductStatusRequest(false), OTHER_ID, UserRole.COMPANY),
+                    COMPANY_ACCESS_DENIED);
 
             verify(productRepository, never()).findById(any());
         }
@@ -193,11 +186,9 @@ class ProductServiceTest {
             Product product = product(company, false);
             givenStatusTarget(company, product);
 
-            assertThatThrownBy(() -> productService.changeProductStatus(PRODUCT_ID, new ProductStatusRequest(true), MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
-                        assertThat(e.getMessage()).isEqualTo("비활성 업체의 상품은 활성화할 수 없습니다.");
-                    });
+            BusinessException e = catchBusinessError(() -> productService.changeProductStatus(PRODUCT_ID, new ProductStatusRequest(true), MASTER_ID, UserRole.MASTER),
+                    BUSINESS_RULE_VIOLATION);
+            assertThat(e.getMessage()).isEqualTo("비활성 업체의 상품은 활성화할 수 없습니다.");
 
             assertThat(product.isActive()).isFalse();
         }
@@ -250,9 +241,8 @@ class ProductServiceTest {
         void 다른_업체의_관리자는_삭제할_수_없고_남은_업무를_확인하지_않는다() {
             given(productRepository.findById(PRODUCT_ID)).willReturn(Optional.of(product(company(true), false)));
 
-            assertThatThrownBy(() -> productService.deleteProduct(PRODUCT_ID, OTHER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertBusinessError(() -> productService.deleteProduct(PRODUCT_ID, OTHER_ID, UserRole.COMPANY),
+                    COMPANY_ACCESS_DENIED);
 
             verifyNoInteractions(activeWorkGuard);
         }
@@ -261,11 +251,9 @@ class ProductServiceTest {
         void 활성_상품은_422이고_남은_업무를_확인하지_않는다() {
             given(productRepository.findById(PRODUCT_ID)).willReturn(Optional.of(product(company(true), true)));
 
-            assertThatThrownBy(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
-                        assertThat(e.getMessage()).isEqualTo("비활성화한 상품만 삭제할 수 있습니다.");
-                    });
+            BusinessException e = catchBusinessError(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY),
+                    BUSINESS_RULE_VIOLATION);
+            assertThat(e.getMessage()).isEqualTo("비활성화한 상품만 삭제할 수 있습니다.");
 
             verifyNoInteractions(activeWorkGuard);
         }
@@ -277,9 +265,7 @@ class ProductServiceTest {
             willThrow(new BusinessException(HAS_ACTIVE_WORK))
                     .given(activeWorkGuard).validateDeletable(ActiveWorkTarget.PRODUCT, PRODUCT_ID);
 
-            assertThatThrownBy(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(HAS_ACTIVE_WORK));
+            assertBusinessError(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY), HAS_ACTIVE_WORK);
 
             assertThat(product.getDeletedAt()).isNull();
         }
@@ -294,9 +280,8 @@ class ProductServiceTest {
                 return null;
             }).given(activeWorkGuard).validateDeletable(ActiveWorkTarget.PRODUCT, PRODUCT_ID);
 
-            assertThatThrownBy(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION));
+            assertBusinessError(() -> productService.deleteProduct(PRODUCT_ID, OWNER_ID, UserRole.COMPANY),
+                    BUSINESS_RULE_VIOLATION);
 
             assertThat(product.getDeletedAt()).isNull();
         }
