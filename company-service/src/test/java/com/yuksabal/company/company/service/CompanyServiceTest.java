@@ -36,6 +36,8 @@ import static com.yuksabal.common.exception.CommonErrorCode.FORBIDDEN;
 import static com.yuksabal.common.exception.CommonErrorCode.RESOURCE_NOT_FOUND;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.COMPANY_ACCESS_DENIED;
 import static com.yuksabal.company.global.exception.CompanyErrorCode.HAS_ACTIVE_WORK;
+import static com.yuksabal.company.support.BusinessErrorAssertions.assertBusinessError;
+import static com.yuksabal.company.support.BusinessErrorAssertions.catchBusinessError;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -81,9 +83,8 @@ class CompanyServiceTest {
 
         @Test
         void COMPANY가_다른_회원을_관리자로_지정하면_403이고_이후_검사를_하지_않는다() {
-            assertThatThrownBy(() -> companyService.createCompany(createRequest(OTHER_ID, null), OWNER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertBusinessError(() -> companyService.createCompany(createRequest(OTHER_ID, null), OWNER_ID, UserRole.COMPANY),
+                    COMPANY_ACCESS_DENIED);
 
             verifyNoInteractions(companyRepository, hubClient, userClient);
         }
@@ -92,11 +93,9 @@ class CompanyServiceTest {
         void 사업자_등록번호가_중복이면_409이고_외부_서비스를_부르지_않는다() {
             given(companyRepository.existsByBusinessNumber("123-45-67890")).willReturn(true);
 
-            assertThatThrownBy(() -> companyService.createCompany(createRequest(OWNER_ID, "123-45-67890"), MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(DUPLICATE_RESOURCE);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("businessNumber");
-                    });
+            BusinessException e = catchBusinessError(() -> companyService.createCompany(createRequest(OWNER_ID, "123-45-67890"), MASTER_ID, UserRole.MASTER),
+                    DUPLICATE_RESOURCE);
+            assertThat(e.getDetails()).extracting("field").containsExactly("businessNumber");
 
             verifyNoInteractions(hubClient, userClient);
         }
@@ -115,11 +114,9 @@ class CompanyServiceTest {
         void 이미_다른_업체를_관리하는_회원이면_409() {
             given(companyRepository.existsByOwnerId(OWNER_ID)).willReturn(true);
 
-            assertThatThrownBy(() -> companyService.createCompany(createRequest(OWNER_ID, null), MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(DUPLICATE_RESOURCE);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("ownerId");
-                    });
+            BusinessException e = catchBusinessError(() -> companyService.createCompany(createRequest(OWNER_ID, null), MASTER_ID, UserRole.MASTER),
+                    DUPLICATE_RESOURCE);
+            assertThat(e.getDetails()).extracting("field").containsExactly("ownerId");
 
             verifyNoInteractions(hubClient, userClient);
         }
@@ -140,11 +137,9 @@ class CompanyServiceTest {
             given(userClient.getUser(OWNER_ID))
                     .willThrow(new FeignClientException(404, "RESOURCE_NOT_FOUND", "존재하지 않는 회원입니다.", List.of()));
 
-            assertThatThrownBy(() -> companyService.createCompany(createRequest(OWNER_ID, null), MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class, e -> {
-                        assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
-                        assertThat(e.getDetails()).extracting("field").containsExactly("ownerId");
-                    });
+            BusinessException e = catchBusinessError(() -> companyService.createCompany(createRequest(OWNER_ID, null), MASTER_ID, UserRole.MASTER),
+                    RESOURCE_NOT_FOUND);
+            assertThat(e.getDetails()).extracting("field").containsExactly("ownerId");
         }
 
         @Test
@@ -188,16 +183,14 @@ class CompanyServiceTest {
 
         @Test
         void 다른_업체의_관리자는_수정할_수_없다() {
-            assertThatThrownBy(() -> companyService.updateCompany(COMPANY_ID, updateRequest(null, null, null), OTHER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(COMPANY_ACCESS_DENIED));
+            assertBusinessError(() -> companyService.updateCompany(COMPANY_ID, updateRequest(null, null, null), OTHER_ID, UserRole.COMPANY),
+                    COMPANY_ACCESS_DENIED);
         }
 
         @Test
         void COMPANY가_허브를_바꾸면_403() {
-            assertThatThrownBy(() -> companyService.updateCompany(COMPANY_ID, updateRequest(UUID.randomUUID(), null, null), OWNER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+            assertBusinessError(() -> companyService.updateCompany(COMPANY_ID, updateRequest(UUID.randomUUID(), null, null), OWNER_ID, UserRole.COMPANY),
+                    FORBIDDEN);
 
             verifyNoInteractions(hubClient);
         }
@@ -243,9 +236,8 @@ class CompanyServiceTest {
             UUID newHubId = UUID.randomUUID();
             willThrow(new BusinessException(HAS_ACTIVE_WORK)).given(activeWorkGuard).validateHubChangeable(COMPANY_ID);
 
-            assertThatThrownBy(() -> companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, null, null), MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(HAS_ACTIVE_WORK));
+            assertBusinessError(() -> companyService.updateCompany(COMPANY_ID, updateRequest(newHubId, null, null), MASTER_ID, UserRole.MASTER),
+                    HAS_ACTIVE_WORK);
 
             assertThat(company.getHubId()).isEqualTo(HUB_ID);
         }
@@ -275,9 +267,8 @@ class CompanyServiceTest {
 
         @Test
         void MASTER가_아니면_403이고_업체를_조회하지_않는다() {
-            assertThatThrownBy(() -> companyService.changeCompanyStatus(COMPANY_ID, new CompanyStatusRequest(false), UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+            assertBusinessError(() -> companyService.changeCompanyStatus(COMPANY_ID, new CompanyStatusRequest(false), UserRole.COMPANY),
+                    FORBIDDEN);
 
             verifyNoInteractions(companyRepository);
         }
@@ -339,9 +330,7 @@ class CompanyServiceTest {
 
         @Test
         void MASTER가_아니면_403이고_아무것도_확인하지_않는다() {
-            assertThatThrownBy(() -> companyService.deleteCompany(COMPANY_ID, OWNER_ID, UserRole.COMPANY))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
+            assertBusinessError(() -> companyService.deleteCompany(COMPANY_ID, OWNER_ID, UserRole.COMPANY), FORBIDDEN);
 
             verifyNoInteractions(companyRepository, activeWorkGuard, transactionTemplate);
         }
@@ -350,9 +339,8 @@ class CompanyServiceTest {
         void 활성_업체는_422이고_남은_업무를_확인하지_않는다() {
             given(companyRepository.findById(COMPANY_ID)).willReturn(Optional.of(company(true)));
 
-            assertThatThrownBy(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION));
+            assertBusinessError(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER),
+                    BUSINESS_RULE_VIOLATION);
 
             verifyNoInteractions(activeWorkGuard);
         }
@@ -364,9 +352,7 @@ class CompanyServiceTest {
             willThrow(new BusinessException(HAS_ACTIVE_WORK))
                     .given(activeWorkGuard).validateDeletable(ActiveWorkTarget.COMPANY, COMPANY_ID);
 
-            assertThatThrownBy(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(HAS_ACTIVE_WORK));
+            assertBusinessError(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER), HAS_ACTIVE_WORK);
 
             verifyNoInteractions(productService);
             assertThat(company.getDeletedAt()).isNull();
@@ -382,9 +368,8 @@ class CompanyServiceTest {
                 return null;
             }).given(activeWorkGuard).validateDeletable(ActiveWorkTarget.COMPANY, COMPANY_ID);
 
-            assertThatThrownBy(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER))
-                    .isInstanceOfSatisfying(BusinessException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION));
+            assertBusinessError(() -> companyService.deleteCompany(COMPANY_ID, MASTER_ID, UserRole.MASTER),
+                    BUSINESS_RULE_VIOLATION);
 
             verifyNoInteractions(productService);
             assertThat(company.getDeletedAt()).isNull();
@@ -433,11 +418,8 @@ class CompanyServiceTest {
     }
 
     private static void assertOwnerRuleViolation(Runnable call, String message) {
-        assertThatThrownBy(call::run)
-                .isInstanceOfSatisfying(BusinessException.class, e -> {
-                    assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
-                    assertThat(e.getMessage()).isEqualTo(message);
-                    assertThat(e.getDetails()).extracting("field").containsExactly("ownerId");
-                });
+        BusinessException e = catchBusinessError(call::run, BUSINESS_RULE_VIOLATION);
+        assertThat(e.getMessage()).isEqualTo(message);
+        assertThat(e.getDetails()).extracting("field").containsExactly("ownerId");
     }
 }
