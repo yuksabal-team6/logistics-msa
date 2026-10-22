@@ -31,4 +31,18 @@ public class CompanyAccessPolicy {
             default -> throw new BusinessException(FORBIDDEN);
         }
     }
+
+    // 업체 상태 변경, 업체 삭제는 MASTER만 허용. 그 외 역할은 403
+    public static void checkMaster(UserRole role) {
+        if (role != UserRole.MASTER) {
+            throw new BusinessException(FORBIDDEN);
+        }
+    }
+
+    // 관리 허브·관리자 변경은 MASTER만 허용. 바뀌는 것이 없으면 COMPANY도 통과
+    public static void checkHubOrOwnerChangeable(boolean hubChanged, boolean ownerChanged, UserRole role) {
+        if (hubChanged || ownerChanged) {
+            checkMaster(role);
+        }
+    }
 }
