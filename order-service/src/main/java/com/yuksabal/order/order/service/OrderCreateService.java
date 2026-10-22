@@ -26,8 +26,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Optional;
@@ -81,7 +79,10 @@ public class OrderCreateService {
      * @param role           요청한 사용자 권한
      * @return 생성된 주문 정보
      */
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    // @Transactional(NOT_SUPPORTED)을 붙이지 않음 (#274)
+    //  붙이면 트랜잭션 동기화가 켜져서, 첫 조회(findByIdempotencyKey)가 잡은 DB 커넥션을 요청이 끝날 때까지 쥐고 있음
+    //  그 상태로 확정 단계 TransactionTemplate이 커넥션을 하나 더 잡아서 요청 1건이 2개를 씀 → 동시 요청이 풀 크기만큼 오면 서로 기다리다 타임아웃
+    //  붙이지 않아도 이 메서드는 트랜잭션 밖이고, 조회는 호출마다 커넥션을 잡았다 바로 반납함
     public OrderCreateResponse createOrder(OrderCreateRequest request, UUID idempotencyKey, UUID userId, UserRole role) {
         log.debug("[주문 생성] 시작 userId={}, productId={}, quantity={}, idempotencyKey={}",
                 userId, request.productId(), request.quantity(), idempotencyKey);
