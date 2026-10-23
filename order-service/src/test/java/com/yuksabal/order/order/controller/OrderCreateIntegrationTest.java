@@ -1,10 +1,12 @@
 package com.yuksabal.order.order.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.ApiResponse;
+import com.yuksabal.order.global.exception.OrderErrorCode;
 import com.yuksabal.order.order.client.CompanyClient;
 import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.HubClient;
@@ -631,6 +633,22 @@ class OrderCreateIntegrationTest {
         verify(hubClient).restoreStock(any());
         verify(deliveryClient).cancelDelivery(any());
         verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == CHECK_NEEDED && "배송 생성 중 예상하지 못한 오류".equals(e.reason())));
+    }
+
+    @Test
+    void 확인_필요_알림_저장이_실패해도_원래_예외로_응답() throws Exception {
+        // 배송 생성 중 예상 못 한 예외(500) → 보상 완료 → 확인 필요 알림 저장 실패
+        // 저장 실패를 409 예외로 흉내내서, 응답이 409로 바뀌면 원래 예외가 덮인 것
+        given(deliveryClient.createDelivery(any())).willReturn(ApiResponse.success(null));
+        givenRestoreSucceeds();
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+        doThrow(new BusinessException(OrderErrorCode.ORDER_IN_PROGRESS)).when(outboxRecorder)
+                .record(argThat((OrderEvent e) -> e != null && e.eventType() == CHECK_NEEDED));
+
+        create(validBody()).andExpect(status().isInternalServerError());
+
+        assertFailed(CompensationStatus.COMPLETED);
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e != null && e.eventType() == CHECK_NEEDED));
     }
 
     @Test
