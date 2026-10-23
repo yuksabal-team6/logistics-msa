@@ -2,6 +2,8 @@ package com.yuksabal.gateway.global.filter;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.yuksabal.gateway.global.client.UserStatus;
+import com.yuksabal.gateway.global.client.UserStatusClient;
 import com.yuksabal.gateway.support.TestJwt;
 import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.AfterAll;
@@ -9,11 +11,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -27,6 +31,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
 
 // 실제 게이트웨이 서버 + 하위 서비스 대역(stub)으로 인증·인가·헤더 전달·오류 응답을 확인한다.
 // - order-service, user-service → stub (받은 X-User-* 헤더를 그대로 돌려준다)
@@ -47,6 +52,9 @@ class GatewayAuthenticationIntegrationTest {
 
     @Autowired
     private WebTestClient webTestClient;
+
+    @MockBean
+    private UserStatusClient userStatusClient;
 
     private final String userId = UUID.randomUUID().toString();
 
@@ -222,7 +230,9 @@ class GatewayAuthenticationIntegrationTest {
                 .jsonPath("$.error.message").isNotEmpty();
     }
 
+    // 회원 상태 조회는 토큰과 같은 역할의 활성 회원으로 응답한다 (상태 확인 자체는 GatewayUserStatusIntegrationTest)
     private String token(String role) {
+        given(userStatusClient.fetch(UUID.fromString(userId))).willReturn(Mono.just(new UserStatus(true, role)));
         return TestJwt.token(SECRET, userId, role);
     }
 

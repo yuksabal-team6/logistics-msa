@@ -75,7 +75,8 @@ public class UserAdminService {
     }
 
     // 역할을 바꿔도 대상이 이미 받은 토큰에는 예전 역할이 남아 있다 (토큰 무효화 없음).
-    // user-service는 헤더 역할과 DB 역할이 다르면 403이라, 대상은 다시 로그인해야 한다
+    // gateway가 요청마다 /internal/users로 DB 역할을 대조해 다르면 401 ROLE_CHANGED로 막으므로 바로 반영되고,
+    // 대상은 다시 로그인해 새 역할의 토큰을 받아야 한다 (gateway를 거치지 않은 직접 호출은 RequesterValidator가 403)
     // DELIVERY → 다른 역할은 진행 중 배송이 있으면 409 (역할이 바뀌어도 배송 건에 담당자로 남으므로, delivery 답변)
     public UserResponse changeRole(UUID requesterId, UserRole headerRole, UUID userId, ChangeRoleRequest request) {
         requesterValidator.verifyMaster(requesterId, headerRole);
@@ -103,8 +104,8 @@ public class UserAdminService {
         return UserResponse.from(stateTransition.changeRole(hold, newRole));
     }
 
-    // 비활성화해도 대상이 이미 받은 토큰은 만료 전까지 유효하다. user-service API는 DB를 확인해 403으로 막지만,
-    // 헤더만 신뢰하는 다른 서비스는 만료(최대 1시간)까지 막지 못한다
+    // 비활성화해도 대상이 이미 받은 토큰은 서명상 만료 전까지 유효하지만,
+    // gateway가 요청마다 /internal/users로 상태를 확인해 403 ACCOUNT_DISABLED로 막으므로 모든 서비스에 바로 반영된다
     // 진행 중 배송이 있으면 비활성화도 409 (delivery 답변). 주문·업체 관리자는 막지 않는다 (company 답변: 즉시 잠금 필요)
     public UserResponse changeStatus(UUID requesterId, UserRole headerRole, UUID userId, ChangeStatusRequest request) {
         requesterValidator.verifyMaster(requesterId, headerRole);
