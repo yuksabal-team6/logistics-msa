@@ -6,15 +6,18 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.util.Objects;
 import java.util.UUID;
 
 // 재고 변경 이력. 기록용이자 (order_id, change_type) 멱등성 키라 삭제하지 않는다 (결정 #18).
+// 한 번 남긴 기록은 바꾸지 않는다. @Immutable이라 저장 후 값이 바뀌어도 변경 감지 UPDATE가 나가지 않는다 (#280)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @SQLRestriction("deleted_at IS NULL")
+@Immutable
 @Entity
 @Table(name = "p_inventory_logs")
 public class InventoryLog extends BaseEntity {
@@ -24,8 +27,11 @@ public class InventoryLog extends BaseEntity {
     @Column(name = "inventory_log_id")
     private UUID id;
 
+    // 재고와 로그는 별도 애그리거트지만, 허브·경로(#268)와 달리 ID가 아니라 객체로 참조한다 (#280)
+    // 로그 목록 응답(허브·상품)과 검색 조건(재고 ID, 허브 ID)이 재고와 함께 조회해야 만들어지고, 같은 서비스·DB에서 항상 함께 읽기 때문이다
+    // 대신 로그를 통해 재고를 바꾸지 않는다: 영속성 전이가 없고, 가리키는 재고도 바꿀 수 없다(updatable = false)
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "inventory_id", nullable = false)
+    @JoinColumn(name = "inventory_id", nullable = false, updatable = false)
     private Inventory inventory;
 
     // 주문 → order-service p_orders.order_id. 입고(INBOUND)·관리자 조정(ADJUST_*)이면 null
