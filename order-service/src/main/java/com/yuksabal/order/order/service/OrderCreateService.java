@@ -367,12 +367,17 @@ public class OrderCreateService {
      */
     private void notifyUnexpectedError(Order order, String reason) {
         // 현재 보상 상태 확인과 확인 필요 알림 이벤트 outbox 저장을 한 트랜잭션에서 (#198)
-        transactionTemplate.executeWithoutResult(status -> {
-            Order current = orderRepository.findByIdOrThrow(order.getId());
-            if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
-                outboxRecorder.record(OrderEvent.checkNeeded(current, reason));
-            }
-        });
+        //  호출부의 catch 블록에서 원래 예외를 던지기 직전에 불리므로, 저장 실패(DB 장애 등)가 원래 예외를 덮어쓰지 않도록 로그만 남김
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                Order current = orderRepository.findByIdOrThrow(order.getId());
+                if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
+                    outboxRecorder.record(OrderEvent.checkNeeded(current, reason));
+                }
+            });
+        } catch (RuntimeException e) {
+            log.error("[확인 필요] 알림 이벤트 저장 실패 orderId={}, 사유={}", order.getId(), reason, e);
+        }
     }
 
     /**
