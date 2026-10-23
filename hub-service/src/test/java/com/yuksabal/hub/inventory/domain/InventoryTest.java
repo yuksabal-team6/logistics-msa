@@ -1,5 +1,8 @@
 package com.yuksabal.hub.inventory.domain;
 
+import com.yuksabal.common.exception.BusinessException;
+import com.yuksabal.hub.global.exception.HubErrorCode;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -58,5 +61,76 @@ class InventoryTest {
         assertThatThrownBy(() -> Inventory.builder().hubId(HUB_ID).productId(UUID.randomUUID()).quantity(10).build())
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("재고의 업체는 필수입니다.");
+    }
+
+    @Nested
+    class 주문_차감 {
+
+        @Test
+        void 수량만큼_줄어든다() {
+            Inventory inventory = inventory(10);
+
+            inventory.decrease(3);
+
+            assertThat(inventory.getQuantity()).isEqualTo(7);
+        }
+
+        @Test
+        void 남은_수량과_같은_수량은_차감되어_0이_된다() {
+            Inventory inventory = inventory(3);
+
+            inventory.decrease(3);
+
+            assertThat(inventory.getQuantity()).isZero();
+        }
+
+        @Test
+        void 남은_수량이_부족하면_409와_현재_수량이고_수량은_그대로다() {
+            Inventory inventory = inventory(2);
+
+            assertThatThrownBy(() -> inventory.decrease(3))
+                    .isInstanceOfSatisfying(BusinessException.class, e -> {
+                        assertThat(e.getErrorCode()).isEqualTo(HubErrorCode.INSUFFICIENT_STOCK);
+                        assertThat(e.getDetails()).extracting("reason").containsExactly("현재 재고는 2개입니다.");
+                    });
+            assertThat(inventory.getQuantity()).isEqualTo(2);
+        }
+
+        @Test
+        void 차감_수량이_1_미만이면_차감할_수_없다() {
+            Inventory inventory = inventory(10);
+
+            assertThatThrownBy(() -> inventory.decrease(0))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("변경 수량은 1 이상이어야 합니다.");
+            assertThat(inventory.getQuantity()).isEqualTo(10);
+        }
+    }
+
+    @Nested
+    class 주문_복원 {
+
+        @Test
+        void 수량만큼_늘어난다() {
+            Inventory inventory = inventory(7);
+
+            inventory.increase(3);
+
+            assertThat(inventory.getQuantity()).isEqualTo(10);
+        }
+
+        @Test
+        void 복원_수량이_1_미만이면_복원할_수_없다() {
+            Inventory inventory = inventory(7);
+
+            assertThatThrownBy(() -> inventory.increase(-1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("변경 수량은 1 이상이어야 합니다.");
+            assertThat(inventory.getQuantity()).isEqualTo(7);
+        }
+    }
+
+    private static Inventory inventory(int quantity) {
+        return Inventory.builder().hubId(HUB_ID).productId(UUID.randomUUID()).companyId(UUID.randomUUID()).quantity(quantity).build();
     }
 }

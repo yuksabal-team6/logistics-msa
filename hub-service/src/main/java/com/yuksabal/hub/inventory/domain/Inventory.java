@@ -1,6 +1,8 @@
 package com.yuksabal.hub.inventory.domain;
 
 import com.yuksabal.common.entity.BaseEntity;
+import com.yuksabal.hub.global.exception.HubErrorCode;
+import com.yuksabal.hub.global.exception.HubExceptions;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -36,7 +38,8 @@ public class Inventory extends BaseEntity {
     @Column(nullable = false)
     private UUID companyId;
 
-    // 차감·복원·입고는 조건부 원자 UPDATE로 처리한다 (결정 #14)
+    // 주문 차감·복원은 재고 행을 잠근 뒤 decrease·increase로 바꾼다 (#273)
+    // 입고·관리자 조정은 잠그지 않으므로 조건부 원자 UPDATE로 처리한다 (결정 #14)
     @Column(nullable = false)
     private Integer quantity;
 
@@ -61,6 +64,29 @@ public class Inventory extends BaseEntity {
                 .companyId(product.companyId())
                 .quantity(quantity)
                 .build();
+    }
+
+    // 주문 재고 차감. 남은 수량이 부족하면 409 (details에 현재 수량)
+    // 수량을 읽고 쓰는 사이에 다른 요청이 끼어들지 않도록 잠금 조회한 재고에서만 부른다
+    public void decrease(int quantity) {
+        checkPositive(quantity);
+        if (this.quantity < quantity) {
+            throw HubExceptions.withCurrentQuantity(HubErrorCode.INSUFFICIENT_STOCK, this.quantity);
+        }
+        this.quantity -= quantity;
+    }
+
+    // 주문 재고 복원. 차감과 같이 잠금 조회한 재고에서만 부른다
+    public void increase(int quantity) {
+        checkPositive(quantity);
+        this.quantity += quantity;
+    }
+
+    // 요청 수량은 DTO 검증(@Positive)에서 막혀 정상 요청으로는 걸리지 않는다 (걸리면 코드 버그 → 500)
+    private static void checkPositive(int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("변경 수량은 1 이상이어야 합니다.");
+        }
     }
 
     public void delete(UUID deletedBy) {
