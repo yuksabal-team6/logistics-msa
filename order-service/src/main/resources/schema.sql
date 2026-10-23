@@ -12,3 +12,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_orders_idempotency_key
 CREATE UNIQUE INDEX IF NOT EXISTS uk_orders_order_number
     ON order_service.p_orders (order_number)
     WHERE deleted_at IS NULL;
+
+-- 주문 목록 조회: 주문자별 최신순 (MASTER 외 사용자는 본인 주문만 조회) (#277)
+-- 삭제 안 된 행만 조회하므로(@SQLRestriction) 같은 조건의 부분 인덱스
+-- 1년치(120만 행) 측정: 인덱스 없이 목록 162ms, count 42ms(Seq Scan) → 0.073ms, 1.5ms
+CREATE INDEX IF NOT EXISTS idx_orders_orderer_created
+    ON order_service.p_orders (orderer_id, created_at DESC)
+    WHERE deleted_at IS NULL;
