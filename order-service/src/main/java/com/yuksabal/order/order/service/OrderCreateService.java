@@ -19,7 +19,8 @@ import com.yuksabal.order.order.dto.response.OrderCreateResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
-import com.yuksabal.order.order.notification.SlackNotifier;
+import com.yuksabal.order.order.event.OrderEvent;
+import com.yuksabal.order.order.event.OrderOutboxRecorder;
 import com.yuksabal.order.order.repository.OrderRepository;
 import feign.RetryableException;
 import lombok.RequiredArgsConstructor;
@@ -64,7 +65,8 @@ public class OrderCreateService {
     private final CompanyClient companyClient;
     private final HubClient hubClient;
     private final DeliveryClient deliveryClient;
-    private final SlackNotifier slackNotifier;
+    // 알림 이벤트 outbox 저장 (Slack 전송은 Kafka 리스너가, #198)
+    private final OrderOutboxRecorder outboxRecorder;
     // 재고 복원, 배송 취소 보상 (주문 취소와 같이 사용)
     private final OrderCompensator orderCompensator;
     // 외부 호출을 트랜잭션 밖에 두고, DB 저장만 짧은 트랜잭션으로 묶는다
@@ -108,13 +110,8 @@ public class OrderCreateService {
         recheckProductAndCompanies(order);
         decreaseStock(order);
         UUID deliveryId = createDelivery(order, request);
-        Order confirmed = confirmOrder(order, deliveryId);
-
-        // 7. Slack 주문 알림 (확정 커밋 후). 실패해도 주문은 유지 (SlackNotifier가 예외를 삼킴)
-        // 0단계에서 받은 주문자 slackId로 멘션 (user 추가 호출 없음)
-        slackNotifier.notifyOrderCreated(confirmed,
-                source.product().productName(), source.supplier().companyName(), source.requester().companyName(),
-                orderer.slackId());
+        // 6, 7. 주문 확정 + 주문 접수 알림 이벤트를 outbox에 같이 저장 (Slack 전송은 Kafka 리스너가 따로, #198)
+        Order confirmed = confirmOrder(order, deliveryId, source, orderer);
         return OrderCreateResponse.from(confirmed);
     }
 
@@ -323,13 +320,18 @@ public class OrderCreateService {
         return deliveryId;
     }
 
-    // 6. 주문 확정 (CONFIRMED + deliveryId)
-    private Order confirmOrder(Order order, UUID deliveryId) {
+    // 6. 주문 확정 (CONFIRMED + deliveryId) + 7. 주문 접수 알림 이벤트 outbox 저장 (같은 트랜잭션, #198)
+    //  둘 중 하나라도 실패하면 함께 롤백 → "확정됐는데 알림 기록 없음", "확정 안 됐는데 알림 기록 있음"이 생기지 않음
+    //  주문자 slackId는 0단계에서 받은 값 (user 추가 호출 없음)
+    private Order confirmOrder(Order order, UUID deliveryId, OrderSource source, UserResponse orderer) {
         Order confirmed;
         try {
             confirmed = transactionTemplate.execute(status -> {
                 Order saved = orderRepository.findByIdOrThrow(order.getId());
                 saved.confirm(deliveryId);
+                outboxRecorder.record(OrderEvent.orderConfirmed(saved,
+                        source.product().productName(), source.supplier().companyName(), source.requester().companyName(),
+                        orderer.slackId()));
                 return saved;
             });
         } catch (BusinessException e) { // 확정 중 상태 전이 거절:
@@ -364,11 +366,17 @@ public class OrderCreateService {
      * @param reason 오류 사유
      */
     private void notifyUnexpectedError(Order order, String reason) {
-        Order current = transactionTemplate.execute(
-                status -> orderRepository
-                        .findByIdOrThrow(order.getId()));
-        if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
-            slackNotifier.notifyCheckNeeded(current, reason);
+        // 현재 보상 상태 확인과 확인 필요 알림 이벤트 outbox 저장을 한 트랜잭션에서 (#198)
+        //  호출부의 catch 블록에서 원래 예외를 던지기 직전에 불리므로, 저장 실패(DB 장애 등)가 원래 예외를 덮어쓰지 않도록 로그만 남김
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                Order current = orderRepository.findByIdOrThrow(order.getId());
+                if (current.getCompensationStatus() == CompensationStatus.COMPLETED) {
+                    outboxRecorder.record(OrderEvent.checkNeeded(current, reason));
+                }
+            });
+        } catch (RuntimeException e) {
+            log.error("[확인 필요] 알림 이벤트 저장 실패 orderId={}, 사유={}", order.getId(), reason, e);
         }
     }
 
@@ -475,7 +483,7 @@ public class OrderCreateService {
                     step, order.getId(), e);
 
             if (compensationStatus == CompensationStatus.PENDING) {
-                slackNotifier.notifyManualAction(order,
+                recordManualAction(order,
                         "주문 생성 중 상태 전이 거절 (" + step + "), 현재 상태 조회 실패: 주문, 재고, 배송 확인 필요");
             }
             return;
@@ -487,9 +495,26 @@ public class OrderCreateService {
 
         // 다른 서비스를 이미 건드려 보상이 필할 수 있는 단계 (재고 차감, 배송 생성) -> 자동 보상 불가하므로 운영자 확인
         if (compensationStatus == CompensationStatus.PENDING) {
-            slackNotifier.notifyManualAction(current, "주문 생성 중 상태 전이 거절 (" + step + "): 재고, 배송 확인 필요");
+            recordManualAction(current, "주문 생성 중 상태 전이 거절 (" + step + "): 재고, 배송 확인 필요");
         }
         // NOT_REQUIRED 의 경우 -> 수동 처리 필요 x 로그만 기록
+    }
+
+    /**
+     * 수동 처리 알림 이벤트를 별도 트랜잭션에서 Outbox에 저장한다.
+     * 주문 상태는 변경하지 않는다.
+     * 저장 실패 시(DB 장애 등) 로그만 남기고 예외를 전파하지 않는다.
+     *
+     * @param order  알림 대상 주문 엔티티
+     * @param reason 수동 처리가 필요한 사유
+     */
+    private void recordManualAction(Order order, String reason) {
+        try {
+            transactionTemplate.executeWithoutResult(status ->
+                    outboxRecorder.record(OrderEvent.manualActionRequired(order, reason)));
+        } catch (RuntimeException e) {
+            log.error("[수동 처리 필요] 알림 이벤트 저장 실패 orderId={}, 사유={}", order.getId(), reason, e);
+        }
     }
 
     /**
