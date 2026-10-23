@@ -261,20 +261,20 @@ class InventoryQueryServiceTest {
 
         @Test
         void 상품_기준이면_상품으로만_확인한다() {
-            given(inventoryRepository.existsByProductIdAndQuantityGreaterThan(PRODUCT_ID, 0)).willReturn(true);
+            given(inventoryRepository.existsByProductIdAndQuantityValueGreaterThan(PRODUCT_ID, 0)).willReturn(true);
 
             assertThat(inventoryQueryService.hasStock(new InventoryStockRequest(PRODUCT_ID, null)).hasStock()).isTrue();
 
-            then(inventoryRepository).should(never()).existsByCompanyIdAndQuantityGreaterThan(any(), anyInt());
+            then(inventoryRepository).should(never()).existsByCompanyIdAndQuantityValueGreaterThan(any(), anyInt());
         }
 
         @Test
         void 업체_기준이면_업체로만_확인한다() {
-            given(inventoryRepository.existsByCompanyIdAndQuantityGreaterThan(COMPANY_ID, 0)).willReturn(false);
+            given(inventoryRepository.existsByCompanyIdAndQuantityValueGreaterThan(COMPANY_ID, 0)).willReturn(false);
 
             assertThat(inventoryQueryService.hasStock(new InventoryStockRequest(null, COMPANY_ID)).hasStock()).isFalse();
 
-            then(inventoryRepository).should(never()).existsByProductIdAndQuantityGreaterThan(any(), anyInt());
+            then(inventoryRepository).should(never()).existsByProductIdAndQuantityValueGreaterThan(any(), anyInt());
         }
     }
 

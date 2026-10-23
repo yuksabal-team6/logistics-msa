@@ -114,8 +114,8 @@ public class InventoryQueryService {
     // 수량 0인 재고는 이력이라 false. 재고가 없는 상품·업체도 404가 아니라 false
     public InventoryStockResponse hasStock(InventoryStockRequest request) {
         boolean hasStock = request.productId() != null
-                ? inventoryRepository.existsByProductIdAndQuantityGreaterThan(request.productId(), 0)
-                : inventoryRepository.existsByCompanyIdAndQuantityGreaterThan(request.companyId(), 0);
+                ? inventoryRepository.existsByProductIdAndQuantityValueGreaterThan(request.productId(), 0)
+                : inventoryRepository.existsByCompanyIdAndQuantityValueGreaterThan(request.companyId(), 0);
         return new InventoryStockResponse(hasStock);
     }
 
@@ -132,7 +132,7 @@ public class InventoryQueryService {
         }
 
         List<Inventory> inStock = inventories.stream()
-                .filter(inventory -> inventory.getQuantity() > 0)
+                .filter(Inventory::hasStock)
                 .toList();
         if (inStock.size() == 1) {
             return inStock.get(0);

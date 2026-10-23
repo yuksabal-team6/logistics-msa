@@ -1,8 +1,6 @@
 package com.yuksabal.hub.inventory.domain;
 
 import com.yuksabal.common.entity.BaseEntity;
-import com.yuksabal.hub.global.exception.HubErrorCode;
-import com.yuksabal.hub.global.exception.HubExceptions;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -38,10 +36,12 @@ public class Inventory extends BaseEntity {
     @Column(nullable = false)
     private UUID companyId;
 
+    // 수량 규칙은 Quantity가 맡는다 (#282). 컬럼은 기존과 같은 quantity 하나
     // 주문 차감·복원은 재고 행을 잠근 뒤 decrease·increase로 바꾼다 (#273)
     // 입고·관리자 조정은 잠그지 않으므로 조건부 원자 UPDATE로 처리한다 (결정 #14)
-    @Column(nullable = false)
-    private Integer quantity;
+    @Getter(AccessLevel.NONE)
+    @Embedded
+    private Quantity quantity;
 
     // 엔티티 불변식. DTO 검증·DB 제약 뒤의 마지막 방어선이라 정상 요청으로는 걸리지 않는다 (걸리면 코드 버그 → 500)
     @Builder
@@ -49,10 +49,7 @@ public class Inventory extends BaseEntity {
         this.hubId = Objects.requireNonNull(hubId, "재고의 허브는 필수입니다.");
         this.productId = Objects.requireNonNull(productId, "재고의 상품은 필수입니다.");
         this.companyId = Objects.requireNonNull(companyId, "재고의 업체는 필수입니다.");
-        this.quantity = quantity != null ? quantity : 0;
-        if (this.quantity < 0) {
-            throw new IllegalArgumentException("재고 수량은 0 이상이어야 합니다.");
-        }
+        this.quantity = new Quantity(quantity != null ? quantity : 0);
     }
 
     // 입고로 처음 생기는 재고. 상품의 업체도 함께 저장한다 (업체는 바뀌지 않아, COMPANY 소유권 확인에 쓴다)
@@ -66,27 +63,24 @@ public class Inventory extends BaseEntity {
                 .build();
     }
 
+    // 응답·로그는 숫자로 쓰므로 수량은 숫자로 내보낸다
+    public int getQuantity() {
+        return quantity.value();
+    }
+
+    public boolean hasStock() {
+        return quantity.isPositive();
+    }
+
     // 주문 재고 차감. 남은 수량이 부족하면 409 (details에 현재 수량)
     // 수량을 읽고 쓰는 사이에 다른 요청이 끼어들지 않도록 잠금 조회한 재고에서만 부른다
-    public void decrease(int quantity) {
-        checkPositive(quantity);
-        if (this.quantity < quantity) {
-            throw HubExceptions.withCurrentQuantity(HubErrorCode.INSUFFICIENT_STOCK, this.quantity);
-        }
-        this.quantity -= quantity;
+    public void decrease(int amount) {
+        this.quantity = quantity.minus(amount);
     }
 
     // 주문 재고 복원. 차감과 같이 잠금 조회한 재고에서만 부른다
-    public void increase(int quantity) {
-        checkPositive(quantity);
-        this.quantity += quantity;
-    }
-
-    // 요청 수량은 DTO 검증(@Positive)에서 막혀 정상 요청으로는 걸리지 않는다 (걸리면 코드 버그 → 500)
-    private static void checkPositive(int quantity) {
-        if (quantity <= 0) {
-            throw new IllegalArgumentException("변경 수량은 1 이상이어야 합니다.");
-        }
+    public void increase(int amount) {
+        this.quantity = quantity.plus(amount);
     }
 
     public void delete(UUID deletedBy) {

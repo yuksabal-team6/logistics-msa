@@ -57,20 +57,20 @@ class InventoryInternalControllerTest {
 
     @Test
     void 상품에_남은_재고가_있으면_true를_반환한다() throws Exception {
-        given(inventoryRepository.existsByProductIdAndQuantityGreaterThan(PRODUCT_ID, 0)).willReturn(true);
+        given(inventoryRepository.existsByProductIdAndQuantityValueGreaterThan(PRODUCT_ID, 0)).willReturn(true);
 
         mockMvc.perform(get(STOCK_URL).param("productId", PRODUCT_ID.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.hasStock").value(true));
 
-        then(inventoryRepository).should(never()).existsByCompanyIdAndQuantityGreaterThan(any(), anyInt());
+        then(inventoryRepository).should(never()).existsByCompanyIdAndQuantityValueGreaterThan(any(), anyInt());
     }
 
     // 수량 0인 재고만 있거나 재고가 아예 없어도 404가 아니라 false
     @Test
     void 상품에_남은_재고가_없으면_false를_반환한다() throws Exception {
-        given(inventoryRepository.existsByProductIdAndQuantityGreaterThan(PRODUCT_ID, 0)).willReturn(false);
+        given(inventoryRepository.existsByProductIdAndQuantityValueGreaterThan(PRODUCT_ID, 0)).willReturn(false);
 
         mockMvc.perform(get(STOCK_URL).param("productId", PRODUCT_ID.toString()))
                 .andExpect(status().isOk())
@@ -79,18 +79,18 @@ class InventoryInternalControllerTest {
 
     @Test
     void 업체에_남은_재고가_있으면_true를_반환한다() throws Exception {
-        given(inventoryRepository.existsByCompanyIdAndQuantityGreaterThan(COMPANY_ID, 0)).willReturn(true);
+        given(inventoryRepository.existsByCompanyIdAndQuantityValueGreaterThan(COMPANY_ID, 0)).willReturn(true);
 
         mockMvc.perform(get(STOCK_URL).param("companyId", COMPANY_ID.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.hasStock").value(true));
 
-        then(inventoryRepository).should(never()).existsByProductIdAndQuantityGreaterThan(any(), anyInt());
+        then(inventoryRepository).should(never()).existsByProductIdAndQuantityValueGreaterThan(any(), anyInt());
     }
 
     @Test
     void 업체에_남은_재고가_없으면_false를_반환한다() throws Exception {
-        given(inventoryRepository.existsByCompanyIdAndQuantityGreaterThan(COMPANY_ID, 0)).willReturn(false);
+        given(inventoryRepository.existsByCompanyIdAndQuantityValueGreaterThan(COMPANY_ID, 0)).willReturn(false);
 
         mockMvc.perform(get(STOCK_URL).param("companyId", COMPANY_ID.toString()))
                 .andExpect(status().isOk())
