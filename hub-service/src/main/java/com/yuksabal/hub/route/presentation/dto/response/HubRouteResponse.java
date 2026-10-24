@@ -1,6 +1,6 @@
 package com.yuksabal.hub.route.presentation.dto.response;
 
-import com.yuksabal.hub.route.domain.HubRoute;
+import com.yuksabal.hub.route.application.dto.HubRouteResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 
@@ -27,13 +27,13 @@ public record HubRouteResponse(
         Integer durationMinutes
 ) {
 
-    public static HubRouteResponse from(HubRoute hubRoute) {
+    public static HubRouteResponse from(HubRouteResult result) {
         return HubRouteResponse.builder()
-                .hubRouteId(hubRoute.getId())
-                .departureHubId(hubRoute.getDepartureHubId())
-                .arrivalHubId(hubRoute.getArrivalHubId())
-                .distanceKm(hubRoute.getDistanceKm())
-                .durationMinutes(hubRoute.getDurationMinutes())
+                .hubRouteId(result.hubRouteId())
+                .departureHubId(result.departureHubId())
+                .arrivalHubId(result.arrivalHubId())
+                .distanceKm(result.distanceKm())
+                .durationMinutes(result.durationMinutes())
                 .build();
     }
 }
