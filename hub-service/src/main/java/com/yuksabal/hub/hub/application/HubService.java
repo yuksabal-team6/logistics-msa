@@ -1,14 +1,9 @@
 package com.yuksabal.hub.hub.application;
 
-import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.common.exception.CommonErrorCode;
-import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubExceptions;
-import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.application.dto.HubResult;
+import com.yuksabal.hub.hub.application.dto.HubSearchCondition;
 import com.yuksabal.hub.hub.domain.HubRepository;
-import com.yuksabal.hub.hub.presentation.dto.request.HubSearchRequest;
-import com.yuksabal.hub.hub.presentation.dto.response.HubInternalResponse;
-import com.yuksabal.hub.hub.presentation.dto.response.HubResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -31,33 +26,20 @@ public class HubService {
     /**
      * 허브 목록을 조회한다. keyword가 있으면 검색, 없으면 전체 목록을 반환한다.
      */
-    public PageResponse<HubResponse> getHubs(HubSearchRequest request, Pageable pageable) {
+    public Page<HubResult> getHubs(HubSearchCondition condition, Pageable pageable) {
         Pageable stablePageable = withIdTiebreaker(pageable);
-        Page<Hub> hubs = hubRepository.findAll(keywordContains(request.keyword()), stablePageable);
-        return PageResponse.from(hubs, HubResponse::from);
+        return hubRepository.findAll(keywordContains(condition.keyword()), stablePageable)
+                .map(HubResult::from);
     }
 
     /**
-     * 허브 단건을 상세 조회한다.
+     * 허브 단건 조회. 공개 상세 조회와 내부 API(company·user-service의 허브 존재 확인)가 함께 쓴다.
+     * 응답 모양은 각 컨트롤러가 정한다 (공개: 전체 정보, 내부: 허브 ID만) (#284)
      * 삭제된 허브는 @SQLRestriction으로 조회되지 않아 없는 허브와 같이 404로 응답한다.
      */
-    public HubResponse getHub(UUID hubId) {
+    public HubResult getHub(UUID hubId) {
         return hubRepository.findById(hubId)
-                .map(HubResponse::from)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND,
-                        "요청한 리소스를 찾을 수 없습니다.",
-                        "hubId"
-                ));
-    }
-
-    /**
-     * 내부 API용 허브 존재 확인. company·user-service가 업체 생성·회원가입 시 호출한다.
-     * 삭제된 허브는 @SQLRestriction으로 조회되지 않아 없는 허브와 같이 404로 응답한다.
-     */
-    public HubInternalResponse getInternalHub(UUID hubId) {
-        return hubRepository.findById(hubId)
-                .map(HubInternalResponse::from)
+                .map(HubResult::from)
                 .orElseThrow(HubExceptions::hubNotFound);
     }
 
