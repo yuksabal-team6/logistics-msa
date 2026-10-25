@@ -2,6 +2,7 @@ package com.yuksabal.hub.inventory.presentation;
 
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
+import com.yuksabal.hub.inventory.application.dto.InventoryStockCondition;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryStockRequest;
 import com.yuksabal.hub.inventory.presentation.dto.response.InventoryStockResponse;
 import com.yuksabal.hub.inventory.application.InventoryQueryService;
@@ -34,6 +35,7 @@ public class InventoryInternalController {
     @GetMapping("/stock")
     public ResponseEntity<ApiResponse<InventoryStockResponse>> hasStock(
             @Valid @ParameterObject InventoryStockRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(inventoryQueryService.hasStock(request)));
+        InventoryStockCondition condition = new InventoryStockCondition(request.productId(), request.companyId());
+        return ResponseEntity.ok(ApiResponse.success(new InventoryStockResponse(inventoryQueryService.hasStock(condition))));
     }
 }
