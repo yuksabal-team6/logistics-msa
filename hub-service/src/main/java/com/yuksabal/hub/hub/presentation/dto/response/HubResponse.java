@@ -1,6 +1,6 @@
 package com.yuksabal.hub.hub.presentation.dto.response;
 
-import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.application.dto.HubResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
@@ -24,7 +24,7 @@ public record HubResponse(
         BigDecimal longitude
 ) {
 
-    public static HubResponse from(Hub hub) {
-        return new HubResponse(hub.getId(), hub.getHubName(), hub.getAddress(), hub.getLatitude(), hub.getLongitude());
+    public static HubResponse from(HubResult result) {
+        return new HubResponse(result.hubId(), result.hubName(), result.address(), result.latitude(), result.longitude());
     }
 }
