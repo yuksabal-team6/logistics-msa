@@ -1,6 +1,6 @@
 package com.yuksabal.hub.inventory.presentation.dto.response;
 
-import com.yuksabal.hub.inventory.domain.Inventory;
+import com.yuksabal.hub.inventory.application.dto.StockRestoreResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.UUID;
@@ -21,12 +21,12 @@ public record StockRestoreResponse(
         UUID orderId
 ) {
 
-    // hub는 LAZY 프록시지만 id만 꺼내므로 허브 조회 쿼리가 나가지 않는다
-    public static StockRestoreResponse of(Inventory inventory, int restoredQuantity, UUID orderId) {
+    // 엔티티 대신 서비스 결과로 만든다 (#284)
+    public static StockRestoreResponse from(StockRestoreResult result) {
         return new StockRestoreResponse(
-                inventory.getHubId(),
-                inventory.getProductId(),
-                restoredQuantity,
-                orderId);
+                result.hubId(),
+                result.productId(),
+                result.restoredQuantity(),
+                result.orderId());
     }
 }
