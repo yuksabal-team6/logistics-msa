@@ -1,6 +1,6 @@
 package com.yuksabal.hub.inventory.presentation.dto.response;
 
-import com.yuksabal.hub.inventory.domain.Inventory;
+import com.yuksabal.hub.inventory.application.dto.StockDecreaseResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.UUID;
@@ -21,12 +21,12 @@ public record StockDecreaseResponse(
         UUID orderId
 ) {
 
-    // hub는 LAZY 프록시지만 id만 꺼내므로 허브 조회 쿼리가 나가지 않는다
-    public static StockDecreaseResponse of(Inventory inventory, UUID orderId) {
+    // 엔티티 대신 서비스 결과로 만든다 (#284)
+    public static StockDecreaseResponse from(StockDecreaseResult result) {
         return new StockDecreaseResponse(
-                inventory.getHubId(),
-                inventory.getProductId(),
-                inventory.getQuantity(),
-                orderId);
+                result.hubId(),
+                result.productId(),
+                result.remainingQuantity(),
+                result.orderId());
     }
 }

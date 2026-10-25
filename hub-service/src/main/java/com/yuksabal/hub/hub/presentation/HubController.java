@@ -3,6 +3,7 @@ package com.yuksabal.hub.hub.presentation;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
+import com.yuksabal.hub.hub.application.dto.HubSearchCondition;
 import com.yuksabal.hub.hub.presentation.dto.request.HubSearchRequest;
 import com.yuksabal.hub.hub.presentation.dto.response.HubResponse;
 import com.yuksabal.hub.hub.application.HubService;
@@ -43,7 +44,9 @@ public class HubController {
     public ResponseEntity<ApiResponse<PageResponse<HubResponse>>> getHubs(
             @Valid @ParameterObject HubSearchRequest request,
             @ParameterObject Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.success(hubService.getHubs(request, pageable), "목록을 조회했습니다."));
+        HubSearchCondition condition = new HubSearchCondition(request.keyword());
+        PageResponse<HubResponse> response = PageResponse.from(hubService.getHubs(condition, pageable), HubResponse::from);
+        return ResponseEntity.ok(ApiResponse.success(response, "목록을 조회했습니다."));
     }
 
     /**
@@ -53,6 +56,7 @@ public class HubController {
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND})
     @GetMapping("/{hubId}")
     public ResponseEntity<ApiResponse<HubResponse>> getHub(@PathVariable UUID hubId) {
-        return ResponseEntity.ok(ApiResponse.success(hubService.getHub(hubId),"허브를 상세 조회했습니다."));
+        HubResponse response = HubResponse.from(hubService.getHub(hubId));
+        return ResponseEntity.ok(ApiResponse.success(response, "허브를 상세 조회했습니다."));
     }
 }

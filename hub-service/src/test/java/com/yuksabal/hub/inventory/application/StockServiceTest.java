@@ -1,9 +1,9 @@
 package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.hub.inventory.presentation.dto.request.StockRequest;
-import com.yuksabal.hub.inventory.presentation.dto.response.StockDecreaseResponse;
-import com.yuksabal.hub.inventory.presentation.dto.response.StockRestoreResponse;
+import com.yuksabal.hub.inventory.application.dto.StockCommand;
+import com.yuksabal.hub.inventory.application.dto.StockDecreaseResult;
+import com.yuksabal.hub.inventory.application.dto.StockRestoreResult;
 import com.yuksabal.hub.inventory.domain.Inventory;
 import com.yuksabal.hub.inventory.domain.InventoryChangeType;
 import com.yuksabal.hub.inventory.domain.InventoryLog;
@@ -70,7 +70,7 @@ class StockServiceTest {
             givenTransactionRuns();
             given(inventoryRepository.findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.decreaseStock(request(3)))
+            assertThatThrownBy(() -> stockService.decreaseStock(command(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
                         assertThat(e.getDetails()).extracting("field").containsExactly("productId");
@@ -86,7 +86,7 @@ class StockServiceTest {
             givenLocked(seoul(100));
             givenOrderLogs();
 
-            stockService.decreaseStock(request(3));
+            stockService.decreaseStock(command(3));
 
             InOrder order = inOrder(inventoryRepository, inventoryLogRepository);
             order.verify(inventoryRepository).findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID);
@@ -101,9 +101,9 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs();
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3));
+            StockDecreaseResult result = stockService.decreaseStock(command(3));
 
-            assertThat(response.remainingQuantity()).isEqualTo(97);
+            assertThat(result.remainingQuantity()).isEqualTo(97);
             assertThat(locked.getQuantity()).isEqualTo(97);
             InventoryLog log = savedLog();
             assertThat(log.getInventory()).isSameAs(locked);
@@ -119,9 +119,9 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3));
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3));
+            StockDecreaseResult result = stockService.decreaseStock(command(3));
 
-            assertThat(response.remainingQuantity()).isEqualTo(97);
+            assertThat(result.remainingQuantity()).isEqualTo(97);
             assertThat(locked.getQuantity()).isEqualTo(97);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
@@ -134,9 +134,9 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs(log(locked, InventoryChangeType.RESTORE, 0));
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3));
+            StockDecreaseResult result = stockService.decreaseStock(command(3));
 
-            assertThat(response.remainingQuantity()).isEqualTo(100);
+            assertThat(result.remainingQuantity()).isEqualTo(100);
             assertThat(locked.getQuantity()).isEqualTo(100);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
@@ -149,9 +149,9 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3), log(locked, InventoryChangeType.RESTORE, 3));
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3));
+            StockDecreaseResult result = stockService.decreaseStock(command(3));
 
-            assertThat(response.remainingQuantity()).isEqualTo(100);
+            assertThat(result.remainingQuantity()).isEqualTo(100);
             assertThat(locked.getQuantity()).isEqualTo(100);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
@@ -163,7 +163,7 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs();
 
-            assertThatThrownBy(() -> stockService.decreaseStock(request(3)))
+            assertThatThrownBy(() -> stockService.decreaseStock(command(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(INSUFFICIENT_STOCK);
                         assertThat(e.getDetails()).extracting("reason").containsExactly("현재 재고는 2개입니다.");
@@ -180,10 +180,10 @@ class StockServiceTest {
             given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
                     .willReturn(Optional.of(log(seoul(97), InventoryChangeType.DECREASE, 3)));
 
-            StockDecreaseResponse response = stockService.decreaseStock(request(3));
+            StockDecreaseResult result = stockService.decreaseStock(command(3));
 
-            assertThat(response.remainingQuantity()).isEqualTo(97);
-            assertThat(response.orderId()).isEqualTo(ORDER_ID);
+            assertThat(result.remainingQuantity()).isEqualTo(97);
+            assertThat(result.orderId()).isEqualTo(ORDER_ID);
         }
 
         @Test
@@ -193,7 +193,7 @@ class StockServiceTest {
             given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.DECREASE))
                     .willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.decreaseStock(request(3)))
+            assertThatThrownBy(() -> stockService.decreaseStock(command(3)))
                     .isSameAs(otherViolation);
         }
     }
@@ -206,7 +206,7 @@ class StockServiceTest {
             givenTransactionRuns();
             given(inventoryRepository.findByHubIdAndProductIdForUpdate(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.restoreStock(request(3)))
+            assertThatThrownBy(() -> stockService.restoreStock(command(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND));
 
             verifyNoInteractions(inventoryLogRepository);
@@ -220,9 +220,9 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3));
 
-            StockRestoreResponse response = stockService.restoreStock(request(5));
+            StockRestoreResult result = stockService.restoreStock(command(5));
 
-            assertThat(response.restoredQuantity()).isEqualTo(3);
+            assertThat(result.restoredQuantity()).isEqualTo(3);
             assertThat(locked.getQuantity()).isEqualTo(100);
             InventoryLog log = savedLog();
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.RESTORE);
@@ -237,9 +237,9 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs(log(locked, InventoryChangeType.DECREASE, 3), log(locked, InventoryChangeType.RESTORE, 3));
 
-            StockRestoreResponse response = stockService.restoreStock(request(3));
+            StockRestoreResult result = stockService.restoreStock(command(3));
 
-            assertThat(response.restoredQuantity()).isEqualTo(3);
+            assertThat(result.restoredQuantity()).isEqualTo(3);
             assertThat(locked.getQuantity()).isEqualTo(100);
             then(inventoryLogRepository).should(never()).saveAndFlush(any());
         }
@@ -252,9 +252,9 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs();
 
-            StockRestoreResponse response = stockService.restoreStock(request(3));
+            StockRestoreResult result = stockService.restoreStock(command(3));
 
-            assertThat(response.restoredQuantity()).isZero();
+            assertThat(result.restoredQuantity()).isZero();
             assertThat(locked.getQuantity()).isEqualTo(100);
             InventoryLog log = savedLog();
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.RESTORE);
@@ -269,7 +269,7 @@ class StockServiceTest {
             givenLocked(locked);
             givenOrderLogs(log(busan(17), InventoryChangeType.DECREASE, 3));
 
-            assertThatThrownBy(() -> stockService.restoreStock(request(3)))
+            assertThatThrownBy(() -> stockService.restoreStock(command(3)))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId", "productId");
@@ -285,9 +285,9 @@ class StockServiceTest {
             given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
                     .willReturn(Optional.of(log(seoul(100), InventoryChangeType.RESTORE, 3)));
 
-            StockRestoreResponse response = stockService.restoreStock(request(3));
+            StockRestoreResult result = stockService.restoreStock(command(3));
 
-            assertThat(response.restoredQuantity()).isEqualTo(3);
+            assertThat(result.restoredQuantity()).isEqualTo(3);
         }
 
         @Test
@@ -297,7 +297,7 @@ class StockServiceTest {
             given(inventoryLogRepository.findByOrderIdAndChangeType(ORDER_ID, InventoryChangeType.RESTORE))
                     .willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> stockService.restoreStock(request(3)))
+            assertThatThrownBy(() -> stockService.restoreStock(command(3)))
                     .isSameAs(otherViolation);
         }
     }
@@ -321,8 +321,8 @@ class StockServiceTest {
         return captor.getValue();
     }
 
-    private static StockRequest request(int quantity) {
-        return new StockRequest(SEOUL_ID, PRODUCT_ID, quantity, ORDER_ID);
+    private static StockCommand command(int quantity) {
+        return new StockCommand(SEOUL_ID, PRODUCT_ID, quantity, ORDER_ID);
     }
 
     private static InventoryLog log(Inventory inventory, InventoryChangeType changeType, int quantity) {

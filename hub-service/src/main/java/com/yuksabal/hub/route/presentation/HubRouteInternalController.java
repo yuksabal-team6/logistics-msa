@@ -38,6 +38,6 @@ public class HubRouteInternalController {
             @RequestParam UUID from,
             @Parameter(description = "도착 허브 ID", example = "00000000-0000-0000-0000-000000000004")
             @RequestParam UUID to) {
-        return ResponseEntity.ok(ApiResponse.success(hubRouteService.getHubRoute(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(HubRouteResponse.from(hubRouteService.getHubRoute(from, to))));
     }
 }

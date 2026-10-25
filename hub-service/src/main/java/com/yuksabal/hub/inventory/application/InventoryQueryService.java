@@ -2,18 +2,15 @@ package com.yuksabal.hub.inventory.application;
 
 import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
-import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.hub.domain.HubRepository;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryLogSearchRequest;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventorySearchRequest;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryStockRequest;
-import com.yuksabal.hub.inventory.presentation.dto.response.InventoryLogResponse;
-import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
-import com.yuksabal.hub.inventory.presentation.dto.response.InventoryStockResponse;
+import com.yuksabal.hub.inventory.application.dto.InventoryLogResult;
+import com.yuksabal.hub.inventory.application.dto.InventoryLogSearchCondition;
+import com.yuksabal.hub.inventory.application.dto.InventoryResult;
+import com.yuksabal.hub.inventory.application.dto.InventorySearchCondition;
+import com.yuksabal.hub.inventory.application.dto.InventoryStockCondition;
 import com.yuksabal.hub.inventory.domain.Inventory;
-import com.yuksabal.hub.inventory.domain.InventoryLog;
 import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
 import com.yuksabal.hub.inventory.domain.InventoryLogSpecification;
 import com.yuksabal.hub.inventory.domain.InventoryRepository;
@@ -52,49 +49,50 @@ public class InventoryQueryService {
     private final InventoryAccessPolicy accessPolicy;
 
     // 전체 재고 목록은 MASTER만 조회할 수 있다. 없는 허브·상품 ID는 에러 없이 빈 목록
-    public PageResponse<InventoryResponse> getInventories(InventorySearchRequest request, Pageable pageable, UserRole role) {
+    public Page<InventoryResult> getInventories(InventorySearchCondition condition, Pageable pageable, UserRole role) {
         accessPolicy.checkMaster(role);
 
-        Page<Inventory> inventories = inventoryRepository.findAll(
-                search(request.hubId(), request.productId()),
-                toStablePageable(pageable, SORTABLE_FIELDS));
-        return PageResponse.from(inventories, InventoryResponse::from);
+        return inventoryRepository.findAll(
+                        search(condition.hubId(), condition.productId()),
+                        toStablePageable(pageable, SORTABLE_FIELDS))
+                .map(InventoryResult::from);
     }
 
     // 재고 변경 이력은 MASTER만 조회할 수 있다. 없는 재고·허브·주문 ID는 에러 없이 빈 목록
-    public PageResponse<InventoryLogResponse> getInventoryLogs(InventoryLogSearchRequest request, Pageable pageable, UserRole role) {
+    public Page<InventoryLogResult> getInventoryLogs(InventoryLogSearchCondition condition, Pageable pageable, UserRole role) {
         accessPolicy.checkMaster(role);
 
-        Page<InventoryLog> logs = inventoryLogRepository.findAll(
-                InventoryLogSpecification.search(request.inventoryId(), request.hubId(), request.orderId(), request.changeType()),
-                toStablePageable(pageable, LOG_SORTABLE_FIELDS));
-        return PageResponse.from(logs, InventoryLogResponse::from);
+        return inventoryLogRepository.findAll(
+                        InventoryLogSpecification.search(
+                                condition.inventoryId(), condition.hubId(), condition.orderId(), condition.changeType()),
+                        toStablePageable(pageable, LOG_SORTABLE_FIELDS))
+                .map(InventoryLogResult::from);
     }
 
     // 재고 상세는 "MASTER 또는 허용된 사용자"가 조회할 수 있다.
     // TODO 허용된 사용자 기준이 정해지면 재고의 허브·상품으로 권한을 확인한다 (지금은 MASTER만)
     // 삭제된 재고는 @SQLRestriction으로 조회되지 않아 없는 재고와 같이 404로 응답한다.
-    public InventoryResponse getInventory(UUID inventoryId, UserRole role) {
+    public InventoryResult getInventory(UUID inventoryId, UserRole role) {
         accessPolicy.checkMaster(role);
 
-        Inventory inventory = inventoryRepository.findById(inventoryId)
+        return inventoryRepository.findById(inventoryId)
+                .map(InventoryResult::from)
                 .orElseThrow(() -> HubExceptions.inventoryNotFound("inventoryId"));
-        return InventoryResponse.from(inventory);
     }
 
     // 허브별 재고는 "MASTER 또는 허용된 사용자"가 조회할 수 있다.
     // TODO 허용된 사용자 기준이 정해지면 허브로 권한을 확인한다 (지금은 MASTER만)
     // 없는 허브(삭제된 허브 포함)는 404, 허브는 있지만 재고가 없으면 빈 목록
-    public PageResponse<InventoryResponse> getInventoriesByHub(UUID hubId, Pageable pageable, UserRole role) {
+    public Page<InventoryResult> getInventoriesByHub(UUID hubId, Pageable pageable, UserRole role) {
         accessPolicy.checkMaster(role);
         if (!hubRepository.existsById(hubId)) {
             throw HubExceptions.hubNotFound();
         }
 
-        Page<Inventory> inventories = inventoryRepository.findAll(
-                hubIdEquals(hubId),
-                toStablePageable(pageable, SORTABLE_FIELDS));
-        return PageResponse.from(inventories, InventoryResponse::from);
+        return inventoryRepository.findAll(
+                        hubIdEquals(hubId),
+                        toStablePageable(pageable, SORTABLE_FIELDS))
+                .map(InventoryResult::from);
     }
 
     // 상품별 재고는 MASTER 또는 해당 상품의 업체(COMPANY)가 조회할 수 있다.
@@ -102,21 +100,20 @@ public class InventoryQueryService {
     // COMPANY는 재고의 업체를 알아야 소유권을 판단할 수 있어 조회 후에 403을 확인한다
     // company 호출(#2)을 기다리는 동안 DB 커넥션을 잡지 않도록 트랜잭션 없이 실행한다 (재고 조회는 Repository가 짧게 처리)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public InventoryResponse getInventoryByProduct(UUID productId, UUID userId, UserRole role) {
+    public InventoryResult getInventoryByProduct(UUID productId, UUID userId, UserRole role) {
         accessPolicy.checkProductReadable(role);
 
         Inventory inventory = findSingleInventoryByProduct(productId);
         accessPolicy.checkProductOwner(inventory.getCompanyId(), userId, role);
-        return InventoryResponse.from(inventory);
+        return InventoryResult.from(inventory);
     }
 
     // company-service가 상품·업체 삭제 전에 호출한다 (내부 API, #137). 남은 수량이 0보다 큰 재고가 있으면 true
     // 수량 0인 재고는 이력이라 false. 재고가 없는 상품·업체도 404가 아니라 false
-    public InventoryStockResponse hasStock(InventoryStockRequest request) {
-        boolean hasStock = request.productId() != null
-                ? inventoryRepository.existsByProductIdAndQuantityValueGreaterThan(request.productId(), 0)
-                : inventoryRepository.existsByCompanyIdAndQuantityValueGreaterThan(request.companyId(), 0);
-        return new InventoryStockResponse(hasStock);
+    public boolean hasStock(InventoryStockCondition condition) {
+        return condition.productId() != null
+                ? inventoryRepository.existsByProductIdAndQuantityValueGreaterThan(condition.productId(), 0)
+                : inventoryRepository.existsByCompanyIdAndQuantityValueGreaterThan(condition.companyId(), 0);
     }
 
     // 업체 관리 허브가 바뀌면 이전 허브에 재고 행이 이력으로 남아(수량 0, 삭제하지 않음) 같은 상품 재고가 여러 건이 된다

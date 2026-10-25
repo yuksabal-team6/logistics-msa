@@ -3,6 +3,7 @@ package com.yuksabal.hub.route.presentation;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
+import com.yuksabal.hub.route.application.dto.HubRouteSearchCondition;
 import com.yuksabal.hub.route.presentation.dto.request.HubRouteSearchRequest;
 import com.yuksabal.hub.route.presentation.dto.response.HubRouteResponse;
 import com.yuksabal.hub.route.application.HubRouteService;
@@ -38,13 +39,16 @@ public class HubRouteController {
     public ResponseEntity<ApiResponse<PageResponse<HubRouteResponse>>> getHubRoutes(
             @ParameterObject HubRouteSearchRequest request,
             @ParameterObject Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.success(hubRouteService.getHubRoutes(request, pageable), "목록을 조회했습니다."));
+        HubRouteSearchCondition condition = new HubRouteSearchCondition(request.departureHubId(), request.arrivalHubId());
+        PageResponse<HubRouteResponse> response = PageResponse.from(hubRouteService.getHubRoutes(condition, pageable), HubRouteResponse::from);
+        return ResponseEntity.ok(ApiResponse.success(response, "목록을 조회했습니다."));
     }
 
     @Operation(summary = "허브 경로 상세 조회", description = "경로 ID로 한 건을 조회한다. 경로가 없으면 404.")
     @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED, RESOURCE_NOT_FOUND})
     @GetMapping("/{routeId}")
     public ResponseEntity<ApiResponse<HubRouteResponse>> getHubRoute(@PathVariable UUID routeId) {
-        return ResponseEntity.ok(ApiResponse.success(hubRouteService.getHubRouteById(routeId), "허브 경로를 상세 조회했습니다."));
+        HubRouteResponse response = HubRouteResponse.from(hubRouteService.getHubRouteById(routeId));
+        return ResponseEntity.ok(ApiResponse.success(response, "허브 경로를 상세 조회했습니다."));
     }
 }

@@ -5,9 +5,9 @@ import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.hub.global.exception.HubErrorCode;
 import com.yuksabal.hub.global.exception.HubExceptions;
 import com.yuksabal.hub.hub.domain.HubRepository;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryInboundRequest;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryQuantityUpdateRequest;
-import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.application.dto.InventoryAdjustCommand;
+import com.yuksabal.hub.inventory.application.dto.InventoryInboundCommand;
+import com.yuksabal.hub.inventory.application.dto.InventoryResult;
 import com.yuksabal.hub.inventory.domain.Inventory;
 import com.yuksabal.hub.inventory.domain.InventoryLog;
 import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
@@ -45,11 +45,11 @@ public class InventoryCommandService {
     // 엔티티를 먼저 조회하지 않고 조건부 UPDATE부터 실행해, 1차 캐시에 예전 수량이 남지 않게 한다
     // 값이 같으면 그 사이 변경의 순변화량이 0이라 조정 결과가 맞으므로 수량만 비교한다
     @Transactional
-    public InventoryResponse adjustQuantity(UUID inventoryId, InventoryQuantityUpdateRequest request, UUID userId, UserRole role) {
+    public InventoryResult adjustQuantity(UUID inventoryId, InventoryAdjustCommand command, UUID userId, UserRole role) {
         accessPolicy.checkMaster(role);
         // 조회한 수량과 같은 값으로 조정하는 요청은 DTO 검증(isQuantityChanged)에서 400으로 막힌다
-        int expectedQuantity = request.expectedQuantity();
-        int quantity = request.quantity();
+        int expectedQuantity = command.expectedQuantity();
+        int quantity = command.quantity();
 
         int updated = inventoryRepository.updateQuantityIfMatches(
                 inventoryId, expectedQuantity, quantity, LocalDateTime.now(), userId);
@@ -61,7 +61,7 @@ public class InventoryCommandService {
 
         Inventory inventory = findInventory(inventoryId);
         inventoryLogRepository.save(InventoryLog.adjust(inventory, expectedQuantity, quantity));
-        return InventoryResponse.from(inventory);
+        return InventoryResult.from(inventory);
     }
 
     // 허브에 상품을 입고한다 (MASTER). 재고가 있으면 수량을 늘리고, 없으면 새로 만든다
@@ -70,32 +70,32 @@ public class InventoryCommandService {
     // 관리 허브도 바뀔 수 있어 입고마다 확인한다 (#175). 허브 변경 후 이전 허브에 남은 수량 0 재고로 입고되면 재고가 두 허브로 나뉜다
     // company 호출(#1)은 트랜잭션 밖에서 하고, 재고 변경만 transactionTemplate으로 감싼다 (응답을 기다리는 동안 커넥션을 잡지 않도록)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public InventoryResponse inbound(InventoryInboundRequest request, UUID userId, UserRole role) {
+    public InventoryResult inbound(InventoryInboundCommand command, UUID userId, UserRole role) {
         accessPolicy.checkMaster(role);
         // 값싼 허브 확인을 먼저 해, 없는 허브면 company를 호출하지 않는다 (허브 404 → 상품 404 순서)
-        if (!hubRepository.existsById(request.hubId())) {
+        if (!hubRepository.existsById(command.hubId())) {
             throw HubExceptions.hubNotFound();
         }
 
         // 없거나 삭제된 상품이면 company-service가 404로 응답한다
-        ProductInfo product = productReader.findProduct(request.productId())
+        ProductInfo product = productReader.findProduct(command.productId())
                 .orElseThrow(HubExceptions::productNotFound);
         // 비활성 상품·관리 허브가 아닌 허브면 422. 기존 재고 입고와 새 재고 생성 모두에 적용되도록 DB 작업 전에 확인한다
-        product.checkInboundTo(request.hubId());
+        product.checkInboundTo(command.hubId());
 
-        return transactionTemplate.execute(status -> saveInbound(request, product, userId));
+        return transactionTemplate.execute(status -> saveInbound(command, product, userId));
     }
 
     // 입고의 DB 작업 (transactionTemplate 안에서 실행). 예외가 나면 재고 변경·로그가 함께 롤백된다
-    private InventoryResponse saveInbound(InventoryInboundRequest request, ProductInfo product, UUID userId) {
-        UUID hubId = request.hubId();
-        int quantity = request.quantity();
-        Inventory inventory = inventoryRepository.findByHubIdAndProductId(hubId, request.productId())
+    private InventoryResult saveInbound(InventoryInboundCommand command, ProductInfo product, UUID userId) {
+        UUID hubId = command.hubId();
+        int quantity = command.quantity();
+        Inventory inventory = inventoryRepository.findByHubIdAndProductId(hubId, command.productId())
                 .map(existing -> increaseInventory(existing, quantity, userId))
                 .orElseGet(() -> createInventory(hubId, product, quantity));
 
         inventoryLogRepository.save(InventoryLog.inbound(inventory, quantity));
-        return InventoryResponse.from(inventory);
+        return InventoryResult.from(inventory);
     }
 
     // 현재 수량에 더하는 원자 UPDATE라 동시 입고·주문 차감과 덮어쓰지 않는다. UPDATE 후 늘어난 수량으로 다시 조회한다

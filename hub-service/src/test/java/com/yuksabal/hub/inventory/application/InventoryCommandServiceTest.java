@@ -4,9 +4,9 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.hub.hub.domain.HubRepository;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryInboundRequest;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryQuantityUpdateRequest;
-import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.application.dto.InventoryAdjustCommand;
+import com.yuksabal.hub.inventory.application.dto.InventoryInboundCommand;
+import com.yuksabal.hub.inventory.application.dto.InventoryResult;
 import com.yuksabal.hub.inventory.domain.Inventory;
 import com.yuksabal.hub.inventory.domain.InventoryChangeType;
 import com.yuksabal.hub.inventory.domain.InventoryLog;
@@ -85,7 +85,7 @@ class InventoryCommandServiceTest {
 
         @Test
         void MASTER가_아니면_403이고_재고를_바꾸지_않는다() {
-            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.COMPANY))
+            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryAdjustCommand(100, 80), USER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
             verifyNoInteractions(inventoryRepository, inventoryLogRepository);
@@ -97,7 +97,7 @@ class InventoryCommandServiceTest {
                     .willReturn(0);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 95)));
 
-            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryAdjustCommand(100, 80), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(INVENTORY_QUANTITY_CONFLICT);
                         assertThat(e.getDetails()).extracting("reason").containsExactly("현재 재고는 95개입니다.");
@@ -112,7 +112,7 @@ class InventoryCommandServiceTest {
                     .willReturn(0);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryAdjustCommand(100, 80), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND));
 
             verifyNoInteractions(inventoryLogRepository);
@@ -124,9 +124,9 @@ class InventoryCommandServiceTest {
                     .willReturn(1);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 80)));
 
-            InventoryResponse response = inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 80), USER_ID, UserRole.MASTER);
+            InventoryResult result = inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryAdjustCommand(100, 80), USER_ID, UserRole.MASTER);
 
-            assertThat(response.quantity()).isEqualTo(80);
+            assertThat(result.quantity()).isEqualTo(80);
             InventoryLog log = savedLog();
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.ADJUST_DECREASE);
             assertThat(log.getQuantity()).isEqualTo(20);
@@ -139,7 +139,7 @@ class InventoryCommandServiceTest {
                     .willReturn(1);
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 130)));
 
-            inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryQuantityUpdateRequest(100, 130), USER_ID, UserRole.MASTER);
+            inventoryCommandService.adjustQuantity(INVENTORY_ID, new InventoryAdjustCommand(100, 130), USER_ID, UserRole.MASTER);
 
             InventoryLog log = savedLog();
             assertThat(log.getChangeType()).isEqualTo(InventoryChangeType.ADJUST_INCREASE);
@@ -153,7 +153,7 @@ class InventoryCommandServiceTest {
 
         @Test
         void MASTER가_아니면_403이고_허브와_company와_DB를_건드리지_않는다() {
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.COMPANY))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.COMPANY))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
             verifyNoInteractions(hubRepository, productReader, transactionTemplate, inventoryRepository, inventoryLogRepository);
@@ -163,7 +163,7 @@ class InventoryCommandServiceTest {
         void 허브가_없으면_404이고_company를_부르지_않는다() {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(false);
 
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId");
@@ -177,7 +177,7 @@ class InventoryCommandServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.empty());
 
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(RESOURCE_NOT_FOUND);
                         assertThat(e.getDetails()).extracting("field").containsExactly("productId");
@@ -193,7 +193,7 @@ class InventoryCommandServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(productReader.findProduct(PRODUCT_ID)).willThrow(serverError);
 
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER))
                     .isSameAs(serverError);
 
             verifyNoInteractions(transactionTemplate);
@@ -204,7 +204,7 @@ class InventoryCommandServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.of(product(SEOUL_ID, false)));
 
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
                         assertThat(e.getDetails()).extracting("field").containsExactly("productId");
@@ -220,9 +220,9 @@ class InventoryCommandServiceTest {
             given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 100)));
             given(inventoryRepository.findById(INVENTORY_ID)).willReturn(Optional.of(inventory(INVENTORY_ID, SEOUL_ID, 150)));
 
-            InventoryResponse response = inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER);
+            InventoryResult result = inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER);
 
-            assertThat(response.quantity()).isEqualTo(150);
+            assertThat(result.quantity()).isEqualTo(150);
             then(inventoryRepository).should().increaseQuantity(eq(INVENTORY_ID), eq(50), any(LocalDateTime.class), eq(USER_ID));
             then(inventoryRepository).should(never()).saveAndFlush(any(Inventory.class));
             InventoryLog log = savedLog();
@@ -238,9 +238,9 @@ class InventoryCommandServiceTest {
             given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
             given(inventoryRepository.saveAndFlush(any(Inventory.class))).willAnswer(inv -> inv.getArgument(0));
 
-            InventoryResponse response = inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER);
+            InventoryResult result = inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER);
 
-            assertThat(response.quantity()).isEqualTo(50);
+            assertThat(result.quantity()).isEqualTo(50);
             ArgumentCaptor<Inventory> created = ArgumentCaptor.forClass(Inventory.class);
             then(inventoryRepository).should().saveAndFlush(created.capture());
             assertThat(created.getValue().getCompanyId()).isEqualTo(COMPANY_ID);
@@ -253,7 +253,7 @@ class InventoryCommandServiceTest {
             given(hubRepository.existsById(SEOUL_ID)).willReturn(true);
             given(productReader.findProduct(PRODUCT_ID)).willReturn(Optional.of(product(BUSAN_ID, true)));
 
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(BUSINESS_RULE_VIOLATION);
                         assertThat(e.getDetails()).extracting("field").containsExactly("hubId");
@@ -271,7 +271,7 @@ class InventoryCommandServiceTest {
             given(inventoryRepository.saveAndFlush(any(Inventory.class)))
                     .willThrow(integrityViolation("uk_inventories_hub_id_product_id"));
 
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(INVENTORY_CREATE_CONFLICT));
 
             verifyNoInteractions(inventoryLogRepository);
@@ -285,7 +285,7 @@ class InventoryCommandServiceTest {
             given(inventoryRepository.findByHubIdAndProductId(SEOUL_ID, PRODUCT_ID)).willReturn(Optional.empty());
             given(inventoryRepository.saveAndFlush(any(Inventory.class))).willThrow(otherViolation);
 
-            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundRequest(50), USER_ID, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryCommandService.inbound(inboundCommand(50), USER_ID, UserRole.MASTER))
                     .isSameAs(otherViolation);
 
             verifyNoInteractions(inventoryLogRepository);
@@ -308,8 +308,8 @@ class InventoryCommandServiceTest {
         return captor.getValue();
     }
 
-    private static InventoryInboundRequest inboundRequest(int quantity) {
-        return new InventoryInboundRequest(SEOUL_ID, PRODUCT_ID, quantity);
+    private static InventoryInboundCommand inboundCommand(int quantity) {
+        return new InventoryInboundCommand(SEOUL_ID, PRODUCT_ID, quantity);
     }
 
     private static ProductInfo product(UUID productHubId, boolean active) {

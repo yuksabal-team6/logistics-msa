@@ -2,6 +2,7 @@ package com.yuksabal.hub.inventory.presentation;
 
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
+import com.yuksabal.hub.inventory.application.dto.StockCommand;
 import com.yuksabal.hub.inventory.presentation.dto.request.StockRequest;
 import com.yuksabal.hub.inventory.presentation.dto.response.StockDecreaseResponse;
 import com.yuksabal.hub.inventory.presentation.dto.response.StockRestoreResponse;
@@ -46,7 +47,8 @@ public class StockInternalController {
             @Valid @RequestBody StockRequest request,
             @Parameter(description = "주문 요청자 ID (Feign이 전달)", example = "10000000-0000-4000-8000-000000000001")
             @RequestHeader(value = "X-User-Id", required = false) UUID userId) {
-        return ResponseEntity.ok(ApiResponse.success(stockService.decreaseStock(request)));
+        StockDecreaseResponse response = StockDecreaseResponse.from(stockService.decreaseStock(toCommand(request)));
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     // 배송 생성 실패 보상, 주문 취소 시 호출된다. 복원 수량은 요청 quantity가 아니라 실제로 차감한 수량이다
@@ -60,6 +62,12 @@ public class StockInternalController {
             @Valid @RequestBody StockRequest request,
             @Parameter(description = "주문 요청자 ID (Feign이 전달)", example = "10000000-0000-4000-8000-000000000001")
             @RequestHeader(value = "X-User-Id", required = false) UUID userId) {
-        return ResponseEntity.ok(ApiResponse.success(stockService.restoreStock(request)));
+        StockRestoreResponse response = StockRestoreResponse.from(stockService.restoreStock(toCommand(request)));
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // 차감·복원이 같은 요청 형식이라 변환을 한 곳에 둔다
+    private static StockCommand toCommand(StockRequest request) {
+        return new StockCommand(request.hubId(), request.productId(), request.quantity(), request.orderId());
     }
 }

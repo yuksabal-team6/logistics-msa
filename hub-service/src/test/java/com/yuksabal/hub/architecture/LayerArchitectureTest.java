@@ -11,10 +11,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
-import static com.tngtech.archunit.library.freeze.FreezingArchRule.freeze;
 
 // DDD 계층(presentation → application → domain ← infrastructure)의 의존 방향을 테스트로 강제한다 (#262)
-// 안쪽 계층은 바깥 계층을 모른다. 규칙 설명 문자열(as)은 동결 기록을 식별하는 키라 바꾸지 않는다
+// 안쪽 계층은 바깥 계층을 모른다
 @AnalyzeClasses(packages = "com.yuksabal.hub", importOptions = ImportOption.DoNotIncludeTests.class)
 class LayerArchitectureTest {
 
@@ -47,13 +46,13 @@ class LayerArchitectureTest {
             .should().dependOnClassesThat().resideInAPackage("..presentation..")
             .as("infrastructure must not depend on presentation");
 
-    // 서비스가 presentation의 요청·응답 DTO를 받고 돌려주는 기존 의존은 동결한다 (archunit_store에 기록)
-    // 새 위반은 실패하고, 서비스별 DTO 분리 후속 이슈에서 기록이 줄어든다. 완료 기준은 기록의 위반 0개
+    // 서비스는 자기 입력(조건·명령)과 출력(결과)을 application/dto에 두고, 요청·응답 DTO 변환은 컨트롤러가 맡는다
+    // 기존 위반을 동결해 두었다가 DTO 분리로 0개가 되어 일반 규칙으로 바꿨다 (#284)
     @ArchTest
-    static final ArchRule application은_presentation에_의존하지_않는다 = freeze(noClasses()
+    static final ArchRule application은_presentation에_의존하지_않는다 = noClasses()
             .that().resideInAPackage("..application..")
             .should().dependOnClassesThat().resideInAPackage("..presentation..")
-            .as("application must not depend on presentation"));
+            .as("application must not depend on presentation");
 
     // ---- 애그리거트 경계 ----
 

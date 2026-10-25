@@ -1,11 +1,10 @@
 package com.yuksabal.hub.route.application;
 
-import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.exception.HubExceptions;
+import com.yuksabal.hub.route.application.dto.HubRouteResult;
+import com.yuksabal.hub.route.application.dto.HubRouteSearchCondition;
 import com.yuksabal.hub.route.domain.HubRoute;
 import com.yuksabal.hub.route.domain.HubRouteRepository;
-import com.yuksabal.hub.route.presentation.dto.request.HubRouteSearchRequest;
-import com.yuksabal.hub.route.presentation.dto.response.HubRouteResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,25 +28,25 @@ public class HubRouteService {
     private final HubRouteRepository hubRouteRepository;
 
     // 같은 허브끼리는 경로가 없고(결정 #16), 없는 허브 ID도 경로가 없으므로 모두 404로 응답한다.
-    public HubRouteResponse getHubRoute(UUID from, UUID to) {
+    public HubRouteResult getHubRoute(UUID from, UUID to) {
         HubRoute hubRoute = hubRouteRepository.findByDepartureHubIdAndArrivalHubId(from, to)
                 .orElseThrow(HubExceptions::hubRouteNotFound);
-        return HubRouteResponse.from(hubRoute);
+        return HubRouteResult.from(hubRoute);
     }
 
     // 같은 허브·없는 허브 ID는 에러 없이 빈 목록
-    public PageResponse<HubRouteResponse> getHubRoutes(HubRouteSearchRequest request, Pageable pageable) {
-        Page<HubRoute> hubRoutes = hubRouteRepository.findAll(
-                search(request.departureHubId(), request.arrivalHubId()),
-                toStablePageable(pageable, SORTABLE_FIELDS));
-        return PageResponse.from(hubRoutes, HubRouteResponse::from);
+    public Page<HubRouteResult> getHubRoutes(HubRouteSearchCondition condition, Pageable pageable) {
+        return hubRouteRepository.findAll(
+                        search(condition.departureHubId(), condition.arrivalHubId()),
+                        toStablePageable(pageable, SORTABLE_FIELDS))
+                .map(HubRouteResult::from);
     }
 
     // 삭제된 경로는 @SQLRestriction으로 조회되지 않아 없는 경로와 같이 404로 응답한다.
-    public HubRouteResponse getHubRouteById(UUID routeId) {
+    public HubRouteResult getHubRouteById(UUID routeId) {
         HubRoute hubRoute = hubRouteRepository.findById(routeId)
                 .orElseThrow(() -> HubExceptions.hubRouteNotFound("routeId"));
-        return HubRouteResponse.from(hubRoute);
+        return HubRouteResult.from(hubRoute);
     }
 
 }

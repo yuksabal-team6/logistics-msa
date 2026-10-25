@@ -35,6 +35,6 @@ public class HubInternalController {
     public ResponseEntity<ApiResponse<HubInternalResponse>> getHub(
             @Parameter(description = "허브 ID", example = "00000000-0000-0000-0000-000000000001")
             @PathVariable UUID hubId) {
-        return ResponseEntity.ok(ApiResponse.success(hubService.getInternalHub(hubId)));
+        return ResponseEntity.ok(ApiResponse.success(HubInternalResponse.from(hubService.getHub(hubId))));
     }
 }

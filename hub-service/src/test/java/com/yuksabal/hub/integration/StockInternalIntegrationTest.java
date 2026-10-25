@@ -234,6 +234,42 @@ class StockInternalIntegrationTest extends IntegrationTestSupport {
         }
     }
 
+    // order-service HubClient가 같은 이름의 record로 받는다. 필드 이름·개수가 바뀌면 order가 값을 못 읽는다 (#284)
+    @Nested
+    class order_응답_형식 {
+
+        @Test
+        void 차감_응답은_허브_상품_남은_수량_주문_ID_네_필드다() throws Exception {
+            UUID productId = UUID.randomUUID();
+            inbound(productId, 10);
+            UUID orderId = UUID.randomUUID();
+
+            decrease(productId, 3, orderId)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.length()").value(4))
+                    .andExpect(jsonPath("$.data.hubId").value(HUB_ID.toString()))
+                    .andExpect(jsonPath("$.data.productId").value(productId.toString()))
+                    .andExpect(jsonPath("$.data.remainingQuantity").value(7))
+                    .andExpect(jsonPath("$.data.orderId").value(orderId.toString()));
+        }
+
+        @Test
+        void 복원_응답은_허브_상품_복원_수량_주문_ID_네_필드다() throws Exception {
+            UUID productId = UUID.randomUUID();
+            inbound(productId, 10);
+            UUID orderId = UUID.randomUUID();
+            decrease(productId, 3, orderId);
+
+            restore(productId, 3, orderId)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.length()").value(4))
+                    .andExpect(jsonPath("$.data.hubId").value(HUB_ID.toString()))
+                    .andExpect(jsonPath("$.data.productId").value(productId.toString()))
+                    .andExpect(jsonPath("$.data.restoredQuantity").value(3))
+                    .andExpect(jsonPath("$.data.orderId").value(orderId.toString()));
+        }
+    }
+
     @Nested
     class 재고_확인 {
 

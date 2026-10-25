@@ -4,6 +4,10 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.common.response.PageResponse;
 import com.yuksabal.hub.global.swagger.ApiErrorCodes;
+import com.yuksabal.hub.inventory.application.dto.InventoryAdjustCommand;
+import com.yuksabal.hub.inventory.application.dto.InventoryInboundCommand;
+import com.yuksabal.hub.inventory.application.dto.InventoryLogSearchCondition;
+import com.yuksabal.hub.inventory.application.dto.InventorySearchCondition;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryInboundRequest;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryLogSearchRequest;
 import com.yuksabal.hub.inventory.presentation.dto.request.InventoryQuantityUpdateRequest;
@@ -61,9 +65,10 @@ public class InventoryController {
             @ParameterObject Pageable pageable,
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(
-                inventoryQueryService.getInventories(request, pageable, UserRole.from(role)),
-                "목록을 조회했습니다."));
+        InventorySearchCondition condition = new InventorySearchCondition(request.hubId(), request.productId());
+        PageResponse<InventoryResponse> response = PageResponse.from(
+                inventoryQueryService.getInventories(condition, pageable, UserRole.from(role)), InventoryResponse::from);
+        return ResponseEntity.ok(ApiResponse.success(response, "목록을 조회했습니다."));
     }
 
     // ?inventoryId=&hubId=&orderId=&changeType=&page=0&size=20&sort=createdAt,desc (조건은 모두 선택)
@@ -78,9 +83,11 @@ public class InventoryController {
             @ParameterObject @PageableDefault(sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(
-                inventoryQueryService.getInventoryLogs(request, pageable, UserRole.from(role)),
-                "재고 변경 이력을 조회했습니다."));
+        InventoryLogSearchCondition condition = new InventoryLogSearchCondition(
+                request.inventoryId(), request.hubId(), request.orderId(), request.changeType());
+        PageResponse<InventoryLogResponse> response = PageResponse.from(
+                inventoryQueryService.getInventoryLogs(condition, pageable, UserRole.from(role)), InventoryLogResponse::from);
+        return ResponseEntity.ok(ApiResponse.success(response, "재고 변경 이력을 조회했습니다."));
     }
 
     @Operation(summary = "재고 상세 조회 (MASTER 또는 허용된 사용자)",
@@ -91,9 +98,8 @@ public class InventoryController {
             @PathVariable UUID inventoryId,
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(
-                inventoryQueryService.getInventory(inventoryId, UserRole.from(role)),
-                "재고를 상세 조회했습니다."));
+        InventoryResponse response = InventoryResponse.from(inventoryQueryService.getInventory(inventoryId, UserRole.from(role)));
+        return ResponseEntity.ok(ApiResponse.success(response, "재고를 상세 조회했습니다."));
     }
 
     // ?page=0&size=20&sort=quantity,desc
@@ -106,9 +112,9 @@ public class InventoryController {
             @ParameterObject Pageable pageable,
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(
-                inventoryQueryService.getInventoriesByHub(hubId, pageable, UserRole.from(role)),
-                "허브별 재고를 조회했습니다."));
+        PageResponse<InventoryResponse> response = PageResponse.from(
+                inventoryQueryService.getInventoriesByHub(hubId, pageable, UserRole.from(role)), InventoryResponse::from);
+        return ResponseEntity.ok(ApiResponse.success(response, "허브별 재고를 조회했습니다."));
     }
 
     @Operation(summary = "재고 입고 (MASTER)",
@@ -123,9 +129,9 @@ public class InventoryController {
             @RequestHeader("X-User-Id") UUID userId,
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(
-                inventoryCommandService.inbound(request, userId, UserRole.from(role)),
-                "재고를 입고했습니다."));
+        InventoryInboundCommand command = new InventoryInboundCommand(request.hubId(), request.productId(), request.quantity());
+        InventoryResponse response = InventoryResponse.from(inventoryCommandService.inbound(command, userId, UserRole.from(role)));
+        return ResponseEntity.ok(ApiResponse.success(response, "재고를 입고했습니다."));
     }
 
     @Operation(summary = "재고 수량 조정 (MASTER)",
@@ -140,9 +146,10 @@ public class InventoryController {
             @RequestHeader("X-User-Id") UUID userId,
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(
-                inventoryCommandService.adjustQuantity(inventoryId, request, userId, UserRole.from(role)),
-                "재고 수량을 조정했습니다."));
+        InventoryAdjustCommand command = new InventoryAdjustCommand(request.expectedQuantity(), request.quantity());
+        InventoryResponse response = InventoryResponse.from(
+                inventoryCommandService.adjustQuantity(inventoryId, command, userId, UserRole.from(role)));
+        return ResponseEntity.ok(ApiResponse.success(response, "재고 수량을 조정했습니다."));
     }
 
     @Operation(summary = "상품별 재고 조회 (MASTER 또는 해당 상품의 업체)",
@@ -155,8 +162,8 @@ public class InventoryController {
             @RequestHeader("X-User-Id") UUID userId,
             @Parameter(description = USER_ROLE_DESCRIPTION, example = "MASTER")
             @RequestHeader("X-User-Role") String role) {
-        return ResponseEntity.ok(ApiResponse.success(
-                inventoryQueryService.getInventoryByProduct(productId, userId, UserRole.from(role)),
-                "상품별 재고를 조회했습니다."));
+        InventoryResponse response = InventoryResponse.from(
+                inventoryQueryService.getInventoryByProduct(productId, userId, UserRole.from(role)));
+        return ResponseEntity.ok(ApiResponse.success(response, "상품별 재고를 조회했습니다."));
     }
 }

@@ -1,8 +1,7 @@
 package com.yuksabal.hub.inventory.presentation.dto.response;
 
-import com.yuksabal.hub.inventory.domain.Inventory;
+import com.yuksabal.hub.inventory.application.dto.InventoryLogResult;
 import com.yuksabal.hub.inventory.domain.InventoryChangeType;
-import com.yuksabal.hub.inventory.domain.InventoryLog;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
@@ -39,18 +38,17 @@ public record InventoryLogResponse(
         UUID createdBy
 ) {
 
-    // 재고는 조회할 때 함께 불러오고(@EntityGraph), hub는 id만 꺼내 허브 조회 쿼리가 나가지 않는다
-    public static InventoryLogResponse from(InventoryLog log) {
-        Inventory inventory = log.getInventory();
+    // 엔티티 대신 서비스 결과로 만든다 (#284)
+    public static InventoryLogResponse from(InventoryLogResult result) {
         return new InventoryLogResponse(
-                log.getId(),
-                inventory.getId(),
-                inventory.getHubId(),
-                inventory.getProductId(),
-                log.getChangeType(),
-                log.getQuantity(),
-                log.getOrderId(),
-                log.getCreatedAt(),
-                log.getCreatedBy());
+                result.logId(),
+                result.inventoryId(),
+                result.hubId(),
+                result.productId(),
+                result.changeType(),
+                result.quantity(),
+                result.orderId(),
+                result.createdAt(),
+                result.createdBy());
     }
 }
