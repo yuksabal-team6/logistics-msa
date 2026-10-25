@@ -1,6 +1,6 @@
 package com.yuksabal.hub.hub.presentation.dto.response;
 
-import com.yuksabal.hub.hub.domain.Hub;
+import com.yuksabal.hub.hub.application.dto.HubResult;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.UUID;
@@ -13,7 +13,7 @@ public record HubInternalResponse(
         UUID hubId
 ) {
 
-    public static HubInternalResponse from(Hub hub) {
-        return new HubInternalResponse(hub.getId());
+    public static HubInternalResponse from(HubResult result) {
+        return new HubInternalResponse(result.hubId());
     }
 }
