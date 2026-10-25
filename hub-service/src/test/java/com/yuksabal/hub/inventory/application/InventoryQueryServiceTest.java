@@ -4,10 +4,10 @@ import com.yuksabal.common.auth.UserRole;
 import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.hub.hub.domain.HubRepository;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryLogSearchRequest;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventorySearchRequest;
-import com.yuksabal.hub.inventory.presentation.dto.request.InventoryStockRequest;
-import com.yuksabal.hub.inventory.presentation.dto.response.InventoryResponse;
+import com.yuksabal.hub.inventory.application.dto.InventoryLogSearchCondition;
+import com.yuksabal.hub.inventory.application.dto.InventoryResult;
+import com.yuksabal.hub.inventory.application.dto.InventorySearchCondition;
+import com.yuksabal.hub.inventory.application.dto.InventoryStockCondition;
 import com.yuksabal.hub.inventory.domain.Inventory;
 import com.yuksabal.hub.inventory.domain.InventoryLogRepository;
 import com.yuksabal.hub.inventory.domain.InventoryRepository;
@@ -80,7 +80,7 @@ class InventoryQueryServiceTest {
         @ParameterizedTest
         @EnumSource(value = UserRole.class, names = {"USER", "COMPANY", "DELIVERY"})
         void MASTER가_아니면_403이고_재고를_조회하지_않는다(UserRole role) {
-            assertThatThrownBy(() -> inventoryQueryService.getInventories(new InventorySearchRequest(null, null), PageRequest.of(0, 10), role))
+            assertThatThrownBy(() -> inventoryQueryService.getInventories(new InventorySearchCondition(null, null), PageRequest.of(0, 10), role))
                     .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getErrorCode()).isEqualTo(FORBIDDEN));
 
             verifyNoInteractions(inventoryRepository);
@@ -90,7 +90,7 @@ class InventoryQueryServiceTest {
         void 허용하지_않은_정렬_필드면_400이고_재고를_조회하지_않는다() {
             PageRequest pageable = PageRequest.of(0, 10, Sort.by("productId"));
 
-            assertThatThrownBy(() -> inventoryQueryService.getInventories(new InventorySearchRequest(null, null), pageable, UserRole.MASTER))
+            assertThatThrownBy(() -> inventoryQueryService.getInventories(new InventorySearchCondition(null, null), pageable, UserRole.MASTER))
                     .isInstanceOfSatisfying(BusinessException.class, e -> {
                         assertThat(e.getErrorCode()).isEqualTo(VALIDATION_ERROR);
                         assertThat(e.getDetails()).extracting("field").containsExactly("sort");
@@ -163,9 +163,9 @@ class InventoryQueryServiceTest {
         void MASTER는_업체를_확인하지_않는다() {
             given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
 
-            InventoryResponse response = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
+            InventoryResult result = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
 
-            assertThat(response.quantity()).isEqualTo(10);
+            assertThat(result.quantity()).isEqualTo(10);
             verifyNoInteractions(companyReader);
         }
 
@@ -187,9 +187,9 @@ class InventoryQueryServiceTest {
             given(inventoryRepository.findByProductId(PRODUCT_ID)).willReturn(List.of(inventory(INVENTORY_ID, SEOUL_ID, 10)));
             given(companyReader.findOwnerId(COMPANY_ID)).willReturn(Optional.of(USER_ID));
 
-            InventoryResponse response = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY);
+            InventoryResult result = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.COMPANY);
 
-            assertThat(response.inventoryId()).isEqualTo(INVENTORY_ID);
+            assertThat(result.inventoryId()).isEqualTo(INVENTORY_ID);
         }
 
         @Test
@@ -228,10 +228,10 @@ class InventoryQueryServiceTest {
                     inventory(INVENTORY_ID, SEOUL_ID, 0, LocalDateTime.of(2026, 10, 1, 9, 0)),
                     inventory(BUSAN_INVENTORY_ID, BUSAN_ID, 20, LocalDateTime.of(2026, 10, 10, 9, 0))));
 
-            InventoryResponse response = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
+            InventoryResult result = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
 
-            assertThat(response.hubId()).isEqualTo(BUSAN_ID);
-            assertThat(response.quantity()).isEqualTo(20);
+            assertThat(result.hubId()).isEqualTo(BUSAN_ID);
+            assertThat(result.quantity()).isEqualTo(20);
         }
 
         @Test
@@ -240,9 +240,9 @@ class InventoryQueryServiceTest {
                     inventory(BUSAN_INVENTORY_ID, BUSAN_ID, 0, LocalDateTime.of(2026, 10, 10, 9, 0)),
                     inventory(INVENTORY_ID, SEOUL_ID, 0, LocalDateTime.of(2026, 10, 1, 9, 0))));
 
-            InventoryResponse response = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
+            InventoryResult result = inventoryQueryService.getInventoryByProduct(PRODUCT_ID, USER_ID, UserRole.MASTER);
 
-            assertThat(response.hubId()).isEqualTo(BUSAN_ID);
+            assertThat(result.hubId()).isEqualTo(BUSAN_ID);
         }
 
         @Test
@@ -263,7 +263,7 @@ class InventoryQueryServiceTest {
         void 상품_기준이면_상품으로만_확인한다() {
             given(inventoryRepository.existsByProductIdAndQuantityValueGreaterThan(PRODUCT_ID, 0)).willReturn(true);
 
-            assertThat(inventoryQueryService.hasStock(new InventoryStockRequest(PRODUCT_ID, null)).hasStock()).isTrue();
+            assertThat(inventoryQueryService.hasStock(new InventoryStockCondition(PRODUCT_ID, null))).isTrue();
 
             then(inventoryRepository).should(never()).existsByCompanyIdAndQuantityValueGreaterThan(any(), anyInt());
         }
@@ -272,7 +272,7 @@ class InventoryQueryServiceTest {
         void 업체_기준이면_업체로만_확인한다() {
             given(inventoryRepository.existsByCompanyIdAndQuantityValueGreaterThan(COMPANY_ID, 0)).willReturn(false);
 
-            assertThat(inventoryQueryService.hasStock(new InventoryStockRequest(null, COMPANY_ID)).hasStock()).isFalse();
+            assertThat(inventoryQueryService.hasStock(new InventoryStockCondition(null, COMPANY_ID))).isFalse();
 
             then(inventoryRepository).should(never()).existsByProductIdAndQuantityValueGreaterThan(any(), anyInt());
         }
@@ -301,8 +301,8 @@ class InventoryQueryServiceTest {
         }
     }
 
-    private static InventoryLogSearchRequest logSearch() {
-        return new InventoryLogSearchRequest(null, null, null, null);
+    private static InventoryLogSearchCondition logSearch() {
+        return new InventoryLogSearchCondition(null, null, null, null);
     }
 
     private static FeignServerException serverError() {
