@@ -45,10 +45,12 @@ class HubApiIntegrationTest extends IntegrationTestSupport {
                     .andExpect(jsonPath("$.data.latitude").value(37.4779));
         }
 
+        // 공개 상세와 내부 API가 같은 서비스 메서드를 써서 404 응답이 같다 (#284)
         @Test
         void 없는_허브면_404() throws Exception {
             mockMvc.perform(get("/api/v1/hubs/" + UUID.randomUUID()))
                     .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error.message").value("존재하지 않는 허브입니다."))
                     .andExpect(jsonPath("$.error.details[0].field").value("hubId"));
         }
 
@@ -63,7 +65,9 @@ class HubApiIntegrationTest extends IntegrationTestSupport {
         @Test
         void 내부_API도_없는_허브면_404() throws Exception {
             mockMvc.perform(get("/internal/hubs/" + UUID.randomUUID()))
-                    .andExpect(status().isNotFound());
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error.message").value("존재하지 않는 허브입니다."))
+                    .andExpect(jsonPath("$.error.details[0].field").value("hubId"));
         }
     }
 
