@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,6 +45,7 @@ public class UserStateTransition {
 
     @Transactional
     public Hold hold(UUID userId) {
+        protectLastMaster(userId);
         User user = findTarget(userId);
         if (!user.isActive()) {
             return new Hold(userId, false, user.getUpdatedAt());
@@ -106,6 +108,9 @@ public class UserStateTransition {
     // 진행 중 업무 확인이 필요 없는 변경
     @Transactional
     public User changeRole(UUID userId, UserRole role) {
+        if (role != UserRole.MASTER) {
+            protectLastMaster(userId);
+        }
         User user = findTarget(userId);
         user.changeRole(role);
         return user;
@@ -126,6 +131,15 @@ public class UserStateTransition {
             throw new BusinessException(BUSINESS_RULE_VIOLATION, CHANGED_MESSAGE);
         }
         return user;
+    }
+
+    // 대상이 마지막 활성 MASTER면 422. UserAdminService의 확인은 잠금 밖이라 서로를 동시에 비활성화·강등하면 함께 통과한다
+    // 활성 MASTER 전체를 잠근 뒤 세므로 그런 요청은 차례로 처리된다. 대상 행보다 먼저 잠가야 교착이 생기지 않는다
+    private void protectLastMaster(UUID userId) {
+        List<User> activeMasters = userRepository.findActiveByRoleForUpdate(UserRole.MASTER);
+        if (activeMasters.size() <= 1 && activeMasters.stream().anyMatch(master -> master.getId().equals(userId))) {
+            throw new BusinessException(BUSINESS_RULE_VIOLATION, "마지막 활성 MASTER는 변경할 수 없습니다.");
+        }
     }
 
     // 행을 잠그고 읽는다. User는 모든 컬럼을 다시 쓰므로, 잠그지 않으면 그사이 커밋된 본인 수정(updateMe·비밀번호)을 덮어쓴다

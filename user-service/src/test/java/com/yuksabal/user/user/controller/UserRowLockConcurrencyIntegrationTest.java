@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -124,8 +125,49 @@ class UserRowLockConcurrencyIntegrationTest {
         assertThat(saved.getSlackId()).isEqualTo(updateMeStatus == 200 ? CHANGED_SLACK_ID : "UMEMBER01");
     }
 
+    // 활성 MASTER 두 명이 서로를 동시에 비활성화하면 잠금 밖 확인(활성 MASTER 2명)은 둘 다 통과한다
+    // hold가 활성 MASTER 전체를 잠근 뒤 다시 세므로 뒤 요청은 422가 되고 활성 MASTER는 1명 남는다
+    @Test
+    void 두_MASTER가_서로를_동시에_비활성화해도_활성_MASTER_한_명은_남는다() throws Exception {
+        // given: 테스트 트랜잭션이 활성 MASTER 전체를 잠근다
+        User otherMaster = save("master02", UserRole.MASTER);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Future<?> lockHolder = executor.submit(() -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> {
+                    userRepository.findActiveByRoleForUpdate(UserRole.MASTER);
+                    locked.countDown();
+                    await(release);
+                }));
+        assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // when: 서로를 비활성화하는 두 요청을 보내고 잠금을 푼다
+        Future<MvcResult> first = send(deactivate(master, otherMaster));
+        Future<MvcResult> second = send(deactivate(otherMaster, master));
+        Thread.sleep(300);
+        // 두 요청 모두 잠금 밖 확인을 통과해 잠금을 기다리고 있어야 한다
+        assertThat(first.isDone()).isFalse();
+        assertThat(second.isDone()).isFalse();
+        release.countDown();
+        lockHolder.get(10, TimeUnit.SECONDS);
+
+        // then: 한 요청만 성공한다
+        int firstStatus = first.get(10, TimeUnit.SECONDS).getResponse().getStatus();
+        int secondStatus = second.get(10, TimeUnit.SECONDS).getResponse().getStatus();
+        assertThat(List.of(firstStatus, secondStatus)).containsExactlyInAnyOrder(200, 422);
+        assertThat(userRepository.countByRoleAndIsActiveTrue(UserRole.MASTER)).isEqualTo(1);
+    }
+
     private Future<MvcResult> send(RequestBuilder request) {
         return executor.submit(() -> mockMvc.perform(request).andReturn());
+    }
+
+    private RequestBuilder deactivate(User requester, User target) throws Exception {
+        return patch("/api/v1/users/" + target.getId() + "/status")
+                .header("X-User-Id", requester.getId().toString())
+                .header("X-User-Role", UserRole.MASTER.name())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("active", false)));
     }
 
     private static void await(CountDownLatch latch) {

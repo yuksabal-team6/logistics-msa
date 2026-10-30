@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,4 +38,9 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") UUID id);
+
+    // 마지막 활성 MASTER 보호: 활성 MASTER 전체를 id 순서로 잠근다 (요청끼리 같은 순서로 잠가 교착을 피한다)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.role = :role and u.isActive = true order by u.id")
+    List<User> findActiveByRoleForUpdate(@Param("role") UserRole role);
 }
