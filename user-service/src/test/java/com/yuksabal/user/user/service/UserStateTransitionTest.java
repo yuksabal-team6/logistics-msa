@@ -9,9 +9,11 @@ import com.yuksabal.user.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -198,6 +201,67 @@ class UserStateTransitionTest {
         return transition.hold(user.getId());
     }
 
+    // ---------- 마지막 활성 MASTER 보호: 활성 MASTER 전체를 잠근 뒤 센다 ----------
+
+    @Test
+    void 마지막_활성_MASTER는_hold로_비활성화할_수_없다() {
+        // given
+        User master = master();
+        given(userRepository.findActiveByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(master));
+
+        // when & then
+        assertThatThrownBy(() -> transition.hold(master.getId()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.BUSINESS_RULE_VIOLATION);
+        assertThat(master.isActive()).isTrue();
+        verify(userRepository, never()).findByIdForUpdate(master.getId());
+    }
+
+    @Test
+    void 마지막_활성_MASTER는_다른_역할로_변경할_수_없다() {
+        // given
+        User master = master();
+        given(userRepository.findActiveByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(master));
+
+        // when & then
+        assertThatThrownBy(() -> transition.changeRole(master.getId(), UserRole.USER))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(CommonErrorCode.BUSINESS_RULE_VIOLATION);
+        assertThat(master.getRole()).isEqualTo(UserRole.MASTER);
+    }
+
+    @Test
+    void 활성_MASTER가_두_명이면_한_명을_다른_역할로_변경할_수_있다() {
+        // given
+        User master = master();
+        given(userRepository.findActiveByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(master, master()));
+        given(userRepository.findByIdForUpdate(master.getId())).willReturn(Optional.of(master));
+
+        // when
+        User result = transition.changeRole(master.getId(), UserRole.USER);
+
+        // then
+        assertThat(result.getRole()).isEqualTo(UserRole.USER);
+    }
+
+    @Test
+    void MASTER_잠금을_대상_행_잠금보다_먼저_잡는다() {
+        // given
+        User master = master();
+        given(userRepository.findActiveByRoleForUpdate(UserRole.MASTER)).willReturn(List.of(master, master()));
+        given(userRepository.findByIdForUpdate(master.getId())).willReturn(Optional.of(master));
+
+        // when
+        transition.hold(master.getId());
+
+        // then
+        InOrder inOrder = inOrder(userRepository);
+        inOrder.verify(userRepository).findActiveByRoleForUpdate(UserRole.MASTER);
+        inOrder.verify(userRepository).findByIdForUpdate(master.getId());
+    }
+
     private void updatedAt(LocalDateTime value) {
         ReflectionTestUtils.setField(user, "updatedAt", value);
     }
@@ -207,5 +271,13 @@ class UserStateTransitionTest {
                 .slackId("U1").role(UserRole.DELIVERY).build();
         ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
         return user;
+    }
+
+
+    private static User master() {
+        User master = User.builder().username("master01").password("$2a$hash").email("master01@example.com")
+                .slackId("U2").role(UserRole.MASTER).build();
+        ReflectionTestUtils.setField(master, "id", UUID.randomUUID());
+        return master;
     }
 }
