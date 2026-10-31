@@ -97,6 +97,11 @@ jwt:
 
 # 인증 제외 경로 (메서드 + 경로 패턴). 여기에 없는 모든 요청은 JWT 필수
 auth:
+  # 회원 상태(탈퇴·활성·역할) 조회 결과 캐시. 정지·역할 변경이 최대 ttl만큼 늦게 반영된다 (팀 합의 10-31: 5초)
+  # 성공 결과만 저장하고, user-service 장애 시에는 캐시로 통과시키지 않는다. 0이면 캐시 끔
+  user-status-cache:
+    ttl: 5s
+    max-size: 10000
   public-paths:
     - method: POST
       path: /api/v1/auth/register

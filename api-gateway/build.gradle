@@ -7,4 +7,6 @@ dependencies {
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+	// 회원 상태 조회 결과 짧은 캐시 (버전은 Spring Boot BOM 관리)
+	implementation 'com.github.ben-manes.caffeine:caffeine'
 }
