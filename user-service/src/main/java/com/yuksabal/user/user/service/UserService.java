@@ -8,6 +8,7 @@ import com.yuksabal.user.global.exception.UserErrorCode;
 import com.yuksabal.user.global.jwt.JwtProvider;
 import com.yuksabal.user.user.dto.request.ChangePasswordRequest;
 import com.yuksabal.user.user.dto.request.LoginRequest;
+import com.yuksabal.user.user.dto.request.RefreshTokenRequest;
 import com.yuksabal.user.user.dto.request.RegisterRequest;
 import com.yuksabal.user.user.dto.request.UpdateMeRequest;
 import com.yuksabal.user.user.dto.response.LoginResponse;
@@ -34,15 +35,17 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
     private final AffiliationValidator affiliationValidator;
+    private final RefreshTokenService refreshTokenService;
     // 없는 아이디도 BCrypt 비교를 한 번 수행해 응답 시간으로 가입 여부를 알 수 없게 한다
     private final String dummyPasswordHash;
 
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtProvider jwtProvider,
-                       AffiliationValidator affiliationValidator) {
+                       AffiliationValidator affiliationValidator, RefreshTokenService refreshTokenService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtProvider = jwtProvider;
         this.affiliationValidator = affiliationValidator;
+        this.refreshTokenService = refreshTokenService;
         this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
@@ -69,8 +72,8 @@ public class UserService {
         return RegisterResponse.from(userRepository.saveAndFlush(user));
     }
 
-    // 아이디 없음·비밀번호 불일치·삭제된 회원 모두 같은 401로 응답한다
-    @Transactional(readOnly = true)
+    // 아이디 없음·비밀번호 불일치·삭제된 회원 모두 같은 401로 응답한다. 성공하면 Refresh Token을 저장한다
+    @Transactional
     public LoginResponse login(LoginRequest request) {
         User user = userRepository.findByUsername(request.username()).orElse(null);
         String passwordHash = user != null ? user.getPassword() : dummyPasswordHash;
@@ -83,8 +86,33 @@ public class UserService {
             throw new BusinessException(UserErrorCode.ACCOUNT_DISABLED);
         }
 
+        return issueTokens(user);
+    }
+
+    // Refresh Token으로 Access Token 재발급 (rotation: 쓴 토큰은 폐기하고 새 Refresh Token도 발급)
+    // 새 Access Token에는 DB의 현재 역할을 넣는다 → 게이트웨이 ROLE_CHANGED(401)는 재로그인 없이 재발급으로 해결된다
+    // 탈퇴 회원은 401, 비활성 회원은 403. 이때도 쓴 토큰은 폐기된 채로 남도록 롤백하지 않는다
+    @Transactional(noRollbackFor = BusinessException.class)
+    public LoginResponse refresh(RefreshTokenRequest request) {
+        UUID userId = refreshTokenService.consume(request.refreshToken());
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(UserErrorCode.INVALID_REFRESH_TOKEN));
+        if (!user.isActive()) {
+            throw new BusinessException(UserErrorCode.ACCOUNT_DISABLED);
+        }
+        return issueTokens(user);
+    }
+
+    // 현재 기기 로그아웃: 보낸 Refresh Token만 폐기한다. 이미 발급된 Access Token은 만료 전까지 유효하다
+    public void logout(UUID userId, RefreshTokenRequest request) {
+        refreshTokenService.revoke(userId, request.refreshToken());
+    }
+
+    private LoginResponse issueTokens(User user) {
         String accessToken = jwtProvider.createAccessToken(user.getId(), user.getRole());
-        return LoginResponse.bearer(accessToken, jwtProvider.getAccessTokenExpirationSeconds());
+        String refreshToken = refreshTokenService.issue(user.getId());
+        return LoginResponse.bearer(accessToken, jwtProvider.getAccessTokenExpirationSeconds(),
+                refreshToken, refreshTokenService.getExpirationSeconds());
     }
 
     // userId는 게이트웨이가 검증된 JWT에서 넣어 준 X-User-Id 값이다 (클라이언트가 보낸 값은 게이트웨이가 지운다)

@@ -9,6 +9,7 @@ import com.yuksabal.user.global.jwt.JwtProvider;
 import com.yuksabal.user.support.TestJwt;
 import com.yuksabal.user.user.dto.request.ChangePasswordRequest;
 import com.yuksabal.user.user.dto.request.LoginRequest;
+import com.yuksabal.user.user.dto.request.RefreshTokenRequest;
 import com.yuksabal.user.user.dto.request.RegisterRequest;
 import com.yuksabal.user.user.dto.request.UpdateMeRequest;
 import com.yuksabal.user.user.dto.response.LoginResponse;
@@ -47,8 +48,9 @@ class UserServiceTest {
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final String jwtSecret = TestJwt.randomBase64Secret(32);
     private final AffiliationValidator affiliationValidator = mock(AffiliationValidator.class);
+    private final RefreshTokenService refreshTokenService = mock(RefreshTokenService.class);
     private final UserService userService = new UserService(userRepository, passwordEncoder,
-            new JwtProvider(TestJwt.properties(jwtSecret)), affiliationValidator);
+            new JwtProvider(TestJwt.properties(jwtSecret)), affiliationValidator, refreshTokenService);
 
     private final UUID hubId = UUID.randomUUID();
     private final UUID companyId = UUID.randomUUID();
@@ -136,6 +138,8 @@ class UserServiceTest {
         // given
         UUID userId = UUID.randomUUID();
         given(userRepository.findByUsername(USERNAME)).willReturn(Optional.of(savedUser(userId, UserRole.DELIVERY)));
+        given(refreshTokenService.issue(userId)).willReturn("refresh-token");
+        given(refreshTokenService.getExpirationSeconds()).willReturn(604800L);
 
         // when
         LoginResponse response = userService.login(new LoginRequest(USERNAME, RAW_PASSWORD));
@@ -146,6 +150,63 @@ class UserServiceTest {
         assertThat(claims.get("role")).isEqualTo("DELIVERY");
         assertThat(response.tokenType()).isEqualTo("Bearer");
         assertThat(response.expiresIn()).isEqualTo(3600);
+        assertThat(response.refreshToken()).isEqualTo("refresh-token");
+        assertThat(response.refreshExpiresIn()).isEqualTo(604800L);
+    }
+
+    @Test
+    void 로그인에_실패하면_Refresh_Token을_발급하지_않는다() {
+        // given
+        given(userRepository.findByUsername(USERNAME)).willReturn(Optional.of(savedUser(UUID.randomUUID(), UserRole.USER)));
+
+        // when & then
+        assertThatThrownBy(() -> userService.login(new LoginRequest(USERNAME, WRONG_PASSWORD)))
+                .isInstanceOf(BusinessException.class);
+        verify(refreshTokenService, never()).issue(any());
+    }
+
+    @Test
+    void 재발급하면_DB의_현재_역할로_새_토큰을_발급한다() {
+        // given: 토큰 발급 뒤 역할이 MASTER로 바뀐 회원
+        UUID userId = UUID.randomUUID();
+        given(refreshTokenService.consume("old-token")).willReturn(userId);
+        given(userRepository.findById(userId)).willReturn(Optional.of(savedUser(userId, UserRole.MASTER)));
+        given(refreshTokenService.issue(userId)).willReturn("new-token");
+
+        // when
+        LoginResponse response = userService.refresh(new RefreshTokenRequest("old-token"));
+
+        // then
+        Claims claims = TestJwt.parse(jwtSecret, response.accessToken()).getPayload();
+        assertThat(claims.get("role")).isEqualTo("MASTER");
+        assertThat(response.refreshToken()).isEqualTo("new-token");
+    }
+
+    @Test
+    void 비활성_회원은_재발급하면_403이고_새_토큰을_발급하지_않는다() {
+        // given
+        UUID userId = UUID.randomUUID();
+        given(refreshTokenService.consume("old-token")).willReturn(userId);
+        given(userRepository.findById(userId)).willReturn(Optional.of(inactiveUser(userId)));
+
+        // when & then
+        assertThatThrownBy(() -> userService.refresh(new RefreshTokenRequest("old-token")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.ACCOUNT_DISABLED);
+        verify(refreshTokenService, never()).issue(any());
+    }
+
+    @Test
+    void 탈퇴한_회원은_재발급하면_401() {
+        // given: 삭제된 회원은 findById에서 조회되지 않는다
+        UUID userId = UUID.randomUUID();
+        given(refreshTokenService.consume("old-token")).willReturn(userId);
+        given(userRepository.findById(userId)).willReturn(Optional.empty());
+
+        // when & then
+        assertThatThrownBy(() -> userService.refresh(new RefreshTokenRequest("old-token")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(UserErrorCode.INVALID_REFRESH_TOKEN);
     }
 
     @Test

@@ -102,6 +102,9 @@ auth:
       path: /api/v1/auth/register
     - method: POST
       path: /api/v1/auth/login
+    # 토큰 재발급: Access Token이 만료돼도 호출해야 하므로 공개 (Refresh Token은 user-service가 확인)
+    - method: POST
+      path: /api/v1/auth/refresh
     # 통합 Swagger (PROJECT_SETUP TODO)
     - method: GET
       path: /swagger-ui/**
@@ -139,6 +142,10 @@ auth:
       roles: [MASTER, USER, DELIVERY, COMPANY]
     - method: PATCH
       path: /api/v1/auth/me/password
+      roles: [MASTER, USER, DELIVERY, COMPANY]
+    # 로그아웃 (본인 Refresh Token 폐기)
+    - method: POST
+      path: /api/v1/auth/logout
       roles: [MASTER, USER, DELIVERY, COMPANY]
 
     # company-service 업체·상품. 조회(GET)는 로그인만, 본인 업체인지는 서비스가 확인한다
