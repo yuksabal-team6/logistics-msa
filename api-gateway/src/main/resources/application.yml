@@ -109,7 +109,10 @@ auth:
       path: /v3/api-docs/**
     - method: GET
       path: /*-service/v3/api-docs
-  # API별 역할 제한 (1단계). 위에서부터 처음 맞는 규칙 하나만 적용, 맞는 규칙이 없으면 인증만 확인한다.
+  # API별 역할 제한 (1단계). 위에서부터 처음 맞는 규칙 하나만 적용한다.
+  # 맞는 규칙이 없으면 조회(GET 등)는 인증만 확인하고, 쓰기(POST·PUT·PATCH·DELETE)는 403으로 거부한다.
+  # → 새 쓰기 API를 만들면 여기에 허용 역할 규칙을 함께 등록한다 (팀 합의 10-31)
+  # 역할 범위는 SA 문서 권한 정책을 따르고, 근거 없이 좁히지 않는다. 업무 권한(본인·소유자·담당자)은 각 서비스가 확인한다
   # 서비스도 담당자·소유자·DB 역할을 다시 확인한다 (2단계). 다른 서비스 경로는 담당자별 권한 표를 모아 한 PR로 추가
   # 경로 패턴의 *는 경로 한 칸(예: 회원 ID), **는 그 아래 전부
   # 순서: 구체적인 경로를 위에, 넓은 패턴(/**)은 아래에 둔다 (넓은 패턴이 위에 있으면 아래 규칙이 적용되지 않는다)
@@ -130,6 +133,13 @@ auth:
     - method: DELETE
       path: /api/v1/users/*
       roles: [MASTER]
+    # 내 정보 수정은 모든 역할 (본인 확인은 user-service가 토큰 회원 ID로)
+    - method: PATCH
+      path: /api/v1/auth/me
+      roles: [MASTER, USER, DELIVERY, COMPANY]
+    - method: PATCH
+      path: /api/v1/auth/me/password
+      roles: [MASTER, USER, DELIVERY, COMPANY]
 
     # company-service 업체·상품. 조회(GET)는 로그인만, 본인 업체인지는 서비스가 확인한다
     - method: POST
@@ -141,6 +151,9 @@ auth:
     - method: DELETE
       path: /api/v1/companies/*
       roles: [MASTER]
+    - method: PATCH
+      path: /api/v1/companies/*/status
+      roles: [MASTER]
     - method: POST
       path: /api/v1/companies/*/products
       roles: [MASTER, COMPANY]
@@ -150,8 +163,17 @@ auth:
     - method: DELETE
       path: /api/v1/products/*
       roles: [MASTER, COMPANY]
+    - method: PATCH
+      path: /api/v1/products/*/status
+      roles: [MASTER, COMPANY]
 
-    # order-service. 주문 삭제만 MASTER 전용
+    # order-service. 주문 생성·취소는 로그인한 모든 역할, 주문자·요청 업체인지는 서비스가 확인한다. 삭제만 MASTER 전용
+    - method: POST
+      path: /api/v1/orders
+      roles: [MASTER, USER, DELIVERY, COMPANY]
+    - method: POST
+      path: /api/v1/orders/*/cancel
+      roles: [MASTER, USER, DELIVERY, COMPANY]
     - method: DELETE
       path: /api/v1/orders/*
       roles: [MASTER]

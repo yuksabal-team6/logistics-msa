@@ -74,6 +74,10 @@ class GatewayRoleRulesIntegrationTest {
             new Rule(HttpMethod.POST, "/api/v1/companies/" + ID + "/products", Set.of("MASTER", "COMPANY")),
             new Rule(HttpMethod.PATCH, "/api/v1/products/" + ID, Set.of("MASTER", "COMPANY")),
             new Rule(HttpMethod.DELETE, "/api/v1/products/" + ID, Set.of("MASTER", "COMPANY")),
+            new Rule(HttpMethod.PATCH, "/api/v1/companies/" + ID + "/status", Set.of("MASTER")),
+            new Rule(HttpMethod.PATCH, "/api/v1/products/" + ID + "/status", Set.of("MASTER", "COMPANY")),
+            new Rule(HttpMethod.POST, "/api/v1/orders", Set.copyOf(ALL_ROLES)),
+            new Rule(HttpMethod.POST, "/api/v1/orders/" + ID + "/cancel", Set.copyOf(ALL_ROLES)),
             new Rule(HttpMethod.DELETE, "/api/v1/orders/" + ID, Set.of("MASTER")),
             new Rule(HttpMethod.PATCH, "/api/v1/deliveries/" + ID + "/status", Set.of("MASTER", "DELIVERY")),
             new Rule(HttpMethod.PATCH, "/api/v1/deliveries/" + ID + "/routes/" + ID + "/status",
@@ -159,13 +163,12 @@ class GatewayRoleRulesIntegrationTest {
     }
 
     @Test
-    void 규칙이_없는_조회와_생성은_모든_역할이_서비스로_전달된다() {
-        // 조회는 로그인만, 주문 생성·허브 조회 등은 규칙 없음
+    void 규칙이_없는_조회는_모든_역할이_서비스로_전달된다() {
+        // 조회는 로그인만 확인 (규칙 없음)
         List<Rule> open = List.of(
                 new Rule(HttpMethod.GET, "/api/v1/companies", Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/companies/" + ID, Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/products/" + ID, Set.of()),
-                new Rule(HttpMethod.POST, "/api/v1/orders", Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/orders/" + ID, Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/deliveries/" + ID, Set.of()),
                 new Rule(HttpMethod.GET, "/api/v1/hubs", Set.of()));
@@ -174,6 +177,22 @@ class GatewayRoleRulesIntegrationTest {
                 request(rule.method(), rule.uri(), role).expectStatus().isOk();
             }
         }
+    }
+
+    @Test
+    void 규칙이_없는_쓰기는_모든_역할이_403이고_서비스로_전달하지_않는다() {
+        // 규칙 누락으로 쓰기 API가 열리지 않도록 기본 거부 (MASTER 포함)
+        List<Rule> unregistered = List.of(
+                new Rule(HttpMethod.POST, "/api/v1/hubs", Set.of()),
+                new Rule(HttpMethod.PUT, "/api/v1/orders/" + ID, Set.of()),
+                new Rule(HttpMethod.PATCH, "/api/v1/orders/" + ID + "/unknown", Set.of()),
+                new Rule(HttpMethod.DELETE, "/api/v1/hubs/" + ID, Set.of()));
+        for (Rule rule : unregistered) {
+            for (String role : ALL_ROLES) {
+                expectForbidden(rule.method(), rule.uri(), role);
+            }
+        }
+        assertThat(STUB_HITS.get()).isZero();
     }
 
     // ---------- 규칙 대상이 아닌 경로 (인증만 확인, 권한은 user-service가 판단) ----------
