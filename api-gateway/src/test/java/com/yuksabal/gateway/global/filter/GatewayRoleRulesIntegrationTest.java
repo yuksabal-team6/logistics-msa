@@ -206,11 +206,12 @@ class GatewayRoleRulesIntegrationTest {
     }
 
     @Test
-    void 내_정보_API는_모든_역할이_쓸_수_있다() {
-        for (String role : NON_MASTER) {
+    void 내_정보_API와_로그아웃은_모든_역할이_쓸_수_있다() {
+        for (String role : ALL_ROLES) {
             request(HttpMethod.GET, "/api/v1/auth/me", role).expectStatus().isOk();
             request(HttpMethod.PATCH, "/api/v1/auth/me", role).expectStatus().isOk();
             request(HttpMethod.PATCH, "/api/v1/auth/me/password", role).expectStatus().isOk();
+            request(HttpMethod.POST, "/api/v1/auth/logout", role).expectStatus().isOk();
         }
     }
 
@@ -218,6 +219,8 @@ class GatewayRoleRulesIntegrationTest {
     void 공개_API는_역할_규칙과_관계없이_토큰_없이_통과한다() {
         webTestClient.post().uri("/api/v1/auth/register").exchange().expectStatus().isOk();
         webTestClient.post().uri("/api/v1/auth/login").exchange().expectStatus().isOk();
+        // 토큰 재발급은 Access Token이 만료돼도 호출해야 하므로 공개
+        webTestClient.post().uri("/api/v1/auth/refresh").exchange().expectStatus().isOk();
     }
 
     @Test

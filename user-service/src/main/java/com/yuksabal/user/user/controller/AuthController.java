@@ -4,6 +4,7 @@ import com.yuksabal.common.response.ApiResponse;
 import com.yuksabal.user.global.swagger.ApiErrorCodes;
 import com.yuksabal.user.user.dto.request.ChangePasswordRequest;
 import com.yuksabal.user.user.dto.request.LoginRequest;
+import com.yuksabal.user.user.dto.request.RefreshTokenRequest;
 import com.yuksabal.user.user.dto.request.RegisterRequest;
 import com.yuksabal.user.user.dto.request.UpdateMeRequest;
 import com.yuksabal.user.user.dto.response.LoginResponse;
@@ -35,6 +36,7 @@ import static com.yuksabal.common.exception.CommonErrorCode.VALIDATION_ERROR;
 import static com.yuksabal.user.global.exception.UserErrorCode.ACCOUNT_DISABLED;
 import static com.yuksabal.user.global.exception.UserErrorCode.INVALID_CREDENTIALS;
 import static com.yuksabal.user.global.exception.UserErrorCode.INVALID_PASSWORD;
+import static com.yuksabal.user.global.exception.UserErrorCode.INVALID_REFRESH_TOKEN;
 
 @Tag(name = "Auth", description = "인증 API")
 @RestController
@@ -58,12 +60,34 @@ public class AuthController {
     }
 
     // 공개 API (게이트웨이 auth.public-paths)
-    @Operation(summary = "로그인", description = "아이디·비밀번호가 맞으면 Access Token(1시간)을 발급한다.")
+    @Operation(summary = "로그인", description = "아이디·비밀번호가 맞으면 Access Token(1시간)과 Refresh Token(7일)을 발급한다.")
     @SecurityRequirements
     @ApiErrorCodes(common = VALIDATION_ERROR, value = {INVALID_CREDENTIALS, ACCOUNT_DISABLED})
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(ApiResponse.success(userService.login(request), "로그인에 성공했습니다."));
+    }
+
+    // 공개 API (게이트웨이 auth.public-paths). Access Token이 만료돼도 호출할 수 있어야 하므로 토큰을 요구하지 않는다
+    @Operation(summary = "토큰 재발급",
+            description = "Refresh Token으로 Access Token과 새 Refresh Token을 발급한다. 보낸 Refresh Token은 폐기되어 다시 쓸 수 없다 "
+                    + "(없음·만료·이미 사용됨·탈퇴 회원 401, 비활성 계정 403)")
+    @SecurityRequirements
+    @ApiErrorCodes(common = VALIDATION_ERROR, value = {INVALID_REFRESH_TOKEN, ACCOUNT_DISABLED})
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<LoginResponse>> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(userService.refresh(request), "토큰이 재발급되었습니다."));
+    }
+
+    @Operation(summary = "로그아웃",
+            description = "보낸 Refresh Token을 폐기한다(현재 기기만). 이미 발급된 Access Token은 만료 전까지 유효하므로 클라이언트가 지운다.")
+    @ApiErrorCodes(common = {VALIDATION_ERROR, UNAUTHORIZED})
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @RequestHeader("X-User-Id") UUID userId,
+            @Valid @RequestBody RefreshTokenRequest request) {
+        userService.logout(userId, request);
+        return ResponseEntity.ok(ApiResponse.success(null, "로그아웃되었습니다."));
     }
 
     // 이하 인증 필요: 토큰 오류 401은 게이트웨이가 응답하고, X-User-Id는 게이트웨이가 검증된 JWT 값으로 넣는다
