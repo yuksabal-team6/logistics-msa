@@ -8,6 +8,11 @@ spring:
     import: optional:classpath:application-secret.yml
   cloud:
     gateway:
+      # 하위 서비스 연결·응답 대기 제한 (팀 합의 10-31). 초과 시 연결 실패 503, 응답 지연 504
+      # 응답이 오래 걸리는 API가 있으면 해당 라우트에 metadata.response-timeout(ms)으로 따로 늘린다
+      httpclient:
+        connect-timeout: 1000
+        response-timeout: 5s
       routes:
         - id: user-service
           uri: lb://user-service
