@@ -43,6 +43,9 @@ public class AuthenticationWebFilter implements WebFilter {
     public static final String USER_ROLE_HEADER = "X-User-Role";
     private static final String BEARER_PREFIX = "Bearer ";
 
+    private static final Set<HttpMethod> WRITE_METHODS =
+            Set.of(HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH, HttpMethod.DELETE);
+
     private final JwtValidator jwtValidator;
     private final UserStatusClient userStatusClient;
     private final ErrorResponseWriter errorResponseWriter;
@@ -134,13 +137,13 @@ public class AuthenticationWebFilter implements WebFilter {
         return token.isEmpty() ? null : token;
     }
 
-    // 처음 맞는 규칙 하나만 적용. 맞는 규칙이 없으면 인증된 사용자 모두 허용
+    // 처음 맞는 규칙 하나만 적용. 맞는 규칙이 없으면 조회는 허용, 쓰기는 거부 (규칙 누락으로 쓰기 API가 열리는 것을 막는다)
     private boolean isAllowed(ServerHttpRequest request, AuthUser authUser) {
         return roleRules.stream()
                 .filter(rule -> rule.matcher().matches(request))
                 .findFirst()
                 .map(rule -> rule.roles().contains(authUser.role()))
-                .orElse(true);
+                .orElseGet(() -> !WRITE_METHODS.contains(request.getMethod()));
     }
 
     private static boolean matchesAny(List<RequestMatcher> matchers, ServerHttpRequest request) {
