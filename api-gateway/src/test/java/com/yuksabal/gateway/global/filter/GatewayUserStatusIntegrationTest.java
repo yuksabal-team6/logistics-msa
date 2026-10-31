@@ -32,6 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 // - order-service → 같은 stub (하위 서비스로 전달됐는지 DOWNSTREAM_HITS로 센다)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "eureka.client.enabled=false",
+        // 한 테스트 안에서 회원 상태를 바꿔 가며 확인하므로 캐시를 끈다 (캐시 동작은 GatewayUserStatusCacheIntegrationTest)
+        "auth.user-status-cache.ttl=0",
         "auth.role-rules[0].method=GET",
         "auth.role-rules[0].path=/api/v1/orders/master-only/**",
         "auth.role-rules[0].roles[0]=MASTER"

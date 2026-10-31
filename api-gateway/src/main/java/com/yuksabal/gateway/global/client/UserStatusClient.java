@@ -1,5 +1,7 @@
 package com.yuksabal.gateway.global.client;
 
+import com.github.benmanes.caffeine.cache.Ticker;
+import com.yuksabal.gateway.global.config.UserStatusCacheProperties;
 import io.netty.channel.ChannelOption;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.client.loadbalancer.reactive.ReactorLoadBalancerExchangeFilterFunction;
@@ -14,6 +16,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 // 인증된 요청마다 user-service 내부 API로 회원의 현재 상태(탈퇴·활성·역할)를 조회한다.
+// 성공 결과는 auth.user-status-cache.ttl(5초) 동안 캐시한다 (UserStatusCache).
 // JWT는 1시간 유효하고 무효화 수단이 없으므로, 탈퇴·비활성화·역할 변경을 즉시 반영하려면 DB 값을 봐야 한다.
 // - 200 → UserStatus
 // - 404 (없거나 탈퇴한 회원) → 빈 Mono
@@ -28,10 +31,13 @@ public class UserStatusClient {
     private static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(2);
 
     private final WebClient webClient;
+    // null이면 캐시하지 않는다 (ttl 0)
+    private final UserStatusCache cache;
 
     // 전역 WebClient.Builder를 @LoadBalanced로 바꾸지 않고, 이 클라이언트에만 로드밸런서 필터를 붙인다
     public UserStatusClient(WebClient.Builder webClientBuilder,
-                            ReactorLoadBalancerExchangeFilterFunction loadBalancerFilter) {
+                            ReactorLoadBalancerExchangeFilterFunction loadBalancerFilter,
+                            UserStatusCacheProperties cacheProperties) {
         HttpClient httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT_MILLIS)
                 .responseTimeout(RESPONSE_TIMEOUT);
@@ -40,9 +46,16 @@ public class UserStatusClient {
                 .filter(loadBalancerFilter)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .build();
+        this.cache = cacheProperties.enabled()
+                ? new UserStatusCache(cacheProperties.ttl(), cacheProperties.maxSize(), Ticker.systemTicker())
+                : null;
     }
 
     public Mono<UserStatus> fetch(UUID userId) {
+        return cache == null ? lookup(userId) : cache.get(userId, this::lookup);
+    }
+
+    private Mono<UserStatus> lookup(UUID userId) {
         return webClient.get()
                 .uri("/internal/users/{userId}", userId)
                 .exchangeToMono(response -> {
