@@ -11,7 +11,8 @@ import com.yuksabal.order.order.client.dto.DeliveryCreateResponse;
 import com.yuksabal.order.order.client.dto.ProductResponse;
 import com.yuksabal.order.order.client.dto.StockDecreaseResponse;
 import com.yuksabal.order.order.client.dto.UserResponse;
-import com.yuksabal.order.order.notification.SlackNotifier;
+import com.yuksabal.order.order.event.OrderEvent;
+import com.yuksabal.order.order.event.OrderOutboxRecorder;
 import com.yuksabal.order.order.repository.OrderRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +45,9 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import org.springframework.boot.test.mock.mockito.SpyBean;
+import static org.mockito.ArgumentMatchers.argThat;
+import static com.yuksabal.order.order.event.OrderEventType.ORDER_CONFIRMED;
 
 // 같은 Idempotency-Key로 주문 3개가 동시에 들어와도 주문은 1개, 재고 차감, 배송 생성, Slack도 1번
 // H2는 WHERE 조건 인덱스를 못 만들어서 같은 컬럼에 일반 유니크 인덱스를 만든다 (삭제 안 된 행끼리는 부분 인덱스와 같음)
@@ -71,8 +75,9 @@ class OrderCreateConcurrencyTest {
     private HubClient hubClient;
     @MockBean
     private DeliveryClient deliveryClient;
-    @MockBean
-    private SlackNotifier slackNotifier;
+    // 알림은 outbox 이벤트로 저장됨 (#198). 실제로 저장하면서 어떤 이벤트를 기록했는지 확인
+    @SpyBean
+    private OrderOutboxRecorder outboxRecorder;
 
     private final UUID userId = UUID.randomUUID();
     private final UUID supplierId = UUID.randomUUID();
@@ -146,7 +151,7 @@ class OrderCreateConcurrencyTest {
         // 외부 호출과 알림은 1번씩만
         verify(hubClient, times(1)).decreaseStock(any());
         verify(deliveryClient, times(1)).createDelivery(any());
-        verify(slackNotifier, times(1)).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
+        verify(outboxRecorder, times(1)).record(argThat((OrderEvent e) -> e.eventType() == ORDER_CONFIRMED));
     }
 
     private Map<String, Object> body() {

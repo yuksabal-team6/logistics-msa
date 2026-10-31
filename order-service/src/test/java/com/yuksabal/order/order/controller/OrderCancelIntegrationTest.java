@@ -14,7 +14,8 @@ import com.yuksabal.order.order.client.dto.StockRestoreResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
-import com.yuksabal.order.order.notification.SlackNotifier;
+import com.yuksabal.order.order.event.OrderEvent;
+import com.yuksabal.order.order.event.OrderOutboxRecorder;
 import com.yuksabal.order.order.repository.OrderRepository;
 import feign.Request;
 import feign.RetryableException;
@@ -47,6 +48,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.springframework.boot.test.mock.mockito.SpyBean;
+import static org.mockito.ArgumentMatchers.argThat;
+import static com.yuksabal.order.order.event.OrderEventType.MANUAL_ACTION_REQUIRED;
 
 // 주문 취소 (이슈 51). delivery, hub Feign 클라이언트는 가짜(MockBean)
 @SpringBootTest
@@ -67,8 +71,9 @@ class OrderCancelIntegrationTest {
     private HubClient hubClient;
     @MockBean
     private DeliveryClient deliveryClient;
-    @MockBean
-    private SlackNotifier slackNotifier;
+    // 알림은 outbox 이벤트로 저장됨 (#198). 실제로 저장하면서 어떤 이벤트를 기록했는지 확인
+    @SpyBean
+    private OrderOutboxRecorder outboxRecorder;
 
     private final UUID ordererId = UUID.randomUUID();
     private final UUID departureHubId = UUID.randomUUID();
@@ -101,7 +106,7 @@ class OrderCancelIntegrationTest {
         InOrder sequence = inOrder(deliveryClient, hubClient);
         sequence.verify(deliveryClient).cancelDelivery(new DeliveryCancelRequest(order.getId()));
         sequence.verify(hubClient).restoreStock(new StockRequest(departureHubId, productId, 5, order.getId()));
-        verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
         // 주문자 본인은 company 호출 없이 통과
         verifyNoInteractions(companyClient);
     }
@@ -262,7 +267,8 @@ class OrderCancelIntegrationTest {
         Order saved = orderRepository.findById(order.getId()).orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
-        verifyNoInteractions(hubClient, slackNotifier);
+        verifyNoInteractions(hubClient);
+        verify(outboxRecorder, never()).record(any());
 
         // 늦게 다시 온 완료 알림(#10)은 이미 COMPLETED라 그대로 200
         mockMvc.perform(post("/internal/orders/" + order.getId() + "/complete"))
@@ -368,7 +374,7 @@ class OrderCancelIntegrationTest {
         InOrder sequence = inOrder(deliveryClient, hubClient);
         sequence.verify(deliveryClient).cancelDelivery(any());
         sequence.verify(hubClient).restoreStock(any());
-        verify(slackNotifier).notifyManualAction(any(), eq("주문 취소 보상 실패 (재고 복원)"));
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED && "주문 취소 보상 실패 (재고 복원)".equals(e.reason())));
     }
 
     @Test
@@ -396,7 +402,8 @@ class OrderCancelIntegrationTest {
         Order saved = orderRepository.findById(order.getId()).orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.NOT_REQUIRED);
-        verifyNoInteractions(hubClient, slackNotifier);
+        verifyNoInteractions(hubClient);
+        verify(outboxRecorder, never()).record(any());
     }
 
     // 배송 취소 여부를 모름: CANCELLED 유지 + 보상 FAILED + Slack 수동 처리, 재고 복원 안 함
@@ -405,7 +412,7 @@ class OrderCancelIntegrationTest {
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.FAILED);
         verifyNoInteractions(hubClient);
-        verify(slackNotifier).notifyManualAction(any(), anyString());
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
     }
 
     private RetryableException timeout() {
