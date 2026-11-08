@@ -14,10 +14,15 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
 
     Optional<RefreshToken> findByTokenHash(String tokenHash);
 
-    // 지운 행 수를 돌려준다. 같은 토큰으로 동시에 재발급하면 먼저 지운 요청만 1, 나머지는 0
+    // 바꾼 행 수를 돌려준다. 같은 토큰으로 동시에 재발급하면 먼저 표시한 요청만 1, 나머지는 0
     @Modifying
-    @Query("delete from RefreshToken r where r.id = :id")
-    int deleteOne(@Param("id") UUID id);
+    @Query("update RefreshToken r set r.usedAt = :now where r.id = :id and r.usedAt is null")
+    int markUsed(@Param("id") UUID id, @Param("now") LocalDateTime now);
+
+    // 재사용 탐지: 그 회원의 모든 기기 토큰을 폐기한다
+    @Modifying
+    @Query("delete from RefreshToken r where r.userId = :userId")
+    int deleteAllByUserId(@Param("userId") UUID userId);
 
     // 로그아웃: 본인 토큰만 지운다
     @Modifying

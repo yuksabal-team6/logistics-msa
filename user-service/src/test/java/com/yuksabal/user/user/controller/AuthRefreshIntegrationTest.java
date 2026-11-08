@@ -101,7 +101,7 @@ class AuthRefreshIntegrationTest {
     }
 
     @Test
-    void 재발급하면_새_토큰을_주고_쓴_토큰은_다시_쓸_수_없다() throws Exception {
+    void 재발급하면_새_Access_Token과_Refresh_Token을_준다() throws Exception {
         // given
         String oldToken = loginData().path("refreshToken").asText();
 
@@ -118,8 +118,24 @@ class AuthRefreshIntegrationTest {
         assertThat(newToken).isNotEqualTo(oldToken);
         assertThat(TestJwt.parse(JWT_SECRET, data.path("accessToken").asText()).getPayload().getSubject())
                 .isEqualTo(user.getId().toString());
-        expectInvalid(refresh(oldToken));
         refresh(newToken).andExpect(status().isOk());
+    }
+
+    @Test
+    void 쓴_토큰을_다시_쓰면_탈취로_보고_그_회원의_모든_기기_토큰을_폐기한다() throws Exception {
+        // given: 기기 두 대에서 로그인하고, 한 기기 토큰으로 재발급한다
+        String stolen = loginData().path("refreshToken").asText();
+        String otherDevice = loginData().path("refreshToken").asText();
+        String rotated = objectMapper.readTree(refresh(stolen).andReturn().getResponse().getContentAsString())
+                .path("data").path("refreshToken").asText();
+
+        // when: 이미 쓴 토큰이 다시 온다
+        expectInvalid(refresh(stolen));
+
+        // then: 재발급받은 토큰과 다른 기기 토큰도 쓸 수 없다
+        assertThat(refreshTokenRepository.count()).isZero();
+        expectInvalid(refresh(rotated));
+        expectInvalid(refresh(otherDevice));
     }
 
     @Test
@@ -138,7 +154,7 @@ class AuthRefreshIntegrationTest {
     }
 
     @Test
-    void 비활성_회원은_재발급하면_403이고_쓴_토큰은_폐기된다() throws Exception {
+    void 비활성_회원은_재발급하면_403이고_쓴_토큰은_사용_처리된다() throws Exception {
         // given
         String token = loginData().path("refreshToken").asText();
         user.changeActive(false);
@@ -147,7 +163,8 @@ class AuthRefreshIntegrationTest {
         // when & then
         refresh(token).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("ACCOUNT_DISABLED"));
-        assertThat(refreshTokenRepository.count()).isZero();
+        assertThat(refreshTokenRepository.findAll()).singleElement()
+                .satisfies(saved -> assertThat(saved.isUsed()).isTrue());
     }
 
     @Test
