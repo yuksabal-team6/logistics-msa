@@ -52,15 +52,16 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    void 유효한_토큰을_쓰면_폐기하고_회원_ID를_돌려준다() {
+    void 유효한_토큰을_쓰면_사용_처리하고_회원_ID를_돌려준다() {
         // given
         RefreshToken stored = stored("token", LocalDateTime.now().plusDays(1));
         given(repository.findByTokenHash(RefreshTokenService.hash("token"))).willReturn(Optional.of(stored));
-        given(repository.deleteOne(stored.getId())).willReturn(1);
+        given(repository.markUsed(eq(stored.getId()), any())).willReturn(1);
 
         // when & then
         assertThat(service.consume("token")).isEqualTo(userId);
-        verify(repository).deleteOne(stored.getId());
+        verify(repository).markUsed(eq(stored.getId()), any());
+        verify(repository, never()).deleteAllByUserId(any());
     }
 
     @Test
@@ -78,18 +79,33 @@ class RefreshTokenServiceTest {
 
         // when & then
         expectInvalid("token");
-        verify(repository, never()).deleteOne(any());
+        verify(repository, never()).markUsed(any(), any());
+        verify(repository, never()).deleteAllByUserId(any());
     }
 
     @Test
-    void 동시에_같은_토큰을_쓴_다른_요청이_먼저_폐기했으면_401() {
-        // given: 조회는 됐지만 삭제된 행이 없다
+    void 이미_쓴_토큰이_다시_오면_그_회원의_토큰을_전부_폐기하고_401() {
+        // given
         RefreshToken stored = stored("token", LocalDateTime.now().plusDays(1));
+        ReflectionTestUtils.setField(stored, "usedAt", LocalDateTime.now().minusMinutes(1));
         given(repository.findByTokenHash(RefreshTokenService.hash("token"))).willReturn(Optional.of(stored));
-        given(repository.deleteOne(stored.getId())).willReturn(0);
 
         // when & then
         expectInvalid("token");
+        verify(repository, never()).markUsed(any(), any());
+        verify(repository).deleteAllByUserId(userId);
+    }
+
+    @Test
+    void 동시에_같은_토큰을_쓴_다른_요청이_먼저_사용했으면_재사용으로_보고_전부_폐기하고_401() {
+        // given: 조회 때는 미사용이었지만 사용 처리된 행이 없다
+        RefreshToken stored = stored("token", LocalDateTime.now().plusDays(1));
+        given(repository.findByTokenHash(RefreshTokenService.hash("token"))).willReturn(Optional.of(stored));
+        given(repository.markUsed(eq(stored.getId()), any())).willReturn(0);
+
+        // when & then
+        expectInvalid("token");
+        verify(repository).deleteAllByUserId(userId);
     }
 
     @Test

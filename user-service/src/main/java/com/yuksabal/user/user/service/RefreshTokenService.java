@@ -42,15 +42,18 @@ public class RefreshTokenService {
         return token;
     }
 
-    // 토큰을 폐기하고 주인 회원 ID를 돌려준다 (재발급용, 한 번만 쓸 수 있다)
-    // 없음·만료·이미 사용됨(동시 요청 포함)은 모두 같은 401로 응답한다
-    // 호출하는 UserService.refresh가 BusinessException에도 커밋하므로, 여기서도 rollback-only로 표시하지 않는다
+    // 토큰을 사용 처리하고 주인 회원 ID를 돌려준다 (재발급용, 한 번만 쓸 수 있다)
+    // 없음·만료는 401. 이미 쓴 토큰(동시 요청 포함)이 다시 오면 탈취로 보고 그 회원의 토큰을 전부 폐기한 뒤 같은 401
+    // 정상 사용자가 같은 토큰으로 재시도해도 전부 로그아웃되는 것은 감수한다 (재로그인으로 복구)
+    // 호출하는 UserService.refresh가 BusinessException에도 커밋하므로, 여기서도 rollback-only로 표시하지 않는다 → 폐기가 유지된다
     @Transactional(noRollbackFor = BusinessException.class)
     public UUID consume(String token) {
+        LocalDateTime now = LocalDateTime.now();
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(hash(token))
-                .filter(found -> !found.isExpired(LocalDateTime.now()))
+                .filter(found -> !found.isExpired(now))
                 .orElseThrow(() -> new BusinessException(UserErrorCode.INVALID_REFRESH_TOKEN));
-        if (refreshTokenRepository.deleteOne(refreshToken.getId()) == 0) {
+        if (refreshToken.isUsed() || refreshTokenRepository.markUsed(refreshToken.getId(), now) == 0) {
+            refreshTokenRepository.deleteAllByUserId(refreshToken.getUserId());
             throw new BusinessException(UserErrorCode.INVALID_REFRESH_TOKEN);
         }
         return refreshToken.getUserId();

@@ -89,9 +89,9 @@ public class UserService {
         return issueTokens(user);
     }
 
-    // Refresh Token으로 Access Token 재발급 (rotation: 쓴 토큰은 폐기하고 새 Refresh Token도 발급)
+    // Refresh Token으로 Access Token 재발급 (rotation: 쓴 토큰은 사용 처리하고 새 Refresh Token도 발급, 재사용되면 전부 폐기)
     // 새 Access Token에는 DB의 현재 역할을 넣는다 → 게이트웨이 ROLE_CHANGED(401)는 재로그인 없이 재발급으로 해결된다
-    // 탈퇴 회원은 401, 비활성 회원은 403. 이때도 쓴 토큰은 폐기된 채로 남도록 롤백하지 않는다
+    // 탈퇴 회원은 401, 비활성 회원은 403. 이때도 쓴 토큰은 사용 처리된 채로 남도록 롤백하지 않는다
     @Transactional(noRollbackFor = BusinessException.class)
     public LoginResponse refresh(RefreshTokenRequest request) {
         UUID userId = refreshTokenService.consume(request.refreshToken());
