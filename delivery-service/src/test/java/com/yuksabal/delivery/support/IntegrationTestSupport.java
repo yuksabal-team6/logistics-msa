@@ -8,6 +8,7 @@ import com.yuksabal.delivery.delivery.infrastructure.UserClient;
 import com.yuksabal.delivery.delivery.infrastructure.dto.HubRouteResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
@@ -15,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -29,13 +31,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
-// Service → DB(PostgreSQL 컨테이너)까지 실제로 실행하고, 다른 서비스(Feign)만 가짜로 둔다 (hub-service IntegrationTestSupport와 같은 구성)
+// Service(또는 MockMvc로 Controller) → DB(PostgreSQL 컨테이너)까지 실제로 실행하고, 다른 서비스(Feign)만 가짜로 둔다 (hub-service IntegrationTestSupport와 같은 구성)
 // H2 대신 PostgreSQL: schema.sql의 부분 유니크 인덱스(uk_deliveries_order_id, WHERE deleted_at IS NULL)를 그대로 쓴다
 // Docker가 없으면 이 클래스를 상속한 테스트는 건너뛴다
 // 테스트마다 배송 테이블을 비운다 (서비스가 트랜잭션을 직접 나눠 @Transactional 롤백을 쓸 수 없다)
 // DeliveryRepository는 SpyBean: 기본은 실제 동작, 경합 시나리오에서만 조회 직후에 멈추는 지점을 끼운다 (Mockito가 테스트마다 초기화)
 // 리포지토리 SpyBean은 실제 객체로 위임하는 mock이다(JDK 프록시). doAnswer에서 callRealMethod() 대신 기본 응답(getDefaultAnswer)을 부른다
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class IntegrationTestSupport {
@@ -51,6 +54,9 @@ public abstract class IntegrationTestSupport {
 
     @Autowired
     protected JdbcTemplate jdbcTemplate;
+    // 게이트웨이를 거치지 않으므로 X-User-Id·X-User-Role 헤더를 직접 넣는다
+    @Autowired
+    protected MockMvc mockMvc;
 
     @MockBean
     protected HubClient hubClient;
