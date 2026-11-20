@@ -196,8 +196,11 @@ public class Delivery extends BaseEntity {
         this.startedAt = LocalDateTime.now();
     }
 
-    // DELIVERING → COMPLETED
+    // DELIVERING → COMPLETED. 이미 COMPLETED면 아무것도 바꾸지 않고 성공 (주문 완료 알림 재전송용, #300)
     private void complete() {
+        if (isCompleted()) {
+            return;   // 이미 완료됨: 재요청 → 상태·completedAt 그대로
+        }
         if (deliveryStatus != DeliveryStatus.DELIVERING) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
                     "배송 중(DELIVERING)인 배송만 완료할 수 있습니다.");
