@@ -5,7 +5,8 @@ import com.yuksabal.order.order.client.HubClient;
 import com.yuksabal.order.order.client.dto.DeliveryCancelRequest;
 import com.yuksabal.order.order.client.dto.StockRequest;
 import com.yuksabal.order.order.entity.Order;
-import com.yuksabal.order.order.notification.SlackNotifier;
+import com.yuksabal.order.order.event.OrderEvent;
+import com.yuksabal.order.order.event.OrderOutboxRecorder;
 import com.yuksabal.order.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +30,8 @@ public class OrderCompensator {
     private final OrderRepository orderRepository;
     private final HubClient hubClient;
     private final DeliveryClient deliveryClient;
-    private final SlackNotifier slackNotifier;
+    // 알림 이벤트 outbox 저장 (Slack 전송은 Kafka 리스너)
+    private final OrderOutboxRecorder outboxRecorder;
     private final TransactionTemplate transactionTemplate;
 
     /**
@@ -120,12 +122,17 @@ public class OrderCompensator {
             log.info("[보상] 완료 orderId={} → 보상 COMPLETED", order.getId());
             return;
         }
-        Order failed = transactionTemplate.execute(status -> {
+
+        // 보상 FAILED 기록과 수동 처리 알림 이벤트 outbox 저장을 한 트랜잭션에서 진행
+        transactionTemplate.executeWithoutResult(status -> {
             Order saved = orderRepository.findByIdOrThrow(order.getId());
+
+            // 보상 FAILED 로 변경
             saved.failCompensation();
-            return saved;
+
+            // 수동 처리 알림 이벤트 저장
+            outboxRecorder.record(OrderEvent.manualActionRequired(saved, reason));
         });
         log.error("[수동 처리 필요] 보상 실패 orderId={} → 보상 FAILED", order.getId());
-        slackNotifier.notifyManualAction(failed, reason);
     }
 }

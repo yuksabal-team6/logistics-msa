@@ -1,10 +1,12 @@
 package com.yuksabal.order.order.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yuksabal.common.exception.BusinessException;
 import com.yuksabal.common.feign.FeignClientException;
 import com.yuksabal.common.feign.FeignServerException;
 import com.yuksabal.common.response.ApiErrorDetail;
 import com.yuksabal.common.response.ApiResponse;
+import com.yuksabal.order.global.exception.OrderErrorCode;
 import com.yuksabal.order.order.client.CompanyClient;
 import com.yuksabal.order.order.client.DeliveryClient;
 import com.yuksabal.order.order.client.HubClient;
@@ -21,7 +23,9 @@ import com.yuksabal.order.order.client.dto.UserResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
-import com.yuksabal.order.order.notification.SlackNotifier;
+import com.yuksabal.order.order.event.OrderEvent;
+import com.yuksabal.order.order.event.OrderOutboxRecorder;
+import com.yuksabal.order.order.event.OrderOutboxRepository;
 import com.yuksabal.order.order.repository.OrderRepository;
 import feign.Request;
 import feign.RetryableException;
@@ -53,6 +57,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -60,6 +65,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static com.yuksabal.order.order.event.OrderEventType.ORDER_CONFIRMED;
+import static com.yuksabal.order.order.event.OrderEventType.MANUAL_ACTION_REQUIRED;
+import static com.yuksabal.order.order.event.OrderEventType.CHECK_NEEDED;
 
 // 주문 생성 테스트: company, hub, delivery Feign 클라이언트는 가짜(MockBean)로 대체
 @SpringBootTest
@@ -73,6 +81,8 @@ class OrderCreateIntegrationTest {
     private ObjectMapper objectMapper;
     @Autowired
     private OrderRepository orderRepository;
+    @Autowired
+    private OrderOutboxRepository outboxRepository;
     // 확정 저장 실패를 재현하려고 SpyBean (평소에는 실제 TransactionTemplate과 같음)
     @SpyBean
     private TransactionTemplate transactionTemplate;
@@ -85,8 +95,9 @@ class OrderCreateIntegrationTest {
     private HubClient hubClient;
     @MockBean
     private DeliveryClient deliveryClient;
-    @MockBean
-    private SlackNotifier slackNotifier;
+    // 알림은 outbox 이벤트로 저장됨 (#198). 실제로 저장하면서 어떤 이벤트를 기록했는지 확인
+    @SpyBean
+    private OrderOutboxRecorder outboxRecorder;
 
     private static final String ORDERER_SLACK_ID = "U0ORDERER1";
 
@@ -210,7 +221,7 @@ class OrderCreateIntegrationTest {
         assertThat(orderRepository.count()).isZero();
         verify(hubClient, never()).decreaseStock(any());
         verify(deliveryClient, never()).createDelivery(any());
-        verifyNoInteractions(slackNotifier);
+        verify(outboxRecorder, never()).record(any());
     }
 
     @Test
@@ -569,8 +580,10 @@ class OrderCreateIntegrationTest {
         create(validBody()).andExpect(status().isCreated());
 
         // 0단계 주문자 확인에서 받은 slackId를 멘션용으로 넘긴다 (#221)
-        verify(slackNotifier).notifyOrderCreated(any(Order.class), eq("생물 고등어"), eq("공급 업체"), eq("요청 업체"), eq(ORDERER_SLACK_ID));
-        verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == ORDER_CONFIRMED
+                && "생물 고등어".equals(e.productName()) && "공급 업체".equals(e.supplierName()) && "요청 업체".equals(e.requesterName())
+                && ORDERER_SLACK_ID.equals(e.ordererSlackId())));
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
     }
 
     @Test
@@ -579,7 +592,7 @@ class OrderCreateIntegrationTest {
 
         create(validBody()).andExpect(status().isConflict());
 
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == ORDER_CONFIRMED));
     }
 
     @Test
@@ -590,8 +603,8 @@ class OrderCreateIntegrationTest {
 
         create(validBody()).andExpect(status().isNotFound());
 
-        verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == ORDER_CONFIRMED));
     }
 
     @Test
@@ -604,8 +617,8 @@ class OrderCreateIntegrationTest {
         assertFailed(CompensationStatus.COMPLETED);
         verify(hubClient).restoreStock(any());
         verify(deliveryClient, never()).createDelivery(any());
-        verify(slackNotifier).notifyCheckNeeded(any(Order.class), eq("재고 차감 중 예상하지 못한 오류"));
-        verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == CHECK_NEEDED && "재고 차감 중 예상하지 못한 오류".equals(e.reason())));
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
     }
 
     @Test
@@ -619,7 +632,42 @@ class OrderCreateIntegrationTest {
         assertFailed(CompensationStatus.COMPLETED);
         verify(hubClient).restoreStock(any());
         verify(deliveryClient).cancelDelivery(any());
-        verify(slackNotifier).notifyCheckNeeded(any(Order.class), eq("배송 생성 중 예상하지 못한 오류"));
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == CHECK_NEEDED && "배송 생성 중 예상하지 못한 오류".equals(e.reason())));
+    }
+
+    @Test
+    void 확인_필요_알림_저장이_실패해도_원래_예외로_응답() throws Exception {
+        // 배송 생성 중 예상 못 한 예외(500) → 보상 완료 → 확인 필요 알림 저장 실패
+        // 저장 실패를 409 예외로 흉내내서, 응답이 409로 바뀌면 원래 예외가 덮인 것
+        given(deliveryClient.createDelivery(any())).willReturn(ApiResponse.success(null));
+        givenRestoreSucceeds();
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+        doThrow(new BusinessException(OrderErrorCode.ORDER_IN_PROGRESS)).when(outboxRecorder)
+                .record(argThat((OrderEvent e) -> e != null && e.eventType() == CHECK_NEEDED));
+
+        create(validBody()).andExpect(status().isInternalServerError());
+
+        assertFailed(CompensationStatus.COMPLETED);
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e != null && e.eventType() == CHECK_NEEDED));
+    }
+
+    @Test
+    void 주문_접수_알림_이벤트_저장이_실패하면_주문_확정도_롤백되고_보상() throws Exception {
+        // Outbox 핵심: 확정과 알림 이벤트 저장은 한 트랜잭션 → 알림 저장 실패면 확정도 없던 일이 됨 (#198)
+        givenRestoreSucceeds();
+        given(deliveryClient.cancelDelivery(any())).willReturn(ApiResponse.success(null, "배송이 취소되었습니다."));
+        doThrow(new IllegalStateException("outbox 저장 실패")).doCallRealMethod()
+                .when(outboxRecorder).record(any());
+
+        create(validBody()).andExpect(status().isInternalServerError());
+
+        Order saved = orderRepository.findAll().get(0);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.FAILED);
+        assertThat(saved.getDeliveryId()).isNull();
+        assertThat(outboxRepository.findAll()).noneMatch(row ->
+                row.getOrderId().equals(saved.getId()) && row.getEventType() == ORDER_CONFIRMED);
+        verify(hubClient).restoreStock(any());
+        verify(deliveryClient).cancelDelivery(any());
     }
 
     @Test
@@ -637,8 +685,8 @@ class OrderCreateIntegrationTest {
         assertThat(saved.getCompensationStatus()).isEqualTo(CompensationStatus.COMPLETED);
         verify(hubClient).restoreStock(any());
         verify(deliveryClient).cancelDelivery(any());
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
-        verify(slackNotifier).notifyCheckNeeded(any(Order.class), eq("주문 확정 저장 중 예상하지 못한 오류"));
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == ORDER_CONFIRMED));
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == CHECK_NEEDED && "주문 확정 저장 중 예상하지 못한 오류".equals(e.reason())));
     }
 
     @Test
@@ -657,8 +705,8 @@ class OrderCreateIntegrationTest {
         verify(hubClient, never()).restoreStock(any());
         verify(deliveryClient, never()).cancelDelivery(any());
         // 확정 단계에서 바로 거절로 구분 (확정 저장 실패 경로로 가서 실패 처리를 타지 않음)
-        verify(slackNotifier).notifyManualAction(any(Order.class), argThat(reason -> reason.contains("6. 주문 CONFIRM 처리")));
-        verify(slackNotifier, never()).notifyCheckNeeded(any(), anyString());
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED && e.reason().contains("6. 주문 CONFIRM 처리")));
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == CHECK_NEEDED));
     }
 
     @Test
@@ -677,7 +725,7 @@ class OrderCreateIntegrationTest {
 
         verify(hubClient, never()).restoreStock(any());
         verify(deliveryClient, never()).cancelDelivery(any());
-        verify(slackNotifier).notifyManualAction(any(Order.class), argThat(reason -> reason.contains("현재 상태 조회 실패")));
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED && e.reason().contains("현재 상태 조회 실패")));
     }
 
     @Test
@@ -693,7 +741,7 @@ class OrderCreateIntegrationTest {
 
         assertThat(orderRepository.findAll().get(0).getStatus()).isEqualTo(OrderStatus.CONFIRMED);
         verify(hubClient, never()).restoreStock(any());
-        verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
     }
 
     @Test
@@ -708,7 +756,7 @@ class OrderCreateIntegrationTest {
                 .andExpect(jsonPath("$.error.code").value("INVALID_STATUS_TRANSITION"));
 
         verify(hubClient, never()).restoreStock(any());
-        verify(slackNotifier, never()).notifyManualAction(any(), anyString());
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
     }
 
     @Test
@@ -719,8 +767,8 @@ class OrderCreateIntegrationTest {
         create(validBody()).andExpect(status().isInternalServerError());
 
         assertFailed(CompensationStatus.FAILED);
-        verify(slackNotifier).notifyManualAction(any(Order.class), anyString());
-        verify(slackNotifier, never()).notifyCheckNeeded(any(), anyString());
+        verify(outboxRecorder).record(argThat((OrderEvent e) -> e.eventType() == MANUAL_ACTION_REQUIRED));
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == CHECK_NEEDED));
     }
 
     @Test
@@ -736,7 +784,7 @@ class OrderCreateIntegrationTest {
 
         assertThat(orderRepository.count()).isZero();
         verify(userClient, never()).getUser(any());
-        verify(slackNotifier, never()).notifyOrderCreated(any(), anyString(), anyString(), anyString(), any());
+        verify(outboxRecorder, never()).record(argThat((OrderEvent e) -> e.eventType() == ORDER_CONFIRMED));
     }
 
     @Test

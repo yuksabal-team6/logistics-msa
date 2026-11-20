@@ -1,6 +1,7 @@
 package com.yuksabal.order.order.notification;
 
 import com.yuksabal.order.order.entity.Order;
+import com.yuksabal.order.order.event.OrderEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -69,7 +70,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[2].text.text", containsString("신선도 유지 요청")))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", null);
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(OrderEvent.orderConfirmed(order, "생물 고등어", "공급 업체", "요청 업체", null));
 
         server.verify();
     }
@@ -83,7 +84,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[4].elements[0].text", containsString("재고 복원 및 배송 취소 상태를 확인한 후 수동 처리해 주세요")))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyManualAction(order, "재고 복원 실패");
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyManualAction(OrderEvent.manualActionRequired(order, "재고 복원 실패"));
 
         server.verify();
     }
@@ -96,7 +97,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[4].elements[0].text", containsString("보상은 완료됐습니다. 로그에서 오류 원인을 확인해 주세요")))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyCheckNeeded(order, "배송 생성 중 예상하지 못한 오류");
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyCheckNeeded(OrderEvent.checkNeeded(order, "배송 생성 중 예상하지 못한 오류"));
 
         server.verify();
     }
@@ -107,7 +108,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[0].text.text").value("🚨 수동 처리 필요"))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, "").notifyManualAction(order, "재고 복원 실패");
+        new SlackNotifier(restClient, WEBHOOK, "").notifyManualAction(OrderEvent.manualActionRequired(order, "재고 복원 실패"));
 
         server.verify();
     }
@@ -127,7 +128,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[1].fields[4].text", containsString("A&amp;B 수산")))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(injected, "<b>고등어", "A&B 수산", "요청 업체", null);
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(OrderEvent.orderConfirmed(injected, "<b>고등어", "A&B 수산", "요청 업체", null));
 
         server.verify();
     }
@@ -144,7 +145,7 @@ class SlackNotifierTest {
                 .andExpect(jsonPath("$.blocks[2].text.text").value("*요청사항*\n> " + "가".repeat(500) + "..."))
                 .andRespond(withSuccess());
 
-        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(longMessage, "고등어", "공급 업체", "요청 업체", null);
+        new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK).notifyOrderCreated(OrderEvent.orderConfirmed(longMessage, "고등어", "공급 업체", "요청 업체", null));
 
         server.verify();
     }
@@ -157,7 +158,7 @@ class SlackNotifierTest {
                 .andRespond(withSuccess());
 
         new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK)
-                .notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", "U12345678");
+                .notifyOrderCreated(OrderEvent.orderConfirmed(order, "생물 고등어", "공급 업체", "요청 업체", "U12345678"));
 
         server.verify();
     }
@@ -172,7 +173,7 @@ class SlackNotifierTest {
                 .andRespond(withSuccess());
 
         new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK)
-                .notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", slackId);
+                .notifyOrderCreated(OrderEvent.orderConfirmed(order, "생물 고등어", "공급 업체", "요청 업체", slackId));
 
         server.verify();
     }
@@ -180,8 +181,8 @@ class SlackNotifierTest {
     @Test
     void Webhook_URL이_없으면_보내지_않음() {
         SlackNotifier notifier = new SlackNotifier(restClient, "", "");
-        notifier.notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", null);
-        notifier.notifyManualAction(order, "재고 복원 실패");
+        notifier.notifyOrderCreated(OrderEvent.orderConfirmed(order, "생물 고등어", "공급 업체", "요청 업체", null));
+        notifier.notifyManualAction(OrderEvent.manualActionRequired(order, "재고 복원 실패"));
 
         server.verify();
     }
@@ -191,7 +192,7 @@ class SlackNotifierTest {
         server.expect(requestTo(WEBHOOK)).andRespond(withServerError());
 
         assertThatCode(() -> new SlackNotifier(restClient, WEBHOOK, ADMIN_WEBHOOK)
-                .notifyOrderCreated(order, "생물 고등어", "공급 업체", "요청 업체", null))
+                .notifyOrderCreated(OrderEvent.orderConfirmed(order, "생물 고등어", "공급 업체", "요청 업체", null)))
                 .doesNotThrowAnyException();
         server.verify();
     }

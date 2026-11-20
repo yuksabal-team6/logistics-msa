@@ -13,6 +13,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_orders_order_number
     ON order_service.p_orders (order_number)
     WHERE deleted_at IS NULL;
 
+-- outbox 폴링: 미발행 이벤트를 오래된 순으로 조회 (#198)
+-- 발행된 행은 지우지 않고 쌓이므로, 미발행 행만 담는 부분 인덱스로 조회 비용을 데이터 양과 무관하게 유지
+-- 1년치(117만 행) 측정: 인덱스 없이 77ms(Seq Scan, 1초마다 실행) → 0.012ms
+CREATE INDEX IF NOT EXISTS idx_order_outbox_unpublished
+    ON order_service.p_order_outbox (created_at)
+    WHERE published_at IS NULL;
+    
 -- 주문 목록 조회: 주문자별 최신순 (MASTER 외 사용자는 본인 주문만 조회) (#277)
 -- 삭제 안 된 행만 조회하므로(@SQLRestriction) 같은 조건의 부분 인덱스
 -- 1년치(120만 행) 측정: 인덱스 없이 목록 162ms, count 42ms(Seq Scan) → 0.073ms, 1.5ms

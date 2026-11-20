@@ -6,7 +6,10 @@ dependencies {
 	implementation 'org.springframework.cloud:spring-cloud-starter-openfeign'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+	// Slack 알림 이벤트 발행, 구독 (#198)
+	implementation 'org.springframework.kafka:spring-kafka'
 	runtimeOnly 'org.postgresql:postgresql'
 	// test
 	testRuntimeOnly 'com.h2database:h2'
+	testImplementation 'org.springframework.kafka:spring-kafka-test'
 }

@@ -27,6 +27,7 @@ docker-compose up -d postgres
 1. IntelliJ로 **루트 폴더** 열기 → Gradle 탭 🔄
 2. user-service, api-gateway에 JWT 키 넣기 → [10장 JWT 키](#-jwt-키) (없으면 둘 다 안 뜸)
 3. `EurekaServerApplication` 먼저 실행 → 나머지 앱 실행 (hotkey: cmd+8 / alt+8 )
+   - order-service도 실행한다면 Kafka도 필요: `docker-compose up -d postgres kafka` (주문 Slack 알림이 Kafka를 거침)
 4. http://localhost:8761 에 6개 UP이면 끝
 
 필요: JDK 17+, Docker + Compose v2 이상, IntelliJ
@@ -60,6 +61,7 @@ logistics-msa/
 | eureka / gateway | 8761 / 8080 |
 | user / hub / company / order / delivery | 8081 / 8082 / 8083 / 8084 / 8085 |
 | PostgreSQL | 5432 |
+| Kafka | 29092 (로컬 IntelliJ에서 접속), 컨테이너끼리는 `kafka:9092` |
 
 ### 게이트웨이 라우팅
 
@@ -82,7 +84,7 @@ logistics-msa/
 
 ### IntelliJ
 
-1. `docker-compose up -d postgres`
+1. `docker-compose up -d postgres` (order-service를 실행하면 `docker-compose up -d postgres kafka`)
 2. `⌘8`/`Alt+8` Services 창 → Eureka 실행 → 나머지 실행
 3. http://localhost:8080/api/v1/orders → 404 JSON이면 정상
 
@@ -101,6 +103,31 @@ docker-compose down -v                                     # 종료 + DB 초기�
 - ⚠️ 코드 수정 후엔 위 `실행` 명령 그대로 (`./gradlew build` 빠지면 예전 코드로 뜸)
 - 📌 서비스 포트(8081~8085) 직접 접속 ❌ → `localhost:8080`(게이트웨이)으로 요청
 - (참고) 수평 확장: `docker-compose up -d --scale order-service=2`
+- ⚠️ **Docker 메모리 4GB 이상 필요**: Kafka까지 전체가 약 2.2GB를 씀. 2GB(Colima 기본)면 Kafka가 메모리 부족으로 꺼지고 order-service가 계속 재시작 → [11장 트러블슈팅](#11-트러블슈팅)
+  - Colima: `colima stop && colima start --cpus 4 --memory 6` / Docker Desktop: Settings → Resources → Memory
+- order-service는 Kafka가 정상(healthcheck)이 된 뒤에 뜸 (`depends_on: kafka: service_healthy`)
+
+### 📌 Kafka (order 주문 알림)
+
+주문 Slack 알림은 Outbox + Kafka로 비동기 전송 (#198). 주문 API는 Slack을 직접 부르지 않음
+
+```
+주문 상태 변경 + 알림 이벤트 저장 (같은 트랜잭션, p_order_outbox)
+  → OrderOutboxPublisher (1초마다 미발행 이벤트 발행)
+  → Kafka 토픽 order.events
+  → OrderEventListener (consumer group order-slack-notifier) → SlackNotifier → Slack
+```
+
+| 설정 (`order-service/application.yml`) | 기본값 | 설명 |
+| --- | --- | --- |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:29092` | Docker에서는 `kafka:9092` (compose에 설정됨) |
+| `ORDER_OUTBOX_ENABLED` | `true` | outbox 발행 스케줄러 켜기 |
+| `ORDER_OUTBOX_POLL_INTERVAL_MS` | `1000` | 발행 주기 (이전 회차 끝나고 쉬는 시간) |
+| `ORDER_OUTBOX_BATCH_SIZE` | `100` | 한 회차 최대 발행 건수 (발행 용량 약 88건/초, 성능 테스트 근거) |
+
+- Kafka가 꺼져 있어도 주문은 정상 처리되고, 알림은 outbox에 쌓였다가 Kafka가 살아나면 발행됨
+- 전달 보장은 at-least-once: 드물게 같은 알림이 두 번 갈 수 있음
+- 테스트: `application-test.yml`에서 리스너, 토픽 생성, outbox 스케줄러를 끔. Kafka 연동 테스트만 `@EmbeddedKafka`로 테스트용 Kafka를 띄움
 
 ---
 
@@ -421,6 +448,7 @@ public class OrderController {
 - DB `logistics` 하나, 서비스별 스키마: `user_service`, `company_service`, `hub_service`, `order_service`, `delivery_service`
 - 다른 서비스 스키마 직접 조회 ❌ → Feign
 - DB 툴(DBeaver 등) 접속: `localhost:5432` / DB `logistics` / ID `postgres` / PW `postgres`
+- `order_service.p_order_outbox`: 주문 알림 이벤트 우편함 (Kafka 발행 후에도 행은 남고 `published_at`만 기록)
 
 ### 테이블 생성
 
@@ -428,6 +456,7 @@ public class OrderController {
 - 부분 유니크 인덱스(`WHERE deleted_at IS NULL`): 서비스별 `schema.sql` (예: company-service)
   - `application.yml`에 `spring.sql.init.mode: always` + `spring.jpa.defer-datasource-initialization: true`
   - 스키마 이름 직접 쓰기 (`company_service.p_companies`), `IF NOT EXISTS` 필수
+  - 조회 성능용 부분 인덱스도 `schema.sql`에 둠 (예: order-service의 outbox 미발행 조회 인덱스)
 
 > ⚠️ `update`는 컬럼 **추가만** 반영합니다 (삭제·이름 변경 X). 테이블이 꼬이면 `docker-compose down -v && docker-compose up -d postgres`로 초기화하세요.
 
@@ -509,6 +538,18 @@ jwt:
 
 - **Docker에 코드 변경사항이 반영되지 않을 때**
   - `./gradlew build -x test` 실행 후 이미지 재빌드 및 컨테이너 재생성
+
+- **order-service가 계속 재시작: `No resolvable bootstrap urls` / `Failed to construct kafka consumer`**
+  - Kafka 컨테이너가 안 떠 있거나 메모리 부족으로 꺼진 것: `docker inspect logistics-kafka --format '{{.State.OOMKilled}}'`가 `true`면 메모리 부족
+  - Docker 메모리를 4GB 이상으로 늘린 뒤 `docker-compose up -d kafka`
+
+- **IntelliJ로 order 실행 시 `Connection to node ... could not be established` 경고가 반복**
+  - 로컬 Kafka가 없음: `docker-compose up -d kafka` (order는 `localhost:29092`로 접속)
+
+- **주문은 되는데 Slack 알림이 안 옴**
+  - 미발행 이벤트 확인: `select count(*) from order_service.p_order_outbox where published_at is null;` → 쌓여 있으면 Kafka 상태 확인
+  - Kafka에 쌓인 메시지(lag) 확인: `docker exec logistics-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group order-slack-notifier`
+  - 둘 다 정상이면 Slack Webhook URL(`.env`) 확인
 
 - **Docker 애플리케이션이 종료될 때**
   - 메모리 부족 여부 확인

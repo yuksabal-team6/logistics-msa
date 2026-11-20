@@ -10,7 +10,8 @@ import com.yuksabal.order.order.client.dto.StockRestoreResponse;
 import com.yuksabal.order.order.entity.CompensationStatus;
 import com.yuksabal.order.order.entity.Order;
 import com.yuksabal.order.order.entity.OrderStatus;
-import com.yuksabal.order.order.notification.SlackNotifier;
+import com.yuksabal.order.order.event.OrderEvent;
+import com.yuksabal.order.order.event.OrderOutboxRecorder;
 import com.yuksabal.order.order.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 
 // 같은 주문에 취소가 동시에 와도 취소는 1번만 성공, 배송 취소와 재고 복원도 1번만 호출 (1단계 행 잠금)
 @SpringBootTest
@@ -59,8 +61,9 @@ class OrderCancelConcurrencyTest {
     private HubClient hubClient;
     @MockBean
     private DeliveryClient deliveryClient;
-    @MockBean
-    private SlackNotifier slackNotifier;
+    // 알림은 outbox 이벤트로 저장됨 (#198). 실제로 저장하면서 어떤 이벤트를 기록했는지 확인
+    @SpyBean
+    private OrderOutboxRecorder outboxRecorder;
 
     private final UUID ownerId = UUID.randomUUID();
     private final UUID departureHubId = UUID.randomUUID();
