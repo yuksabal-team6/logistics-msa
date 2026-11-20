@@ -222,6 +222,46 @@ class DeliveryServiceTest {
             verify(orderClient).completeOrder(ORDER_ID);
         }
 
+        // #300: 주문 완료 알림이 실패한 배송은 같은 완료 요청으로 알림만 다시 보낸다
+        @Test
+        void 완료된_배송에_완료를_다시_요청하면_상태는_그대로이고_order에_다시_알린다() {
+            Delivery delivery = deliveryIn(DeliveryStatus.COMPLETED);
+            given(deliveryRepository.findById(DELIVERY_ID)).willReturn(Optional.of(delivery));
+            var completedAt = delivery.getCompletedAt();
+
+            DeliveryResponse response = deliveryService.changeDeliveryStatus(
+                    DELIVERY_ID, DeliveryStatus.COMPLETED, MANAGER_ID, UserRole.DELIVERY);
+
+            assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.COMPLETED);
+            assertThat(response.completedAt()).isEqualTo(completedAt);
+            verify(orderClient, times(1)).completeOrder(ORDER_ID);
+        }
+
+        @ParameterizedTest
+        @MethodSource("com.yuksabal.delivery.delivery.application.DeliveryServiceTest#orderFailures")
+        void 완료_재요청_중_주문_완료_호출이_실패해도_예외_없이_COMPLETED를_응답한다(RuntimeException failure) {
+            Delivery delivery = deliveryIn(DeliveryStatus.COMPLETED);
+            given(deliveryRepository.findById(DELIVERY_ID)).willReturn(Optional.of(delivery));
+            willThrow(failure).given(orderClient).completeOrder(ORDER_ID);
+
+            DeliveryResponse response = deliveryService.changeDeliveryStatus(
+                    DELIVERY_ID, DeliveryStatus.COMPLETED, MANAGER_ID, UserRole.DELIVERY);
+
+            assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.COMPLETED);
+            assertThat(response.completedAt()).isEqualTo(delivery.getCompletedAt());
+            verify(orderClient, times(1)).completeOrder(ORDER_ID);
+        }
+
+        @Test
+        void 완료된_배송이라도_권한이_없으면_403이고_order를_부르지_않는다() {
+            given(deliveryRepository.findById(DELIVERY_ID)).willReturn(Optional.of(deliveryIn(DeliveryStatus.COMPLETED)));
+
+            assertAccessDenied(() -> deliveryService.changeDeliveryStatus(
+                    DELIVERY_ID, DeliveryStatus.COMPLETED, OTHER_ID, UserRole.DELIVERY));
+
+            verifyNoInteractions(orderClient);
+        }
+
         @Test
         void 커밋이_실패하면_order를_부르지_않는다() {
             given(deliveryRepository.findById(DELIVERY_ID)).willReturn(Optional.of(deliveryIn(DeliveryStatus.DELIVERING)));

@@ -76,7 +76,8 @@ public class DeliveryController {
     }
 
     @Operation(summary = "배송 상태 변경",
-            description = "DELIVERING(같은 허브: READY→, 다른 허브: ARRIVED_AT_HUB→) 또는 COMPLETED(DELIVERING→)만 가능. "
+            description = "DELIVERING(같은 허브: READY→, 다른 허브: ARRIVED_AT_HUB→) 또는 COMPLETED(DELIVERING→, COMPLETED→)만 가능. "
+                    + "이미 COMPLETED인 배송에 COMPLETED를 요청하면 상태는 그대로 두고 200을 주며, 주문 완료 알림만 다시 보낸다. "
                     + "MASTER는 전체, DELIVERY는 본인이 배송 담당자인 배송만. 그 외 전이는 409")
     @ApiErrorCodes(common = {VALIDATION_ERROR, FORBIDDEN, RESOURCE_NOT_FOUND},
             value = {DELIVERY_ACCESS_DENIED, INVALID_STATUS_TRANSITION, DELIVERY_CONFLICT})

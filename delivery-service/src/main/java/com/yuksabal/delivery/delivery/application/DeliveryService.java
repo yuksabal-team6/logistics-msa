@@ -132,26 +132,37 @@ public class DeliveryService {
 
     // 배송(허브→업체) 상태 변경. 404 → 403 → 409 순서로 확인하고, 전이 규칙은 Delivery.changeStatus()가 맡는다.
     // 저장만 transactionTemplate으로 커밋하고, COMPLETED면 커밋 후 트랜잭션 밖에서 order에 알린다 (createDelivery와 같은 이유).
+    // 이미 COMPLETED인 배송에 다시 완료를 요청하면 상태는 그대로 두고 200, 주문 완료 알림만 다시 보낸다 (#300)
     // 동시 수정은 @Version 충돌로 커밋 시 execute()에서 예외가 나가 order를 호출하지 않고 409 (DeliveryExceptionHandler)
     public DeliveryResponse changeDeliveryStatus(UUID deliveryId, DeliveryStatus target, UUID userId, UserRole role) {
-        DeliveryResponse response = transactionTemplate.execute(status -> {
+        StatusChange result = transactionTemplate.execute(status -> {
             Delivery delivery = findDelivery(deliveryId);
 
             if (!canChangeStatus(delivery, userId, role)) {
                 throw new BusinessException(DeliveryErrorCode.DELIVERY_ACCESS_DENIED, "업체 배송 담당자만 변경할 수 있습니다.");
             }
+            boolean alreadyCompleted = delivery.isCompleted();   // 재전송 판정: 바꾸기 전 상태
             delivery.changeStatus(target);
-            return DeliveryResponse.from(delivery);
+            return new StatusChange(DeliveryResponse.from(delivery), alreadyCompleted);
         });
+        DeliveryResponse response = result.response();
 
         if (response.deliveryStatus() == DeliveryStatus.COMPLETED) {
+            if (result.alreadyCompleted()) {
+                log.info("[완료 알림 재전송] orderId={}, deliveryId={}", response.orderId(), response.deliveryId());
+            }
             notifyOrderCompleted(response.orderId(), response.deliveryId());
         }
         return response;
     }
 
+    // changeDeliveryStatus 트랜잭션 결과. alreadyCompleted = 변경 전에도 COMPLETED였음 (알림 재전송)
+    private record StatusChange(DeliveryResponse response, boolean alreadyCompleted) {
+    }
+
     // 내부 API #10. 배송은 이미 커밋됐으므로 order 실패는 배송 API 실패로 만들지 않고 로그만 남긴다.
-    // 배송 COMPLETED · 주문 CONFIRMED로 어긋난 채 남으므로 [수동 처리 필요]로 표시한다. 재시도·재처리는 별도 이슈
+    // 응답을 못 받았으므로 주문은 CONFIRMED로 남았을 수도, 이미 COMPLETED이거나 거절(4xx)됐을 수도 있다. [수동 처리 필요]로 표시한다.
+    // 운영자가 주문 상태를 확인하고 CONFIRMED면 같은 배송에 완료 요청을 다시 보낸다 (#300, delivery-service/README.md). 자동 재처리는 하지 않는다
     // try 안은 Feign 호출뿐이라 DB 예외가 섞이지 않는다
     private void notifyOrderCompleted(UUID orderId, UUID deliveryId) {
         try {
