@@ -100,17 +100,28 @@ class DeliveryTest {
             assertThat(delivery.getCompletedAt()).isNotNull();
         }
 
+        // COMPLETED는 409가 아니라 성공이다 (#300, 아래 테스트)
         @ParameterizedTest
-        @EnumSource(value = DeliveryStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "DELIVERING")
+        @EnumSource(value = DeliveryStatus.class, mode = EnumSource.Mode.EXCLUDE, names = {"DELIVERING", "COMPLETED"})
         void DELIVERING이_아니면_완료할_수_없다(DeliveryStatus current) {
             Delivery delivery = deliveryIn(current);
 
             assertInvalidTransition(() -> delivery.changeStatus(DeliveryStatus.COMPLETED));
 
             assertThat(delivery.getDeliveryStatus()).isEqualTo(current);
-            if (current != DeliveryStatus.COMPLETED) {
-                assertThat(delivery.getCompletedAt()).isNull();
-            }
+            assertThat(delivery.getCompletedAt()).isNull();
+        }
+
+        // 주문 완료 알림 재전송용 재요청 (#300)
+        @Test
+        void 이미_완료된_배송에_완료를_요청하면_예외_없이_상태와_완료_시각이_그대로다() {
+            Delivery delivery = deliveryIn(DeliveryStatus.COMPLETED);
+            LocalDateTime completedAt = delivery.getCompletedAt();
+
+            assertThatCode(() -> delivery.changeStatus(DeliveryStatus.COMPLETED)).doesNotThrowAnyException();
+
+            assertThat(delivery.getDeliveryStatus()).isEqualTo(DeliveryStatus.COMPLETED);
+            assertThat(delivery.getCompletedAt()).isNotNull().isEqualTo(completedAt);
         }
 
         @ParameterizedTest
