@@ -36,14 +36,12 @@ public class Delivery extends BaseEntity {
     private UUID orderId;
 
     // 출발·목적지 허브 → hub-service p_hubs.hub_id
-    @Column(nullable = false)
+    // 아래 다섯 컬럼(허브 2, 수령 업체, 주소, 수령인)은 취소 표식(cancelledMarker)만 null이다. 일반 배송은 생성자가 null을 막는다 (#302)
     private UUID departureHubId;
 
-    @Column(nullable = false)
     private UUID destinationHubId;
 
     // 도착(수령) 업체 → company-service p_companies.company_id
-    @Column(nullable = false)
     private UUID destinationCompanyId;
 
     // 공급 업체. 지금은 저장만 하고, 업체 기준 조회로 넓힐 때 사용 (order와 함께 변경)
@@ -55,10 +53,10 @@ public class Delivery extends BaseEntity {
     // 주문자 → user-service p_users.user_id. 조회 권한(주문자 본인)에 쓴다. 이 필드 추가 전 배송은 null
     private UUID ordererId;
 
-    @Column(nullable = false, length = 500)
+    @Column(length = 500)
     private String address;
 
-    @Column(nullable = false, length = 100)
+    @Column(length = 100)
     private String recipientName;
 
     @Column(length = 100)
@@ -81,17 +79,35 @@ public class Delivery extends BaseEntity {
                     UUID supplierCompanyId, UUID deliveryManagerId, UUID ordererId, String address,
                     String recipientName, String recipientSlackId) {
         this.orderId = orderId;
-        this.departureHubId = departureHubId;
-        this.destinationHubId = destinationHubId;
-        this.destinationCompanyId = destinationCompanyId;
+        this.departureHubId = required(departureHubId, "departureHubId");
+        this.destinationHubId = required(destinationHubId, "destinationHubId");
+        this.destinationCompanyId = required(destinationCompanyId, "destinationCompanyId");
         this.supplierCompanyId = supplierCompanyId;
         this.deliveryManagerId = deliveryManagerId;
         this.ordererId = ordererId;
-        this.address = address;
-        this.recipientName = recipientName;
+        this.address = required(address, "address");
+        this.recipientName = required(recipientName, "recipientName");
         this.recipientSlackId = recipientSlackId;
         this.deliveryStatus = DeliveryStatus.READY;
 
+    }
+
+    // 취소 표식 (#302). 배송이 없는 주문의 취소를 기록해, 늦게 온 생성이 같은 order_id로 배송을 만들지 못하게 한다
+    // 부분 유니크 인덱스(uk_deliveries_order_id)가 같은 order_id의 다음 저장을 막는다. 표식 = CANCELLED + 허브 등 값 없음 (구별용 컬럼 없음)
+    public static Delivery cancelledMarker(UUID orderId) {
+        Delivery marker = new Delivery();
+        marker.orderId = orderId;
+        marker.deliveryStatus = DeliveryStatus.CANCELLED;
+        return marker;
+    }
+
+    // 일반 배송의 필수 값. 요청 DTO(@NotNull·@NotBlank)가 먼저 막고, 여기서는 표식이 아닌 배송이 null로 저장되지 않게 한다
+    // 400 VALIDATION_ERROR: 경로 기록 도착 거리 검증(DeliveryRouteLog.checkArrivable)과 같은 방식
+    private static <T> T required(T value, String field) {
+        if (value == null) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR, field + "는 필수입니다.", field);
+        }
+        return value;
     }
 
     // ordererId가 없는 배송(필드 추가 전)은 누구의 주문도 아니다
@@ -186,7 +202,13 @@ public class Delivery extends BaseEntity {
     }
 
     // 같은 허브: READY → DELIVERING, 다른 허브: ARRIVED_AT_HUB → DELIVERING (결정 #16)
+    // 상태를 허브 비교보다 먼저 확인한다: 취소 표식은 허브가 null이라 isSameHub()에서 NPE가 난다 (#302).
+    // 표식은 CANCELLED에서 바뀌지 않으므로 시작할 수 있는 상태(READY·ARRIVED_AT_HUB)는 일반 배송뿐이다. 그때만 허브를 비교한다
     private void startDelivery() {
+        if (deliveryStatus != DeliveryStatus.READY && deliveryStatus != DeliveryStatus.ARRIVED_AT_HUB) {
+            throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,
+                    "READY(같은 허브) 또는 ARRIVED_AT_HUB(다른 허브) 상태에서만 배송을 시작할 수 있습니다.");
+        }
         DeliveryStatus required = isSameHub() ? DeliveryStatus.READY : DeliveryStatus.ARRIVED_AT_HUB;
         if (deliveryStatus != required) {
             throw new BusinessException(DeliveryErrorCode.INVALID_STATUS_TRANSITION,

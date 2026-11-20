@@ -547,7 +547,10 @@ class DeliveryTest {
                     .orderId(UUID.randomUUID())
                     .departureHubId(SEOUL_HUB_ID)
                     .destinationHubId(BUSAN_HUB_ID)
+                    .destinationCompanyId(UUID.randomUUID())
                     .ordererId(null)
+                    .address("부산시 해운대구")
+                    .recipientName("수령인")
                     .build();
 
             assertThat(delivery.isOrderedBy(ORDERER_ID)).isFalse();
