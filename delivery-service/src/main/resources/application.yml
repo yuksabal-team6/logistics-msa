@@ -45,3 +45,12 @@ eureka:
   instance:
     prefer-ip-address: true
     instance-id: ${spring.application.name}:${spring.cloud.client.ip-address}:${server.port}
+
+# 공통 Feign 재시도(#122) 중 응답 지연(read timeout) 재시도만 끈다 (#302, hub·company와 같은 설정).
+# 켜져 있으면 hub 경로 조회의 읽기 대기가 최대 약 15.75초(5초 × 3번 + 대기 0.75초, 계산)까지 늘어난다. 끄면 읽기 대기는 5초 한 번으로 준다.
+# 연결 대기와 연결 실패 재시도는 남으므로, 호출 전체가 order의 대기(읽기 5초)보다 짧다는 보장은 없다. 늦은 생성은 취소 표식이 막는다 (README "Feign 재시도 설정").
+# 서비스 단위 설정이라 HubClient·OrderClient·UserClient 모두 적용된다. 5xx·연결 실패는 기본값(최대 2회 재시도) 유지
+common:
+  feign:
+    retry:
+      retry-on-read-timeout: false
