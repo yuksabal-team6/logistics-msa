@@ -100,13 +100,29 @@ public class DeliveryService {
 
     // 내부 API #9. 주문 취소(결정 #19)와 보상(결정 #17)에서 호출된다.
     // 같은 orderId로 여러 번 불려도 결과가 같다. 확인 순서는 Delivery.cancel()이 맡는다
-    @Transactional
+    // 배송이 없으면 취소 표식(CANCELLED)을 저장한다 (#302). 주문이 생성을 포기하고 보낸 취소가 생성보다 먼저 처리돼도
+    // 늦게 온 생성은 첫 조회에서 표식을 받거나, 저장 시 유니크 위반(uk_deliveries_order_id)으로 표식을 받는다 (createDelivery)
+    // @Transactional 대신 transactionTemplate: 표식 저장의 유니크 위반은 커밋 시점에 나므로 트랜잭션 밖에서 잡는다 (createDelivery와 같은 방식)
     public void cancelDelivery(UUID orderId) {
-        Optional<Delivery> found = deliveryRepository.findByOrderId(orderId);
-        if (found.isEmpty()) {
-            return;   // 배송이 없음: 배송 생성 전에 실패한 보상 → 성공
+        try {
+            transactionTemplate.executeWithoutResult(status -> cancelOrMark(orderId));
+        } catch (DataIntegrityViolationException e) {
+            // 조회와 표식 저장 사이에 생성이 먼저 커밋됨 → 그 배송을 새 트랜잭션에서 다시 읽어 취소한다
+            // 배송이 없으면 다른 무결성 위반이므로 원래 예외를 그대로 던진다
+            transactionTemplate.executeWithoutResult(status -> deliveryRepository.findByOrderId(orderId)
+                    .ifPresentOrElse(this::cancel, () -> {
+                        throw e;
+                    }));
         }
-        Delivery delivery = found.get();
+    }
+
+    // 배송이 있으면 취소, 없으면 표식 저장 (배송 생성 전에 실패한 보상 → 성공)
+    private void cancelOrMark(UUID orderId) {
+        deliveryRepository.findByOrderId(orderId)
+                .ifPresentOrElse(this::cancel, () -> deliveryRepository.save(Delivery.cancelledMarker(orderId)));
+    }
+
+    private void cancel(Delivery delivery) {
         delivery.cancel(deliveryRouteLogRepository.findByDeliveryId(delivery.getId()));
     }
 
