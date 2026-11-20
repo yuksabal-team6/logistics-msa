@@ -161,8 +161,8 @@ public class DeliveryService {
     }
 
     // 내부 API #10. 배송은 이미 커밋됐으므로 order 실패는 배송 API 실패로 만들지 않고 로그만 남긴다.
-    // 배송 COMPLETED · 주문 CONFIRMED로 어긋난 채 남으므로 [수동 처리 필요]로 표시한다.
-    // 운영자가 이 로그를 보고 같은 배송에 완료 요청을 다시 보내면 알림을 재전송한다 (#300, delivery-service/README.md). 자동 재처리는 하지 않는다
+    // 응답을 못 받았으므로 주문은 CONFIRMED로 남았을 수도, 이미 COMPLETED이거나 거절(4xx)됐을 수도 있다. [수동 처리 필요]로 표시한다.
+    // 운영자가 주문 상태를 확인하고 CONFIRMED면 같은 배송에 완료 요청을 다시 보낸다 (#300, delivery-service/README.md). 자동 재처리는 하지 않는다
     // try 안은 Feign 호출뿐이라 DB 예외가 섞이지 않는다
     private void notifyOrderCompleted(UUID orderId, UUID deliveryId) {
         try {
