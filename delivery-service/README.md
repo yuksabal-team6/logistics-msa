@@ -44,3 +44,44 @@ Authorization: Bearer {MASTER 또는 해당 배송의 배송 담당자(DELIVERY)
 
 ### 한계
 - 재전송은 사람이 로그를 보고 한다. 실패를 저장해 두었다가 자동으로 다시 보내지는 않는다.
+## Feign 재시도 설정
+
+### 원칙
+아래쪽 호출의 총 시간이 위쪽 호출의 시간 제한보다 짧아야 한다.
+배송 생성(order → delivery) 안에서 delivery가 hub를 부르므로, delivery의 hub 호출이 order의 대기 시간보다 길어지면 order는 생성을 포기하고 배송 취소를 보낸다.
+그 뒤에 원래 생성이 늦게 커밋될 수 있다(#302). 늦은 생성은 취소 표식으로 막지만(아래 "늦은 생성과 취소 표식"), 이 구간 자체를 줄이려고 응답 지연 재시도를 끈다.
+
+### 설정
+`application.yml`에 hub-service·company-service와 같은 키를 둔다.
+
+```yaml
+common:
+  feign:
+    retry:
+      retry-on-read-timeout: false
+```
+
+- 응답 지연(read timeout)만 재시도하지 않는다. 5xx·연결 실패는 공통 기본값대로 최대 2회 재시도한다.
+- 서비스 단위 설정이다(common `CommonFeignAutoConfiguration`이 서비스에 `Retryer` 빈 하나를 만든다). 그래서 **HubClient·OrderClient·UserClient 모두** 응답 지연 재시도가 꺼진다.
+  - OrderClient(배송 완료 → 주문 완료 알림): 응답 지연 한 번이면 실패로 끝나고 `[수동 처리 필요]` 로그가 남는다. 위 "[수동 처리 필요] 로그 대응" 절대로 복구한다.
+  - UserClient(담당자 검증): 실패하면 담당자 지정이 502로 끝난다. 다시 요청하면 된다.
+- 클라이언트별로 다르게 주려면 `@FeignClient(configuration = ...)`에 `FeignRetryer` 빈을 둬야 한다. 공통 빈보다 우선하는지 확인하지 않아 쓰지 않는다.
+
+### 시간 (설정값으로 계산, 측정 아님)
+설정값: connect-timeout 3초, read-timeout 5초(order·delivery 모두 `spring.cloud.openfeign.client.config.default`), 재시도 2회, 재시도 전 대기 0.3초·0.45초(interval 200ms × 1.5ⁿ, feign 13.5 `Retryer.Default`).
+
+| 호출 | 응답 지연일 때 최대 | 연결 타임아웃일 때 최대 |
+| --- | --- | --- |
+| delivery → hub, 응답 지연 재시도 켬(이전) | 5초 × 3 + 0.75초 = 약 15.75초 | 3초 × 3 + 0.75초 = 약 9.75초 |
+| delivery → hub, 응답 지연 재시도 끔(지금) | 5초 × 1 = 약 5초 | 3초 × 3 + 0.75초 = 약 9.75초 (그대로) |
+| order → delivery(배송 생성) 한 번의 대기 | 5초 | 3초 |
+
+- 재시도를 꺼도 delivery의 hub 호출(최대 약 5초)과 order의 대기(5초)가 같아서 원칙을 완전히 만족하지는 않는다. 연결 타임아웃 재시도(최대 약 9.75초)도 남아 있다. 늦은 생성이 배송을 남기지 않게 막는 것은 취소 표식이다.
+- hub 호출 시간 제한을 order보다 짧게 잡는 방법은 줄일 값을 정할 측정 근거가 없어 쓰지 않았다.
+
+## 늦은 생성과 취소 표식
+배송이 없는 주문에 취소(내부 API #9)가 오면 같은 `order_id`로 CANCELLED 행(취소 표식)을 저장한다(#302).
+
+- 표식 = `delivery_status = CANCELLED` + 출발·도착 허브, 수령 업체, 주소, 수령인이 null인 행이다. 구별용 컬럼은 없다.
+- 늦게 온 배송 생성은 표식을 기존 배송으로 받는다. 표식이 먼저 저장됐으면 허브를 부르지 않고 반환하고, 생성이 저장 직전이면 부분 유니크 인덱스(`uk_deliveries_order_id`) 위반 뒤 표식을 반환한다.
+- 표식은 주문자 ID가 없어 MASTER에게만 보인다. MASTER가 표식을 삭제하면 같은 `order_id` 자리가 비어 보호가 풀린다(삭제는 막지 않는다).
